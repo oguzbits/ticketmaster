@@ -53,6 +53,14 @@ describe('auditDocs', () => {
     expect(audit(doc)).toEqual([]);
   });
 
+  it('lets specs and plans name future paths and scripts, but still checks their links', () => {
+    const plan = 'Create `apps/api/src/neu.ts`, run `pnpm neu`, see [x](fehlt.md).\n';
+    const found = auditDocs(makeRepo({ 'docs/superpowers/plans/p.md': plan })).map(
+      (v) => v.message
+    );
+    expect(found).toEqual([expect.stringContaining('fehlt.md')]);
+  });
+
   it('reports a pnpm command that no package.json defines', () => {
     expect(audit('Run `pnpm does-not-exist`.\n')).toEqual([
       expect.stringContaining('does-not-exist'),

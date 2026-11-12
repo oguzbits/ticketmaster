@@ -34,6 +34,8 @@ const TEST_COUNT = /\b\d[\d.]*\s+tests\b/i;
 const FENCE = /^\s*```/;
 // Documents that hold context, not state: a date or a word about what is built goes stale unnoticed.
 const STABLE_DOCS = new Set(['docs/PLAN.md']);
+// Specs and plans name files and scripts that a later step creates; only their links are checked.
+const FORWARD_LOOKING = /^docs\/superpowers\//;
 // "Definition of Done" names a rule, not a state.
 const STATE_WORD =
   /\b(\d{4}-\d{2}-\d{2}|built|removed|implemented|added later|as of \d|(?<!definition of )done\b)/i;
@@ -135,6 +137,7 @@ export function auditDocs(root) {
           report(`test count in docs (run the command instead): ${TEST_COUNT.exec(text)[0]}`);
         }
 
+        if (FORWARD_LOOKING.test(file)) return;
         for (const [, code] of text.matchAll(INLINE_CODE)) {
           if (code.startsWith('pnpm ')) {
             const name = pnpmScriptName(code);
