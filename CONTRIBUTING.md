@@ -11,7 +11,19 @@ Requirements: Node 26 (see `.nvmrc`), pnpm 12 (pinned in `package.json`) and Doc
 pnpm install                # also installs the Git hooks
 pnpm db:up                  # Postgres and Redis for tests
 pnpm dev                    # API on port 3000, web on port 4200 (proxies /health to the API)
+docker compose up --build   # or the whole stack in containers
 ```
+
+Ports of the local stack (`docker-compose.yml`):
+
+| Service  | Host port | Notes                                             |
+| -------- | --------- | ------------------------------------------------- |
+| web      | 8080      | Caddy: static web app, proxies `/health/*` to api |
+| keycloak | 8081      | admin console, local admin user `admin` / `admin` |
+| postgres | 54330     | databases `app` and `keycloak`, user `app`        |
+| redis    | 63790     |                                                   |
+
+The credentials in the Compose file are for these local containers only.
 
 ## Environment variables
 
