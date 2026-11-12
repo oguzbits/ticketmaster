@@ -10,7 +10,7 @@ Requirements: Node 26 (see `.nvmrc`), pnpm 12 (pinned in `package.json`) and Doc
 ```sh
 pnpm install                # also installs the Git hooks
 pnpm db:up                  # Postgres and Redis for tests
-pnpm dev                    # API on port 3000, web on port 4200 (proxies /health to the API)
+pnpm dev                    # API on port 3000, web on port 4200 (proxies /health and /api to the API)
 docker compose up --build   # or the whole stack in containers
 ```
 
@@ -18,12 +18,18 @@ Ports of the local stack (`docker-compose.yml`):
 
 | Service  | Host port | Notes                                             |
 | -------- | --------- | ------------------------------------------------- |
-| web      | 8080      | Caddy: static web app, proxies `/health/*` to api |
+| web      | 8080      | Caddy: static web app, proxies `/health/*` and `/api/*` to api |
 | keycloak | 8081      | admin console, local admin user `admin` / `admin` |
 | postgres | 54330     | databases `app` and `keycloak`, user `app`        |
 | redis    | 63790     |                                                   |
 
 The credentials in the Compose file are for these local containers only.
+
+Outside production the API falls back to the local containers: `DATABASE_URL`
+`postgres://app:app@localhost:54330/app` and `REDIS_URL` `redis://localhost:63790`. To change a
+value, export it or put it in an `.env` file in `apps/api` (never committed); the `dev` and `start`
+scripts of the API load that file when it exists. With `NODE_ENV=production` both URLs are
+required and a missing one fails the start (the Compose file sets them for the `api` container).
 
 ## Environment variables
 
@@ -33,7 +39,12 @@ variable with a comment; the table is generated (`pnpm docs:generate`).
 <!-- generated:env -->
 | Variable | Kind |
 | --- | --- |
+| `NODE_ENV` | default `development` |
 | `PORT` | default `3000` |
+| `DATABASE_URL` | required |
+| `REDIS_URL` | required |
+| `HOLD_TTL_SECONDS` | default `600` |
+| `PAYMENT_FAILURE_RATE` | default `0.1` |
 <!-- /generated -->
 
 ## Commands
