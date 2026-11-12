@@ -1,0 +1,106 @@
+{
+  "name": "ticketmaster-klon",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@12.14.0",
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @app/shared build && pnpm --parallel --filter @app/api --filter @app/web dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "pnpm typecheck && pnpm lint && pnpm depcruise && pnpm knip && pnpm audit:duplication && pnpm audit:magic && pnpm audit:docs && pnpm format:check",
+    "depcruise": "depcruise --config config/dependency-cruiser.cjs apps packages",
+    "depcruise:graph": "depcruise --config config/dependency-cruiser.cjs --output-type mermaid apps packages > architecture.mmd",
+    "knip": "knip --include dependencies,unlisted,binaries,unresolved,files,cycles",
+    "audit:duplication": "jscpd --reporters threshold",
+    "audit:duplication:details": "jscpd --reporters console",
+    "audit:magic": "node scripts/audit/audit-magic-strings.mjs",
+    "audit:docs": "node scripts/audit/audit-docs.mjs && pnpm docs:generate --check",
+    "docs:generate": "node scripts/docs/generate.mjs",
+    "test": "pnpm --filter @app/shared build && vitest run && pnpm --filter @app/web test",
+    "test:watch": "vitest",
+    "db:up": "docker compose up -d --wait postgres redis",
+    "db:down": "docker compose down",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{js,mjs,cjs,ts}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,css,md,html,yml,yaml}": [
+      "prettier --write"
+    ]
+  },
+  "prettier": {
+    "semi": true,
+    "singleQuote": true,
+    "tabWidth": 2,
+    "trailingComma": "es5",
+    "printWidth": 100,
+    "overrides": [
+      {
+        "files": "apps/web/**/*.html",
+        "options": {
+          "parser": "angular"
+        }
+      }
+    ]
+  },
+  "knip": {
+    "workspaces": {
+      ".": {
+        "entry": [
+          ".claude/hooks/guard-*.mjs"
+        ]
+      },
+      "apps/web": {
+        "ignoreDependencies": [
+          "jsdom"
+        ]
+      }
+    }
+  },
+  "jscpd": {
+    "path": [
+      "apps/api/src",
+      "apps/worker/src",
+      "apps/web/src",
+      "packages/shared/src"
+    ],
+    "ignore": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "threshold": 2,
+    "reporters": [
+      "threshold"
+    ],
+    "gitignore": true
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.6",
+    "angular-eslint": "^22.6.0",
+    "dependency-cruiser": "^18.7.2",
+    "eslint": "^10.14.0",
+    "eslint-plugin-simple-import-sort": "^14.0.0",
+    "eslint-plugin-unused-imports": "^4.4.1",
+    "globals": "^17.14.0",
+    "husky": "^9.1.7",
+    "jscpd": "^5.4.3",
+    "knip": "^6.45.1",
+    "lint-staged": "^17.6.0",
+    "msw": "^3.0.5",
+    "prettier": "^3.10.0",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.2",
+    "vitest": "^5.1.0"
+  }
+}

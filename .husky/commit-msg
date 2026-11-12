@@ -1,0 +1,1 @@
+node scripts/audit/audit-docs-map.mjs --message "$1"

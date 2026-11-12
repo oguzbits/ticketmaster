@@ -1,0 +1,11 @@
+node_modules
+dist
+coverage
+.angular
+reports
+test-results
+playwright-report
+pnpm-lock.yaml
+architecture.mmd
+# holds a generated table (pnpm docs:generate), which Prettier would re-align
+CONTRIBUTING.md

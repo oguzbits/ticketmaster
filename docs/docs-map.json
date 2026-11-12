@@ -1,0 +1,7 @@
+{
+  "apps/api/src/config/env.ts": "CONTRIBUTING.md",
+  "config/dependency-cruiser.cjs": "AGENTS.md",
+  "docker-compose.yml": "CONTRIBUTING.md",
+  "packages/shared/src/": "docs/api/",
+  "deploy/": "docs/runbooks/"
+}
