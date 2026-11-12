@@ -3,5 +3,6 @@
   "config/dependency-cruiser.cjs": "AGENTS.md",
   "docker-compose.yml": "CONTRIBUTING.md",
   "packages/shared/src/": "docs/api/",
-  "deploy/": "docs/runbooks/"
+  "deploy/": "docs/runbooks/",
+  "apps/api/src/infrastructure/database/": "docs/data-model.md"
 }

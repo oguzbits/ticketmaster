@@ -10,6 +10,7 @@ Requirements: Node 26 (see `.nvmrc`), pnpm 12 (pinned in `package.json`) and Doc
 ```sh
 pnpm install                # also installs the Git hooks
 pnpm db:up                  # Postgres and Redis for tests
+pnpm db:migrate             # apply the migrations and the seed to the local database
 pnpm dev                    # API on port 3000, web on port 4200 (proxies /health and /api to the API)
 docker compose up --build   # or the whole stack in containers
 ```
@@ -58,6 +59,9 @@ The full table is in [AGENTS.md](AGENTS.md#5-commands). The two that matter most
 
 - Unit tests: Vitest, next to the code as `*.spec.ts`. They never reach the network: an unmocked
   request fails the test.
+- Database tests are `*.db.spec.ts`. They need `pnpm db:up` and `pnpm db:migrate` and run with
+  `pnpm test:db`; `pnpm test` skips them. Each test creates its own event with random IDs, so no
+  cleanup is needed.
 - Route tests start the NestJS module in the test process and call it over the loopback address.
 - Web tests run through the Angular builder (`pnpm --filter @app/web test`).
 

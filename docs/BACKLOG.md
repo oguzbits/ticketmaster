@@ -24,10 +24,9 @@ Phase 0 (foundation) is complete:
 - **TypeScript 6.0, not 7.** Angular 22 and typescript-eslint accept only `<6.1`.
 - **`packages/shared` is compiled to `dist`.** The NestJS apps run as plain Node ESM, so they
   import built JavaScript. `pnpm typecheck`, `pnpm test` and `pnpm build` build it first.
-- **CI has no database-test and no end-to-end job yet.** They arrive with the first such test. The
-  `stack` job starts the Compose stack and probes the health endpoint through Caddy instead.
+- **CI has no end-to-end job yet.** It arrives with the first such test. The `stack` job starts
+  the Compose stack and probes the health endpoints through Caddy instead.
 - **CI cancels a run in progress only outside `main`,** so every commit on `main` keeps its result.
-- **`/health/ready` is missing.** It arrives with the first adapter it can check (database, Redis).
 - **The worker is a skeleton** and not part of the Compose stack: without a consumer or a job the
   process ends right after start.
 - **`DESIGN.md` is missing.** It is written with the first real screens in phase 1.

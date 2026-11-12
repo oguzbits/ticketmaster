@@ -25,6 +25,9 @@
     "docs:generate": "node scripts/docs/generate.mjs",
     "test": "pnpm --filter @app/shared build && vitest run && pnpm --filter @app/web test",
     "test:watch": "vitest",
+    "db:generate": "pnpm --filter @app/shared build && pnpm --filter @app/api exec drizzle-kit generate",
+    "db:migrate": "pnpm --filter @app/shared build && pnpm --filter @app/api build && node apps/api/dist/infrastructure/database/migrate.js",
+    "test:db": "pnpm --filter @app/shared build && vitest run --project db",
     "db:up": "docker compose up -d --wait postgres redis",
     "db:down": "docker compose down",
     "prepare": "husky"
@@ -63,6 +66,12 @@
       "apps/web": {
         "ignoreDependencies": [
           "jsdom"
+        ]
+      },
+      "apps/api": {
+        "entry": [
+          "src/main.ts",
+          "src/infrastructure/database/migrate.ts"
         ]
       }
     }

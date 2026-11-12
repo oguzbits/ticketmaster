@@ -4,9 +4,7 @@ import postgres, { type Sql } from 'postgres';
 
 import { APP_CONFIG } from '../../config/config.module.js';
 import type { Env } from '../../config/env.js';
-
-// Schema arrives with the booking tables; until then the database has no typed tables.
-const schema = {};
+import * as schema from './schema.js';
 
 export type Database = PostgresJsDatabase<typeof schema>;
 
