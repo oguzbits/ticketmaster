@@ -31,14 +31,16 @@ Phase 0 (foundation) is complete:
 - **The worker is a skeleton** and not part of the Compose stack: without a consumer or a job the
   process ends right after start.
 - **`DESIGN.md` is missing.** It is written with the first real screens in phase 1.
+- **The live demo moved from phase 1 to its own last phase** (phase 5), together with the deploy
+  scripts, the backups and the uptime workflow. Until then the system runs locally with
+  `docker compose up`.
 
 ## Open points for the owner
 
-- **Repository visibility and Actions minutes.** The repository is private. The uptime workflow of
-  phase 1 (every 15 minutes) alone needs about 2,900 runs a month, more than the free minutes of a
-  private repository. Decide before phase 1: make the repository public, or lower the frequency.
-- **Server and domain** for the live demo (Hetzner size, DNS name for HTTPS). The size and the
-  memory budget per container go into an ADR.
+- **Server and domain** for the live demo (Hetzner size, DNS name for HTTPS). Needed only for
+  phase 5; the size and the memory budget per container go into an ADR.
+- **Private vulnerability reporting** is switched off in the repository settings, but
+  [SECURITY.md](../SECURITY.md) points to it. Switch it on under Settings, Advanced Security.
 - **Ruleset for `main`** (block force pushes and deletion on the server side) is not set.
 
 ## Next: phase 1

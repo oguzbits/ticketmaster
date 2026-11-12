@@ -189,8 +189,7 @@ Definition of Done:
 
 Data model with the state machine, reservation flow with all four strategies, hold expiry, SSE,
 simulator with live dashboard, Keycloak with one-click demo login and RBAC, basic security (headers,
-CORS, validation, rate limits), structured logs with request ID, deployment of the live demo with
-the deploy scripts, uptime workflow.
+CORS, validation, rate limits), structured logs with request ID.
 
 Definition of Done:
 
@@ -198,7 +197,7 @@ Definition of Done:
 - The simulator shows double bookings above zero in `naive` mode and zero for every other strategy
   (also as an automated test).
 - The live update between two tabs works.
-- CI is green, the live demo is publicly reachable, the uptime workflow is active.
+- CI is green.
 - The README has requirements, entities, API and a preliminary architecture diagram.
 
 ### Phase 2: Async and scaling
@@ -215,10 +214,22 @@ event pages with a measured effect.
 
 ### Phase 4: Hardening and polish
 
-Threat model, container hardening, row-level security, mutation tests, backups with a tested
-restore, security policy, changelog, first release. Final README, architecture diagrams (Mermaid,
-dependency graph from `pnpm depcruise:graph`), demo GIF at the top. Optional: bilingual UI (German
-and English).
+Threat model, container hardening, row-level security, mutation tests, security policy, changelog,
+first release. Final README, architecture diagrams (Mermaid, dependency graph from
+`pnpm depcruise:graph`), demo GIF at the top. Optional: bilingual UI (German and English).
+
+### Phase 5: Live demo
+
+Everything that needs a public server comes last (see [Operations](#operations)): server and
+domain, the deploy scripts, the deploy workflow, backups with a tested restore, the uptime workflow,
+the ADR for the server size and the memory budget, the runbooks, the demo link at the top of the
+README.
+
+Definition of Done:
+
+- The live demo is publicly reachable over HTTPS and a green `main` deploys by itself.
+- The uptime workflow is active.
+- `restore-check.sh` loads a real backup.
 
 ## Documentation
 
