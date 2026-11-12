@@ -14,7 +14,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const SKIP_DIRS = new Set(['node_modules', 'dist', 'coverage', '.git', 'reports', 'results']);
+// .superpowers holds the untracked working notes of the agents: briefs name files that do not exist yet.
+const SKIP_DIRS = new Set([
+  'node_modules',
+  'dist',
+  'coverage',
+  '.git',
+  'reports',
+  'results',
+  '.superpowers',
+]);
 const PNPM_BUILTINS = new Set([
   'install',
   'add',
