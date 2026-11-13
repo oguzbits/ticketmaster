@@ -17,6 +17,25 @@ to a demo user) appear in neither route.
 Every response carries no personal data; requests are logged with the `x-request-id` of the caller
 (or a generated one) and the `authorization` and `cookie` headers redacted.
 
+## Headers, CORS and rate limits
+
+- Every response carries the `helmet` defaults (for example `X-Content-Type-Options: nosniff`) and no
+  `X-Powered-By`. The API trusts exactly one proxy hop (Caddy): the client address is the last
+  `X-Forwarded-For` entry, so a prefix the client forges is ignored.
+- CORS headers appear only when `CORS_ORIGIN` is set, and only for that origin (`GET`, `POST`,
+  `PATCH`, `DELETE`; headers `Authorization` and `Content-Type`; no credentials). Behind Caddy web and
+  API share an origin and the variable stays unset.
+- Rate limits are fixed windows in Redis, checked by a global guard that runs after the auth guards.
+  A request over the limit answers 429 `{ statusCode: 429, message: "Too Many Requests" }` with a
+  `Retry-After` header (seconds). A request that fails authentication is not counted. Redis down
+  means the guard fails and the request answers 500.
+
+| Limit        | Applies to                                                    | Counted per                                   | Allowed per window |
+| ------------ | ------------------------------------------------------------- | --------------------------------------------- | ------------------ |
+| `DEFAULT`    | every route without `@RateLimit`; also every signed-in caller | client address; and user (`sub`) if signed in | 120 per 60 s       |
+| `DEMO_LOGIN` | the demo login (replaces `DEFAULT` for the address)           | client address                                | 5 per 60 s         |
+| `REFRESH`    | the token refresh (replaces `DEFAULT` for the address)        | client address                                | 30 per 60 s        |
+
 ## Dictionaries
 
 `packages/shared` holds the values every contract uses, each as an `as const` dictionary with a Zod

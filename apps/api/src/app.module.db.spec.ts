@@ -1,20 +1,31 @@
+import { randomInt, randomUUID } from 'node:crypto';
+
 import { ROLE } from '@app/shared';
 import { Controller, Get, type INestApplication, UnauthorizedException } from '@nestjs/common';
 import { DiscoveryModule, DiscoveryService, Reflector } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { AppModule } from './app.module.js';
 import { configureApp } from './app.setup.js';
-import { IS_PUBLIC_KEY, TOKEN_VERIFIER, type TokenVerifier } from './modules/auth/index.js';
+import { RATE_LIMIT, RateLimit } from './infrastructure/rate-limit/rate-limit.decorator.js';
+import { IS_PUBLIC_KEY, Public, TOKEN_VERIFIER, type TokenVerifier } from './modules/auth/index.js';
 
 const GOOD_TOKEN = 'good-token';
+// New per run: the per-user counter lives in Redis and outlasts a test run.
+const USER_ID = randomUUID();
+// Only the limit test uses this user, so no other request has used up part of its counter.
+const LIMITED_TOKEN = 'limited-token';
+const LIMITED_USER_ID = randomUUID();
 const fakeVerifier: TokenVerifier = {
   verify(token) {
-    return token === GOOD_TOKEN
-      ? Promise.resolve({ id: '11111111-1111-4111-8111-111111111111', roles: [ROLE.CUSTOMER] })
-      : Promise.reject(new UnauthorizedException());
+    if (token === GOOD_TOKEN) return Promise.resolve({ id: USER_ID, roles: [ROLE.CUSTOMER] });
+    if (token === LIMITED_TOKEN) {
+      return Promise.resolve({ id: LIMITED_USER_ID, roles: [ROLE.CUSTOMER] });
+    }
+    return Promise.reject(new UnauthorizedException());
   },
 };
 
@@ -25,7 +36,17 @@ class ProbeController {
   bare(): { ok: true } {
     return { ok: true };
   }
+
+  @Public()
+  @RateLimit('DEMO_LOGIN')
+  @Get('limited')
+  limited(): { ok: true } {
+    return { ok: true };
+  }
 }
+
+/** A fresh client address per call: the counters live in Redis and outlast a test run. */
+const randomAddress = () => `10.${randomInt(256)}.${randomInt(256)}.${randomInt(1, 255)}`;
 
 describe('the real app module', () => {
   let app: INestApplication;
@@ -38,7 +59,7 @@ describe('the real app module', () => {
       .overrideProvider(TOKEN_VERIFIER)
       .useValue(fakeVerifier)
       .compile();
-    app = configureApp(moduleRef.createNestApplication());
+    app = configureApp(moduleRef.createNestApplication<NestExpressApplication>());
     await app.init();
   });
   afterAll(() => app.close());
@@ -83,5 +104,27 @@ describe('the real app module', () => {
     await get('/api/probe', 'Bearer bad-token').expect(401);
     await get('/api/events', 'Bearer bad-token').expect(401);
     await get('/health/live', 'Bearer bad-token').expect(401);
+  });
+
+  it('limits a @RateLimit route per client address through the app wiring', async () => {
+    const client = randomAddress();
+    // The proxy appends the real address; whatever the client forged in front of it is ignored.
+    const limited = () => get('/api/probe/limited').set('X-Forwarded-For', `1.2.3.4, ${client}`);
+    for (let hit = 0; hit < RATE_LIMIT.DEMO_LOGIN.limit; hit++) await limited().expect(200);
+
+    const refused = await limited().expect(429);
+
+    expect(Number(refused.headers['retry-after'])).toBeGreaterThan(0);
+    await get('/api/probe/limited').set('X-Forwarded-For', randomAddress()).expect(200);
+  });
+
+  it('counts a signed-in caller per user, which needs the auth guards to run first', async () => {
+    // The user counter is the only one that sees all these addresses at once.
+    const user = () => get('/api/probe', `Bearer ${LIMITED_TOKEN}`);
+    for (let hit = 0; hit < RATE_LIMIT.DEFAULT.limit; hit++) {
+      await user().set('X-Forwarded-For', randomAddress()).expect(200);
+    }
+
+    await user().set('X-Forwarded-For', randomAddress()).expect(429);
   });
 });

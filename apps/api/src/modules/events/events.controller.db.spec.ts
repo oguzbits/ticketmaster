@@ -9,6 +9,7 @@ import {
   SEAT_STATUS,
 } from '@app/shared';
 import type { INestApplication } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import { LoggerModule } from 'nestjs-pino';
 import request from 'supertest';
@@ -38,7 +39,7 @@ describe('events endpoints', () => {
         EventsModule,
       ],
     }).compile();
-    app = configureApp(moduleRef.createNestApplication());
+    app = configureApp(moduleRef.createNestApplication<NestExpressApplication>());
     await app.init();
   });
   afterAll(async () => {
