@@ -56,6 +56,8 @@ Phase 1, slice D (rush simulator) is complete:
   with the API's pool of 20 connections and the production concurrency);
   `pnpm e2e` runs a small pessimistic run through the browser.
 
+Phase 1 (core) was accepted by the owner.
+
 ## Deviations from the plan
 
 - **No SWC for NestJS decorators.** Vitest (Vite 8, Oxc) reads `experimentalDecorators` and
@@ -129,7 +131,6 @@ Slice D is done. The phase 1 definition-of-done check against [PLAN.md](PLAN.md#
 follows, then phase 2. Still open from earlier notes:
 
 - Write the runbooks the docs-map entry for the deploy folder points to (`docs/runbooks/`).
-- API: OpenAPI export.
 - Images are pinned by tag; pin by digest and add resource limits with the container hardening.
 
 ## Open points
