@@ -151,6 +151,25 @@ describe('SimulatorPage', () => {
     expect(startButton().disabled).toBe(false);
   });
 
+  it('shows the rate-limit message, not the cap message, on a 429 with Retry-After', async () => {
+    const { element, http, settle, submit, startButton, ready } = render();
+    await ready();
+
+    submit();
+    await settle();
+    http.expectOne(RUNS_URL).flush(null, {
+      status: 429,
+      statusText: 'Too Many Requests',
+      headers: { 'Retry-After': '42' },
+    });
+    await settle();
+
+    const alert = element.querySelector('[role=alert]')?.textContent;
+    expect(alert).toContain('Too many starts');
+    expect(alert).not.toContain('Two runs are active');
+    expect(startButton().disabled).toBe(false);
+  });
+
   it('shows a generic message for another failed start', async () => {
     const { element, http, settle, submit, ready } = render();
     await ready();

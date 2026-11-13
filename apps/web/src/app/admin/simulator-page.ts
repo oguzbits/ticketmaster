@@ -16,15 +16,18 @@ import { SimulatorService } from './simulator.service';
 
 const MESSAGE = {
   BUSY: 'Two runs are active. Try again shortly.',
+  RATE_LIMITED: 'Too many starts. Wait a minute and try again.',
   GENERIC: 'The run could not be started. Try again.',
   STREAM: 'The live view was interrupted. The run keeps going on the server.',
   FAILED: 'The run failed. Start it again; nothing was added to the comparison.',
 } as const;
 
+/** Only the rate-limit guard sends Retry-After; the cap on active runs does not. */
 function messageFor(error: Error): string {
-  return error instanceof HttpErrorResponse && error.status === HttpStatusCode.TooManyRequests
-    ? MESSAGE.BUSY
-    : MESSAGE.GENERIC;
+  if (!(error instanceof HttpErrorResponse) || error.status !== HttpStatusCode.TooManyRequests) {
+    return MESSAGE.GENERIC;
+  }
+  return error.headers.has('Retry-After') ? MESSAGE.RATE_LIMITED : MESSAGE.BUSY;
 }
 
 /** The admin's rush simulator: start a run, watch it live, compare the finished runs. */
