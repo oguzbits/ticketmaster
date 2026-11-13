@@ -109,6 +109,21 @@ describe('expireHolds', () => {
     expect(watch.changes.every(({ status }) => status === SEAT_STATUS.AVAILABLE)).toBe(true);
   });
 
+  it('publishes only after the expiry is committed: a reader on another connection sees EXPIRED', async () => {
+    const [id] = await holds(1, START);
+    if (id === undefined) throw new Error('missing hold');
+    const seenWhenPublished: string[] = [];
+    const checking = createBookingsService(db, redis, { now: () => now }, undefined, {
+      publish: async () => {
+        seenWhenPublished.push(...(await statusOf([id])));
+      },
+    });
+
+    await checking.expireHolds(new Date(START.getTime() + ttlMs));
+
+    expect(seenWhenPublished).toEqual([BOOKING_STATUS.EXPIRED]);
+  });
+
   it('two parallel expireHolds runs expire each hold once', async () => {
     const ids = await holds(20, START);
     const due = new Date(START.getTime() + ttlMs);

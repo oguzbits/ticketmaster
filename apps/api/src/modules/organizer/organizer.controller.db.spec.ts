@@ -38,6 +38,7 @@ import { MAX_EVENTS_PER_OWNER } from './organizer.service.js';
 const ORGANIZER_A = { id: randomUUID(), roles: [ROLE.ORGANIZER] };
 const ORGANIZER_B = { id: randomUUID(), roles: [ROLE.ORGANIZER] };
 const CUSTOMER = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
+const ADMIN = { id: randomUUID(), roles: [ROLE.ADMIN] };
 const DEMO_ORGANIZER = { id: randomUUID(), roles: [ROLE.ORGANIZER] };
 const FULL_ORGANIZER = { id: randomUUID(), roles: [ROLE.ORGANIZER] };
 const RACING_ORGANIZER = { id: randomUUID(), roles: [ROLE.ORGANIZER] };
@@ -46,6 +47,7 @@ const TOKENS = {
   a: ORGANIZER_A,
   b: ORGANIZER_B,
   customer: CUSTOMER,
+  admin: ADMIN,
   demo: DEMO_ORGANIZER,
   full: FULL_ORGANIZER,
   burst: BURST_ORGANIZER,
@@ -94,19 +96,21 @@ describe('organizer endpoints', () => {
 
   describe('access', () => {
     it.each(['/venues', '/organizer/events'])(
-      'GET %s: no token is 401, a customer is 403',
+      'GET %s: no token is 401, a customer and an admin are 403',
       async (path) => {
         await get(path).expect(401);
         await get(path, 'customer').expect(403);
+        await get(path, 'admin').expect(403);
       }
     );
 
-    it('POST /events: no token is 401, a customer is 403, and no event is created', async () => {
+    it('POST /events: no token is 401, a customer and an admin are 403, and no event is created', async () => {
       const name = `denied ${randomUUID()}`;
       const body = { venueId: randomUUID(), name, startsAt: DAY_AFTER, strategy: STRATEGY };
 
       await post('/events', body).expect(401);
       await post('/events', body, 'customer').expect(403);
+      await post('/events', body, 'admin').expect(403);
 
       expect(await db.select().from(events).where(eq(events.name, name))).toEqual([]);
     });
