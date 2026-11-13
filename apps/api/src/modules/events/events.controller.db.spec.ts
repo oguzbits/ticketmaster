@@ -3,15 +3,18 @@ import { randomUUID } from 'node:crypto';
 import {
   BOOKING_STATUS,
   BOOKING_STRATEGY,
+  BookingSchema,
   type BookingStatus,
   EventDetailSchema,
   EventListResponseSchema,
+  EventSummarySchema,
   ROLE,
   SEAT_STATUS,
 } from '@app/shared';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
+import { eq } from 'drizzle-orm';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -28,6 +31,8 @@ const SANDBOX_OWNER = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
 const OTHER_USER = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
 const OWNER_TOKEN = 'sandbox-owner';
 const OTHER_TOKEN = 'other-user';
+const ADMIN_TOKEN = 'admin';
+const ORGANIZER_TOKEN = 'organizer';
 
 describe('events endpoints', () => {
   const database = openTestDatabase();
@@ -39,7 +44,14 @@ describe('events endpoints', () => {
       imports: [AppModule],
     })
       .overrideProvider(TOKEN_VERIFIER)
-      .useValue(fakeTokenVerifier({ [OWNER_TOKEN]: SANDBOX_OWNER, [OTHER_TOKEN]: OTHER_USER }))
+      .useValue(
+        fakeTokenVerifier({
+          [OWNER_TOKEN]: SANDBOX_OWNER,
+          [OTHER_TOKEN]: OTHER_USER,
+          [ADMIN_TOKEN]: { id: randomUUID(), roles: [ROLE.ADMIN] },
+          [ORGANIZER_TOKEN]: { id: randomUUID(), roles: [ROLE.ORGANIZER] },
+        })
+      )
       .compile();
     app = configureApp(moduleRef.createNestApplication<NestExpressApplication>());
     await app.init();
@@ -150,5 +162,64 @@ describe('events endpoints', () => {
 
   it('a non-UUID id is 400', async () => {
     await get('/api/events/not-a-uuid').expect(400);
+  });
+  describe('PATCH /api/events/:id/strategy', () => {
+    const patch = (eventId: string, body: object, token?: string) => {
+      const call = request(app.getHttpServer())
+        .patch(`/api/events/${eventId}/strategy`)
+        .set('X-Forwarded-For', randomClientAddress())
+        .send(body);
+      return token === undefined ? call : call.set('Authorization', `Bearer ${token}`);
+    };
+    const hold = async (eventId: string, seatId: string): Promise<string> => {
+      const response = await request(app.getHttpServer())
+        .post('/api/bookings')
+        .set('X-Forwarded-For', randomClientAddress())
+        .set('Authorization', `Bearer ${OTHER_TOKEN}`)
+        .send({ eventId, seatId })
+        .expect(201);
+      return BookingSchema.parse(response.body).id;
+    };
+    const strategyOfBooking = async (bookingId: string) =>
+      (await db.select().from(bookings).where(eq(bookings.id, bookingId)))[0]?.strategy;
+
+    it('is for admins only: no token is 401, a customer and an organizer are 403, nothing changes', async () => {
+      const { eventId } = await createTestEvent(db, { strategy: STRATEGY, seats: 1 });
+      const body = { strategy: BOOKING_STRATEGY.NAIVE };
+
+      await patch(eventId, body).expect(401);
+      await patch(eventId, body, OTHER_TOKEN).expect(403);
+      await patch(eventId, body, ORGANIZER_TOKEN).expect(403);
+
+      const detail = await get(`/api/events/${eventId}`).expect(200);
+      expect(EventDetailSchema.parse(detail.body).strategy).toBe(STRATEGY);
+    });
+
+    it('switches the strategy: the next hold uses it, an earlier booking keeps its own', async () => {
+      const { eventId, seatIds } = await createTestEvent(db, { strategy: STRATEGY, seats: 2 });
+      const before = await hold(eventId, seatIds[0] ?? '');
+
+      const response = await patch(
+        eventId,
+        { strategy: BOOKING_STRATEGY.NAIVE },
+        ADMIN_TOKEN
+      ).expect(200);
+      const after = await hold(eventId, seatIds[1] ?? '');
+
+      expect(EventSummarySchema.parse(response.body)).toMatchObject({
+        id: eventId,
+        strategy: BOOKING_STRATEGY.NAIVE,
+      });
+      expect(await strategyOfBooking(before)).toBe(STRATEGY);
+      expect(await strategyOfBooking(after)).toBe(BOOKING_STRATEGY.NAIVE);
+    });
+
+    it('answers 404 for an unknown event and 400 for a bad ID or strategy', async () => {
+      const { eventId } = await createTestEvent(db, { strategy: STRATEGY, seats: 1 });
+
+      await patch(randomUUID(), { strategy: BOOKING_STRATEGY.NAIVE }, ADMIN_TOKEN).expect(404);
+      await patch('not-a-uuid', { strategy: BOOKING_STRATEGY.NAIVE }, ADMIN_TOKEN).expect(400);
+      await patch(eventId, { strategy: 'FAST' }, ADMIN_TOKEN).expect(400);
+    });
   });
 });

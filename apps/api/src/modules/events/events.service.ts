@@ -1,4 +1,4 @@
-import type { EventDetail, EventSummary } from '@app/shared';
+import type { BookingStrategy, EventDetail, EventSummary } from '@app/shared';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, eq, inArray, isNull, or, type SQL, sql } from 'drizzle-orm';
 
@@ -13,19 +13,21 @@ function visibleTo(userId: string | null): SQL | undefined {
     : or(isNull(events.sandboxUserId), eq(events.sandboxUserId, userId));
 }
 
+const summaryColumns = {
+  id: events.id,
+  name: events.name,
+  startsAt: events.startsAt,
+  venueName: venues.name,
+  strategy: events.strategy,
+};
+
 @Injectable()
 export class EventsService {
   constructor(@Inject(DB) private readonly db: Database) {}
 
   async list(userId: string | null): Promise<EventSummary[]> {
     const rows = await this.db
-      .select({
-        id: events.id,
-        name: events.name,
-        startsAt: events.startsAt,
-        venueName: venues.name,
-        strategy: events.strategy,
-      })
+      .select(summaryColumns)
       .from(events)
       .innerJoin(venues, eq(venues.id, events.venueId))
       .where(visibleTo(userId))
@@ -33,16 +35,27 @@ export class EventsService {
     return rows.map((row) => ({ ...row, startsAt: row.startsAt.toISOString() }));
   }
 
+  /** Admin switch: later holds use the new strategy, existing bookings keep their own. */
+  async setStrategy(id: string, strategy: BookingStrategy): Promise<EventSummary> {
+    const [updated] = await this.db
+      .update(events)
+      .set({ strategy })
+      .where(eq(events.id, id))
+      .returning({ id: events.id });
+    if (updated === undefined) throw new NotFoundException('Event not found');
+    const [event] = await this.db
+      .select(summaryColumns)
+      .from(events)
+      .innerJoin(venues, eq(venues.id, events.venueId))
+      .where(eq(events.id, id));
+    if (event === undefined) throw new NotFoundException('Event not found');
+    return { ...event, startsAt: event.startsAt.toISOString() };
+  }
+
   /** A sandbox event is private to its demo user, so for anyone else it does not exist. */
   async detail(id: string, userId: string | null): Promise<EventDetail> {
     const [event] = await this.db
-      .select({
-        id: events.id,
-        name: events.name,
-        startsAt: events.startsAt,
-        venueName: venues.name,
-        strategy: events.strategy,
-      })
+      .select(summaryColumns)
       .from(events)
       .innerJoin(venues, eq(venues.id, events.venueId))
       .where(and(eq(events.id, id), visibleTo(userId)));

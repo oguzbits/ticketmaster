@@ -14,6 +14,7 @@ import { BookingsModule } from './modules/bookings/index.js';
 import { DemoModule } from './modules/demo/index.js';
 import { EventsModule } from './modules/events/index.js';
 import { HealthModule } from './modules/health/index.js';
+import { OrganizerModule } from './modules/organizer/index.js';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { HealthModule } from './modules/health/index.js';
     HealthModule,
     BookingsModule,
     EventsModule,
+    OrganizerModule,
     DemoModule,
   ],
   // Order matters: token first, then roles, then the rate limit (it reads the user the token guard
