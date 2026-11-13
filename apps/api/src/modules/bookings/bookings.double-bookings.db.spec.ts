@@ -8,12 +8,12 @@ import {
 } from '@app/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { loadEnv } from '../../config/config.module.js';
 import { bookings } from '../../infrastructure/database/schema.js';
 import type { Redis } from '../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
-import { BookingsService } from './bookings.service.js';
+import type { BookingsService } from './bookings.service.js';
+import { createBookingsService } from './testing/create-bookings-service.js';
 
 const HOLD_MS = 600_000;
 
@@ -25,7 +25,7 @@ describe('countDoubleBookings', () => {
 
   beforeAll(async () => {
     redis = await openTestRedis();
-    service = new BookingsService(db, redis, { now: () => new Date() }, loadEnv());
+    service = createBookingsService(db, redis, { now: () => new Date() });
   });
   afterAll(async () => {
     await redis.quit();

@@ -1,6 +1,9 @@
 import type { BookingStatus, TransitionReason } from '@app/shared';
 import { BOOKING_STATUS, TRANSITION_REASON } from '@app/shared';
 
+/** Actor of transitions no user causes (hold expiry): the nil UUID, as `actor_id` is a uuid column. */
+export const SYSTEM_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
+
 export interface BookingState {
   id: string;
   status: BookingStatus;

@@ -3,13 +3,13 @@ import { randomUUID } from 'node:crypto';
 import { BOOKING_STRATEGY } from '@app/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { loadEnv } from '../../config/config.module.js';
 import type { Clock } from '../../core/clock.js';
 import type { Redis } from '../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
-import { BookingsService } from './bookings.service.js';
+import type { BookingsService } from './bookings.service.js';
 import { HOLD_OUTCOME } from './domain/seat-reservation.js';
+import { createBookingsService } from './testing/create-bookings-service.js';
 
 const PARALLEL_HOLDS = 50;
 const clock: Clock = { now: () => new Date() };
@@ -22,7 +22,7 @@ describe.each(Object.values(BOOKING_STRATEGY))('%s: parallel holds of one seat',
 
   beforeAll(async () => {
     redis = await openTestRedis();
-    service = new BookingsService(db, redis, clock, loadEnv());
+    service = createBookingsService(db, redis, clock);
   });
   afterAll(async () => {
     await redis.quit();
