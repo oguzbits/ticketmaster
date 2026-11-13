@@ -93,7 +93,7 @@ export class SqsMessageQueue implements MessageQueue {
     );
   }
 
-  async receive(max: number): Promise<ReceivedMessage[]> {
+  async receive(max: number, signal?: AbortSignal): Promise<ReceivedMessage[]> {
     const { Messages = [] } = await this.client.send(
       new ReceiveMessageCommand({
         QueueUrl: this.queueUrl,
@@ -102,7 +102,10 @@ export class SqsMessageQueue implements MessageQueue {
         MessageAttributeNames: [MESSAGE_ID_ATTRIBUTE],
         MessageSystemAttributeNames: [RECEIVE_COUNT_ATTRIBUTE],
       }),
-      { requestTimeout: this.waitSeconds * 1000 + LONG_POLL_MARGIN_MS }
+      {
+        requestTimeout: this.waitSeconds * 1000 + LONG_POLL_MARGIN_MS,
+        ...(signal === undefined ? {} : { abortSignal: signal }),
+      }
     );
     return Messages.map((raw) => {
       const message = ReceivedSchema.parse(raw);

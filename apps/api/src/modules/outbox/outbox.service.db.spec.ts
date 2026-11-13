@@ -2,14 +2,14 @@ import { randomUUID } from 'node:crypto';
 
 import { OUTBOX_MESSAGE_TYPE, type QueueMessage, QueueMessageSchema } from '@app/shared';
 import { eq, inArray } from 'drizzle-orm';
-import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import type { Clock } from '../../core/clock.js';
 import type { Database } from '../../infrastructure/database/database.module.js';
 import { outboxMessages } from '../../infrastructure/database/schema.js';
 import { openTestDatabase } from '../../testing/database.js';
 import { OutboxService } from './outbox.service.js';
-import { FakeMessageQueue } from './testing/index.js';
+import { FakeMessageQueue, lockOutboxRelays } from './testing/index.js';
 
 // The relay takes every unpublished row of the table, and the other db specs share it. So these
 // specs use rows with random IDs, a batch size that reaches past foreign rows, and judge only the
@@ -39,13 +39,21 @@ describe('OutboxService', () => {
   const db: Database = database.db;
   const clock: Clock = { now: () => CLOCK_TIME };
   const written: string[] = [];
+  let unlock: () => Promise<void>;
 
+  // A relay of another spec file (the consumer's full path) would take these rows.
+  beforeAll(async () => {
+    unlock = await lockOutboxRelays(db);
+  });
   afterEach(async () => {
     if (written.length > 0)
       await db.delete(outboxMessages).where(inArray(outboxMessages.id, written));
     written.length = 0;
   });
-  afterAll(() => database.close());
+  afterAll(async () => {
+    await unlock();
+    await database.close();
+  });
 
   function serviceWith(queue: FakeMessageQueue, at: Clock = clock): OutboxService {
     return new OutboxService(db, at, queue);

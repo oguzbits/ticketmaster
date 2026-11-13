@@ -152,6 +152,11 @@ follows, then phase 2. Still open from earlier notes:
   need a claim state on the row.
 - **Published outbox rows are never deleted.** The table grows with every confirmed booking; a
   retention job (like the simulation retention) is needed before it matters.
+- **The queue consumer takes one message at a time** (`receive(1)`, one loop per worker), so its
+  throughput is one message per round trip and handler. Batching and parallel loops wait for a
+  handler that is slow enough to need them (slice B). A message that does not parse or whose
+  handler keeps failing is received `MAX_RECEIVE_COUNT` times (visibility timeout 30 s each)
+  before it reaches the dead-letter queue; the queue has no replay tool yet.
 - **Initial web bundle is about 790 kB**, over the 500 kB warning budget. Zod makes up a large part of it.
   Measure, then decide (lazy routes, `zod/mini`).
 - **A running hold is not restored after a reload.** The seat map keeps the customer's hold in the

@@ -11,8 +11,10 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { LoggerModule } from 'nestjs-pino';
 
 import { DemoCleanupJob } from './demo-cleanup.job.js';
+import { BookingConfirmedHandler } from './handlers/booking-confirmed.handler.js';
 import { HoldExpiryJob } from './hold-expiry.job.js';
 import { OutboxRelayJob } from './outbox-relay.job.js';
+import { QueueConsumer } from './queue-consumer.js';
 import { SimulationConsumer } from './simulation.consumer.js';
 import { SimulationReaperJob } from './simulation-reaper.job.js';
 import { SimulationRetentionJob } from './simulation-retention.job.js';
@@ -37,6 +39,8 @@ import { SimulationRetentionJob } from './simulation-retention.job.js';
     SimulationReaperJob,
     SimulationRetentionJob,
     SimulationConsumer,
+    BookingConfirmedHandler,
+    QueueConsumer,
   ],
 })
 export class WorkerModule {}

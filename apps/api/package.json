@@ -12,6 +12,10 @@
       "types": "./dist/modules/bookings/index.d.ts",
       "default": "./dist/modules/bookings/index.js"
     },
+    "./bookings/testing": {
+      "types": "./dist/modules/bookings/testing/index.d.ts",
+      "default": "./dist/modules/bookings/testing/index.js"
+    },
     "./config": {
       "types": "./dist/config/config.module.d.ts",
       "default": "./dist/config/config.module.js"
