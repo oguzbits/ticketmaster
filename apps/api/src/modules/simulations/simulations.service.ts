@@ -2,6 +2,7 @@ import {
   SIMULATION_STATUS,
   SIMULATION_STREAM_KEY,
   type SimulationMetrics,
+  type SimulationProgress,
   type SimulationRun,
   type StartSimulationRequest,
 } from '@app/shared';
@@ -19,6 +20,11 @@ import { CLOCK, type Clock } from '../../core/clock.js';
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
 import { events, seats, simulationRuns, venues } from '../../infrastructure/database/schema.js';
 import { REDIS } from '../../infrastructure/redis/redis.module.js';
+import {
+  EMPTY_METRICS,
+  SIMULATION_PROGRESS_TTL_SECONDS,
+  simulationProgressKey,
+} from './simulation-progress.js';
 
 /** A run that is QUEUED or RUNNING for longer than this no longer counts as active (a dead worker). */
 export const SIMULATION_RUN_TIMEOUT_MS = 600_000;
@@ -35,8 +41,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** Serializes the cap check of all starts, so parallel requests cannot all pass it. */
 const START_LOCK_KEY = 'simulation-start';
 
-/** The one Redis command `start` needs; a spec passes a failing one. */
+/** The Redis commands `start` needs; a spec passes a failing one. */
 export interface QueueWriter {
+  set(key: string, value: string, options: { EX: number }): Promise<string | null>;
   xAdd(key: string, id: string, message: Record<string, string>): Promise<string>;
 }
 
@@ -79,9 +86,10 @@ export class SimulationsService {
 
   /**
    * One transaction under an advisory lock: the cap check, a fresh sandbox event of the admin with
-   * `seats` generated seats and the QUEUED run. The command goes onto the stream after the commit,
-   * so the worker never reads a run it cannot see; when that fails the sandbox event is deleted
-   * (its seats and the run cascade), so a failed start leaves nothing behind.
+   * `seats` generated seats and the QUEUED run. After the commit the QUEUED progress key and then
+   * the command go onto Redis, so the worker never reads a run it cannot see. When either write
+   * fails the sandbox event is deleted (its seats and the run cascade): a failed start leaves
+   * nothing behind.
    */
   async start(input: StartSimulationRequest, adminId: string): Promise<SimulationRun> {
     const run = await this.db.transaction(async (tx) => {
@@ -126,6 +134,14 @@ export class SimulationsService {
       return toRun(row);
     });
     try {
+      // Before the command, so the stream of a QUEUED run reads this key and not the row.
+      const queued: SimulationProgress = {
+        status: SIMULATION_STATUS.QUEUED,
+        metrics: EMPTY_METRICS,
+      };
+      await this.queue.set(simulationProgressKey(run.id), JSON.stringify(queued), {
+        EX: SIMULATION_PROGRESS_TTL_SECONDS,
+      });
       await this.queue.xAdd(this.streamKey, '*', { runId: run.id });
     } catch (error) {
       // The queue error is the one to report; a failing cleanup must not hide it.

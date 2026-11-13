@@ -172,8 +172,6 @@ follows, then phase 2. Still open from earlier notes:
   cascades into its runs.
 - **The simulation stream caps are per process** (50 open streams, counted in memory), like the
   seat-stream caps.
-- **The simulation stream polls the database four times a second** for a `QUEUED` run that has no
-  progress key yet.
 - **A simulation run leaves a sandbox event of up to 500 seats and up to 2000 `HELD` bookings**, and
   every demo visitor is an admin. The growth per client address is bounded only by the rate limit
   (5 starts per minute) and the global cap of 2 active runs. The events of a real admin show in

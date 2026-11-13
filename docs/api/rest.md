@@ -174,15 +174,15 @@ at two (`MAX_ACTIVE_RUNS`) it answers 429 and writes nothing, so parallel reques
 cap. The count comes from the rows, not from a counter: the window frees the slot of a run whose
 worker died. Otherwise the transaction creates the event (owner and `sandbox_user_id` are the admin
 from the token, so it never shows in the public event list), its seats in one `generate_series`
-statement and the run. After the commit the command `{ runId }` goes onto the Redis stream
-`simulations`; when that fails the sandbox event is deleted (its seats and the run cascade) and the
+statement and the run. After the commit the key `simulation:<runId>:progress` is written with `QUEUED` and empty metrics
+and the command `{ runId }` goes onto the Redis stream `simulations`; when either write fails the sandbox event is deleted (its seats and the run cascade) and the
 error is returned, so a failed start leaves nothing behind.
 
 The progress stream polls the key `simulation:<runId>:progress` every 250 ms (the worker writes it
 with a one-hour expiry) and sends a message only when the value changed; it needs no subscriber
 connection, so there is no race between a snapshot and a subscription and it works across API
-instances. While the key is absent (the worker has not started the run, or the key has expired) it
-reports the row. A value in the key that is not a `SimulationProgress` ends the stream with an
+instances. The key exists from the start of the run, so a queued run costs no database read; only
+while it is absent (it has expired, or Redis lost it) the stream reports the row on every poll. A value in the key that is not a `SimulationProgress` ends the stream with an
 error; no fallback data is sent. A stream ends on its own after 10 minutes, and a client can read
 the run with `GET /api/simulations/:id` at any time. The cap of open streams (50) is counted in
 memory per process.

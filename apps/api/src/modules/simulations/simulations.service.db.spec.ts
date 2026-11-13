@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
-import { BOOKING_STRATEGY, SIMULATION_STATUS, type SimulationStatus } from '@app/shared';
+import {
+  BOOKING_STRATEGY,
+  SIMULATION_STATUS,
+  SimulationProgressSchema,
+  type SimulationStatus,
+} from '@app/shared';
 import { HttpStatus, Logger } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,6 +14,8 @@ import { events, simulationRuns } from '../../infrastructure/database/schema.js'
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
 import { SPEC_NOW } from '../../testing/time.js';
+import { EMPTY_METRICS, simulationProgressKey } from './simulation-progress.js';
+import { SimulationStreamService } from './simulation-stream.service.js';
 import {
   MAX_ACTIVE_RUNS,
   SIMULATION_RUN_TIMEOUT_MS,
@@ -23,6 +30,8 @@ const WINDOW_START = new Date(NOW.getTime() - 60 * 60 * 1000);
 const SPEC_LOCK_TIMEOUT_MS = 300_000;
 const STRATEGY = BOOKING_STRATEGY.PESSIMISTIC;
 const REQUEST = { buyers: 10, seats: 5, strategy: STRATEGY };
+
+const queueDown = { xAdd: () => Promise.reject(new Error('redis down')) };
 
 describe('SimulationsService.start', () => {
   const database = openTestDatabase();
@@ -138,13 +147,58 @@ describe('SimulationsService.start', () => {
     });
   });
 
+  it('writes the QUEUED progress key with an expiry, so a stream needs no database read', async () => {
+    const run = await startFor(randomUUID());
+
+    const raw = await redis.get(simulationProgressKey(run.id));
+    expect(SimulationProgressSchema.parse(JSON.parse(raw ?? 'null'))).toEqual({
+      status: SIMULATION_STATUS.QUEUED,
+      metrics: EMPTY_METRICS,
+    });
+    expect(await redis.ttl(simulationProgressKey(run.id))).toBeGreaterThan(0);
+  });
+
+  it('does not read the run row on every tick of the stream of a QUEUED run', async () => {
+    const run = await startFor(randomUUID());
+    let reads = 0;
+    const counting = {
+      find: (id: string) => {
+        reads += 1;
+        return service.find(id);
+      },
+    };
+    const stream = new SimulationStreamService(redis, counting);
+    stream.pollMs = 20;
+    const messages: unknown[] = [];
+    const subscription = stream.stream(run.id).subscribe((message) => messages.push(message));
+
+    await expect.poll(() => messages.length).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 20 * 10));
+    subscription.unsubscribe();
+
+    expect(reads).toBe(0);
+  });
+
+  it('removes the event and rethrows when the QUEUED progress key cannot be written', async () => {
+    const adminId = randomUUID();
+    const before = await footprint(adminId);
+    const failing = new SimulationsService(
+      db,
+      { set: () => Promise.reject(new Error('redis down')), xAdd: () => Promise.resolve('1-0') },
+      { now: () => NOW }
+    );
+
+    await expect(failing.start(REQUEST, adminId)).rejects.toThrow('redis down');
+
+    const { events: leftEvents, runs, entries } = await footprint(adminId);
+    expect([leftEvents.length, runs.length, entries]).toEqual([0, 0, before.entries]);
+  });
+
   it('removes the sandbox event (seats and run cascade) and rethrows when the queue write fails', async () => {
     const adminId = randomUUID();
     const failing = new SimulationsService(
       db,
-      {
-        xAdd: () => Promise.reject(new Error('redis down')),
-      },
+      { ...queueDown, set: () => Promise.resolve('OK') },
       { now: () => NOW }
     );
 
@@ -163,7 +217,7 @@ describe('SimulationsService.start', () => {
     const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     const service = new FailsToDiscard(
       db,
-      { xAdd: () => Promise.reject(new Error('redis down')) },
+      { ...queueDown, set: () => Promise.resolve('OK') },
       {
         now: () => NOW,
       }
