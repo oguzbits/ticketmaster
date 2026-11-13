@@ -9,7 +9,7 @@ Requirements: Node 26 (see `.nvmrc`), pnpm 12 (pinned in `package.json`) and Doc
 
 ```sh
 pnpm install                # also installs the Git hooks
-pnpm db:up                  # Postgres and Redis for tests
+pnpm db:up                  # Postgres, Redis and the AWS emulator (with its queues and bucket) for tests
 pnpm db:migrate             # apply the migrations and the seed to the local database
 pnpm dev                    # API on port 3000, web on port 4200 (proxies /health and /api to the API)
 docker compose up --build   # or the whole stack in containers
@@ -23,20 +23,30 @@ Ports of the local stack (`docker-compose.yml`):
 | keycloak | 8081      | bound to 127.0.0.1; admin console, local admin user `admin` / `admin` |
 | postgres | 54330     | databases `app` and `keycloak`, user `app`        |
 | redis    | 63790     |                                                   |
+| aws      | 45660     | local AWS emulator (SQS and S3), any credentials, region `us-east-1` |
 
-`docker compose up` also starts two processes without a host port: `migrate`, a one-shot service
+`docker compose up` also starts three processes without a host port: `aws-init`, a one-shot service
+that creates the queues (`booking-events` with its dead-letter queue `booking-events-dlq`) and the
+bucket `tickets` in the emulator and exits (`pnpm aws:init` does the same from the host, and
+running it again changes nothing); `migrate`, a one-shot service
 that applies the migrations and the seed with the API image and exits, and `worker`, the scheduled
-jobs (hold expiry every two seconds, the simulation reaper every 30 seconds, the simulation retention every minute) and the consumer of the rush simulator runs. `api` and `worker` start only after `migrate` has completed.
+jobs (hold expiry every two seconds, the simulation reaper every 30 seconds, the simulation retention every minute) and the consumer of the rush simulator runs. `api` and `worker` start only after `migrate` and `aws-init` have completed.
+
+`pnpm aws:smoke` checks the emulator against the features the async chain relies on (redrive to
+the dead-letter queue, visibility timeout, long polling, message attributes, bucket round trip)
+with throw-away resources; it takes about 15 seconds and can run at any time while the emulator
+is up. The choice of emulator is in [ADR 0004](docs/adr/0004-local-aws-emulator.md).
 
 The credentials in the Compose file are for these local containers only.
 
 Outside production the API falls back to the local containers: `DATABASE_URL`
 `postgres://app:app@localhost:54330/app`, `REDIS_URL` `redis://localhost:63790`, `KEYCLOAK_URL`
-`http://localhost:8081` and the local demo client secret. To change a
+`http://localhost:8081`, the local demo client secret, `AWS_ENDPOINT_URL` `http://localhost:45660` and
+the dummy credentials `test` / `test`. To change a
 value, export it or put it in an `.env` file in `apps/api` (never committed); the `dev` and `start`
-scripts of the API load that file when it exists. With `NODE_ENV=production` these four variables
-are required and a missing one fails the start (the Compose file sets them for `migrate`, `api` and
-`worker`). Keycloak imports `docker/keycloak/ticketmaster-realm.json` when the realm does not exist
+scripts of the API load that file when it exists. With `NODE_ENV=production` the connection URLs, the Keycloak URL and secret and the two AWS
+credentials are required and a missing one fails the start (the Compose file sets them for
+`migrate`, `api` and `worker`); an unset `AWS_ENDPOINT_URL` then means real AWS. Keycloak imports `docker/keycloak/ticketmaster-realm.json` when the realm does not exist
 yet; after a change to that file, delete the realm (or `docker compose down -v`) to import it again.
 
 ## Environment variables
@@ -59,6 +69,10 @@ variable with a comment; the table is generated (`pnpm docs:generate`).
 | `KEYCLOAK_DEMO_CLIENT_ID` | default `api-demo` |
 | `KEYCLOAK_DEMO_CLIENT_SECRET` | required |
 | `DEMO_USER_TTL_SECONDS` | default `3600` |
+| `AWS_ENDPOINT_URL` | optional |
+| `AWS_REGION` | default `us-east-1` |
+| `AWS_ACCESS_KEY_ID` | required |
+| `AWS_SECRET_ACCESS_KEY` | required |
 <!-- /generated -->
 
 ## Commands
@@ -73,7 +87,7 @@ The full table is in [AGENTS.md](AGENTS.md#5-commands). The two that matter most
 
 - Unit tests: Vitest, next to the code as `*.spec.ts`. They never reach the network: an unmocked
   request fails the test.
-- Database tests are `*.db.spec.ts`. They need `pnpm db:up` and run with `pnpm test:db`; `pnpm test`
+- Database tests are `*.db.spec.ts`. They need `pnpm db:up` (Postgres, Redis and the emulator) and run with `pnpm test:db`; `pnpm test`
   skips them. Before each run a global setup drops and recreates the database `app_test` on the
   server of `DATABASE_URL` (the local container by default) and applies the migrations, so the
   specs never touch the development database `app`. Each test creates its own event with random

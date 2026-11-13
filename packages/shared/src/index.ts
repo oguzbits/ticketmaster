@@ -10,6 +10,7 @@ export {
   type TokenResponse,
   TokenResponseSchema,
 } from './auth.js';
+export { BUCKET_NAME, QUEUE_NAME, QUEUE_POLICY } from './aws.js';
 export {
   BOOKING_STATUS,
   BOOKING_STRATEGY,

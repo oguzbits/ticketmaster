@@ -6,11 +6,20 @@ const LOCAL_DATABASE_URL = 'postgres://app:app@localhost:54330/app';
 const LOCAL_REDIS_URL = 'redis://localhost:63790';
 const LOCAL_KEYCLOAK_URL = 'http://localhost:8081';
 const LOCAL_KEYCLOAK_SECRET = 'local-demo-client-secret';
+const LOCAL_AWS_ENDPOINT_URL = 'http://localhost:45660';
+const LOCAL_AWS_CREDENTIAL = 'test';
 
 const PRODUCTION_BASE = {
   NODE_ENV: 'production',
   DATABASE_URL: 'postgres://u:p@db:5432/app',
   REDIS_URL: 'redis://cache:6379',
+  AWS_ACCESS_KEY_ID: 'prod-key-id',
+  AWS_SECRET_ACCESS_KEY: 'prod-secret-key',
+};
+
+const KEYCLOAK_PRODUCTION = {
+  KEYCLOAK_URL: 'http://keycloak:8080',
+  KEYCLOAK_DEMO_CLIENT_SECRET: 'prod-keycloak-secret',
 };
 
 describe('parseEnv', () => {
@@ -28,6 +37,10 @@ describe('parseEnv', () => {
       KEYCLOAK_DEMO_CLIENT_ID: 'api-demo',
       KEYCLOAK_DEMO_CLIENT_SECRET: LOCAL_KEYCLOAK_SECRET,
       DEMO_USER_TTL_SECONDS: 3600,
+      AWS_ENDPOINT_URL: LOCAL_AWS_ENDPOINT_URL,
+      AWS_REGION: 'us-east-1',
+      AWS_ACCESS_KEY_ID: LOCAL_AWS_CREDENTIAL,
+      AWS_SECRET_ACCESS_KEY: LOCAL_AWS_CREDENTIAL,
     });
   });
 
@@ -115,5 +128,51 @@ describe('parseEnv', () => {
 
   it('HOLD_TTL_SECONDS must be a positive integer', () => {
     expect(() => parseEnv({ HOLD_TTL_SECONDS: '0' })).toThrow(/HOLD_TTL_SECONDS/);
+  });
+
+  it('uses the local AWS emulator and its dummy credentials outside production', () => {
+    const env = parseEnv({ NODE_ENV: 'test' });
+
+    expect(env.AWS_ENDPOINT_URL).toBe(LOCAL_AWS_ENDPOINT_URL);
+    expect(env.AWS_ACCESS_KEY_ID).toBe(LOCAL_AWS_CREDENTIAL);
+    expect(env.AWS_SECRET_ACCESS_KEY).toBe(LOCAL_AWS_CREDENTIAL);
+  });
+
+  it('production without AWS_ENDPOINT_URL leaves it unset, which means real AWS', () => {
+    expect(
+      parseEnv({ ...PRODUCTION_BASE, ...KEYCLOAK_PRODUCTION }).AWS_ENDPOINT_URL
+    ).toBeUndefined();
+  });
+
+  it('production takes the AWS settings from the environment', () => {
+    const raw = { ...PRODUCTION_BASE, ...KEYCLOAK_PRODUCTION, AWS_ENDPOINT_URL: 'http://aws:4566' };
+
+    expect(parseEnv(raw)).toMatchObject({
+      AWS_ENDPOINT_URL: 'http://aws:4566',
+      AWS_ACCESS_KEY_ID: PRODUCTION_BASE.AWS_ACCESS_KEY_ID,
+      AWS_SECRET_ACCESS_KEY: PRODUCTION_BASE.AWS_SECRET_ACCESS_KEY,
+    });
+  });
+
+  it('production without AWS_ACCESS_KEY_ID throws and names the variable, not a value', () => {
+    const { AWS_ACCESS_KEY_ID: _omitted, ...raw } = PRODUCTION_BASE;
+
+    expect(() => parseEnv({ ...raw, ...KEYCLOAK_PRODUCTION })).toThrow(
+      /^(?!.*prod-secret-key).*AWS_ACCESS_KEY_ID/s
+    );
+  });
+
+  it('production without AWS_SECRET_ACCESS_KEY throws and names the variable, not a value', () => {
+    const { AWS_SECRET_ACCESS_KEY: _omitted, ...raw } = PRODUCTION_BASE;
+
+    expect(() => parseEnv({ ...raw, ...KEYCLOAK_PRODUCTION })).toThrow(
+      /^(?!.*prod-key-id).*AWS_SECRET_ACCESS_KEY/s
+    );
+  });
+
+  it('AWS_ENDPOINT_URL must be a URL', () => {
+    expect(() => parseEnv({ AWS_ENDPOINT_URL: 'not a url' })).toThrow(
+      /^(?!.*not a url).*AWS_ENDPOINT_URL/s
+    );
   });
 });

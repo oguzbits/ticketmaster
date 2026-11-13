@@ -7,6 +7,7 @@ const DEFAULT_PAYMENT_FAILURE_RATE = 0.1;
 const DEFAULT_KEYCLOAK_REALM = 'ticketmaster';
 const DEFAULT_KEYCLOAK_DEMO_CLIENT_ID = 'api-demo';
 const DEFAULT_DEMO_USER_TTL_SECONDS = 3600;
+const DEFAULT_AWS_REGION = 'us-east-1';
 
 export const NODE_ENV = {
   DEVELOPMENT: 'development',
@@ -23,6 +24,10 @@ const LOCAL_DEFAULTS = {
   REDIS_URL: 'redis://localhost:63790',
   KEYCLOAK_URL: 'http://localhost:8081',
   KEYCLOAK_DEMO_CLIENT_SECRET: 'local-demo-client-secret',
+  // The emulator accepts any credentials.
+  AWS_ENDPOINT_URL: 'http://localhost:45660',
+  AWS_ACCESS_KEY_ID: 'test',
+  AWS_SECRET_ACCESS_KEY: 'test',
 };
 
 export const EnvSchema = z.object({
@@ -41,6 +46,11 @@ export const EnvSchema = z.object({
   KEYCLOAK_DEMO_CLIENT_ID: z.string().min(1).default(DEFAULT_KEYCLOAK_DEMO_CLIENT_ID),
   KEYCLOAK_DEMO_CLIENT_SECRET: z.string().min(1),
   DEMO_USER_TTL_SECONDS: z.coerce.number().int().positive().default(DEFAULT_DEMO_USER_TTL_SECONDS),
+  // Unset in production means real AWS; parseEnv fills the local emulator otherwise.
+  AWS_ENDPOINT_URL: z.url().optional(),
+  AWS_REGION: z.string().min(1).default(DEFAULT_AWS_REGION),
+  AWS_ACCESS_KEY_ID: z.string().min(1),
+  AWS_SECRET_ACCESS_KEY: z.string().min(1),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
@@ -61,6 +71,9 @@ export function parseEnv(raw: Record<string, string | undefined>): Env {
           KEYCLOAK_URL: raw.KEYCLOAK_URL ?? LOCAL_DEFAULTS.KEYCLOAK_URL,
           KEYCLOAK_DEMO_CLIENT_SECRET:
             raw.KEYCLOAK_DEMO_CLIENT_SECRET ?? LOCAL_DEFAULTS.KEYCLOAK_DEMO_CLIENT_SECRET,
+          AWS_ENDPOINT_URL: raw.AWS_ENDPOINT_URL ?? LOCAL_DEFAULTS.AWS_ENDPOINT_URL,
+          AWS_ACCESS_KEY_ID: raw.AWS_ACCESS_KEY_ID ?? LOCAL_DEFAULTS.AWS_ACCESS_KEY_ID,
+          AWS_SECRET_ACCESS_KEY: raw.AWS_SECRET_ACCESS_KEY ?? LOCAL_DEFAULTS.AWS_SECRET_ACCESS_KEY,
         };
   const result = EnvSchema.safeParse(withDefaults);
   if (result.success) return result.data;

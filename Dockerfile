@@ -27,6 +27,12 @@ COPY --from=build /out/worker .
 USER node
 CMD ["node", "dist/main.js"]
 
+# One-shot scripts of the local stack (aws-init): the build stage already has the root dependencies
+# and the built shared package.
+FROM build AS tools
+ENV NODE_ENV=production
+USER node
+
 # Caddy serves the built web app and is the reverse proxy in front of the API.
 FROM caddy:2.11.9-alpine AS web
 COPY apps/web/Caddyfile /etc/caddy/Caddyfile

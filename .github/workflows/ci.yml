@@ -61,7 +61,7 @@ jobs:
 
   test-db:
     timeout-minutes: 10
-    name: Database tests (Postgres and Redis services, migration drift)
+    name: Database tests (Postgres, Redis and AWS emulator services, migration drift)
     runs-on: ubuntu-latest
     # Image tags and ports match docker-compose.yml.
     services:
@@ -82,6 +82,11 @@ jobs:
           - 63790:6379
         options: >-
           --health-cmd "redis-cli ping" --health-interval 2s --health-timeout 3s --health-retries 30
+      # The image has its own health check; the service container waits for it.
+      aws:
+        image: floci/floci:2.4.0
+        ports:
+          - 45660:4566
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -90,6 +95,8 @@ jobs:
         with:
           cache: true
           require-lockfile: true
+      - run: pnpm aws:init
+      - run: pnpm aws:smoke
       # The global setup creates and migrates its own `app_test` database on the service.
       - run: pnpm test:db
       # drizzle-kit has no drift flag: generating again must not write a new migration.

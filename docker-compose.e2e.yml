@@ -11,3 +11,5 @@ services:
     ports: !reset []
   keycloak:
     ports: !reset []
+  aws:
+    ports: !reset []

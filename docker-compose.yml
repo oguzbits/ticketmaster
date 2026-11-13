@@ -1,5 +1,5 @@
-# Local stack. `docker compose up --build` starts everything; `pnpm db:up` starts only Postgres and
-# Redis for the tests. The credentials are for these local containers only.
+# Local stack. `docker compose up --build` starts everything; `pnpm db:up` starts only Postgres,
+# Redis and the AWS emulator (with its queues and bucket) for the tests. The credentials are for these local containers only.
 name: ticketmaster-klon
 
 services:
@@ -29,6 +29,29 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
+
+  # Local AWS emulator (SQS and S3), see docs/adr/0004-local-aws-emulator.md. Any credentials work.
+  # The image brings its own health check (the emulator's readiness route). FLOCI_HOSTNAME makes
+  # the queue URLs it returns resolvable inside the Compose network.
+  aws:
+    image: floci/floci:2.4.0
+    environment:
+      FLOCI_HOSTNAME: aws
+    ports:
+      - '45660:4566'
+
+  # One-shot: creates the queues, the dead-letter queue and the bucket (safe to run again), then
+  # exits. api and worker wait for it.
+  aws-init:
+    build:
+      context: .
+      target: tools
+    command: ['node', 'scripts/aws-init.mjs']
+    environment:
+      AWS_ENDPOINT_URL: http://aws:4566
+    depends_on:
+      aws:
+        condition: service_healthy
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.8.2
@@ -73,6 +96,9 @@ services:
       REDIS_URL: redis://redis:6379
       KEYCLOAK_URL: http://keycloak:8080
       KEYCLOAK_DEMO_CLIENT_SECRET: local-demo-client-secret
+      AWS_ENDPOINT_URL: http://aws:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
     depends_on:
       postgres:
         condition: service_healthy
@@ -87,11 +113,16 @@ services:
       REDIS_URL: redis://redis:6379
       KEYCLOAK_URL: http://keycloak:8080
       KEYCLOAK_DEMO_CLIENT_SECRET: local-demo-client-secret
+      AWS_ENDPOINT_URL: http://aws:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
     depends_on:
       migrate:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+      aws-init:
+        condition: service_completed_successfully
 
   worker:
     build:
@@ -102,11 +133,16 @@ services:
       REDIS_URL: redis://redis:6379
       KEYCLOAK_URL: http://keycloak:8080
       KEYCLOAK_DEMO_CLIENT_SECRET: local-demo-client-secret
+      AWS_ENDPOINT_URL: http://aws:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
     depends_on:
       migrate:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+      aws-init:
+        condition: service_completed_successfully
 
   web:
     build:

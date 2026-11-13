@@ -222,3 +222,12 @@ every run that is `FINISHED` or `FAILED` for more than `SIMULATION_RETENTION_SEC
 the seats, the bookings with their transitions and the run go with it (foreign keys cascade). An
 event that still has a `QUEUED` or `RUNNING` run is never deleted. The comparison list therefore
 shows the runs of the last hour.
+
+## Queue and bucket names
+
+The names and the redrive policy of the queues and the bucket are dictionaries in
+`packages/shared/src/aws.ts`, so the API, the worker and the creation script read the same values.
+`QUEUE_NAME` holds `booking-events` and its dead-letter queue `booking-events-dlq`; `QUEUE_POLICY`
+holds `MAX_RECEIVE_COUNT` (5: a message that was received five times without being deleted moves to
+the dead-letter queue), `VISIBILITY_TIMEOUT_SECONDS` (30) and `LONG_POLL_SECONDS` (20);
+`BUCKET_NAME` holds `tickets`. The message contract itself follows with the outbox.
