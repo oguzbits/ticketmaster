@@ -117,6 +117,8 @@ export default defineConfig([
     '**/dist/**',
     '**/coverage/**',
     '**/.angular/**',
+    'apps/web/playwright-report/**',
+    'apps/web/test-results/**',
     '**/.claude/**',
     'reports/**',
     'pnpm-lock.yaml',
