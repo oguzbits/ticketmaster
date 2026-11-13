@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import {
   BOOKING_STATUS,
@@ -51,6 +52,10 @@ const TOKENS = {
 };
 type Caller = keyof typeof TOKENS;
 
+// A request on a loaded machine can take longer than a second to reach the database.
+const SLOW_REQUEST_MS = 1200;
+const LOCK_WAIT_TIMEOUT_MS = 10_000;
+
 // The payment key column is unique over the whole table and the header must be a UUID: one random
 // UUID per name and run; the same name gives the same key again.
 const KEYS = new Map<string, string>();
@@ -75,12 +80,18 @@ describe('booking endpoints', () => {
     },
   };
   let now = SPEC_NOW;
+  let verifyDelayMs = 0;
   let app: INestApplication;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(TOKEN_VERIFIER)
-      .useValue(fakeTokenVerifier(TOKENS))
+      .useValue({
+        verify: async (token: string) => {
+          await delay(verifyDelayMs);
+          return fakeTokenVerifier(TOKENS).verify(token);
+        },
+      })
       .overrideProvider(PAYMENT_PROVIDER)
       .useValue(provider)
       .overrideProvider(CLOCK)
@@ -95,6 +106,7 @@ describe('booking endpoints', () => {
   });
   beforeEach(() => {
     now = SPEC_NOW;
+    verifyDelayMs = 0;
     paymentSucceeds = true;
     charges.length = 0;
   });
@@ -202,6 +214,7 @@ describe('booking endpoints', () => {
     it('answers 409 when the database refuses a hold that raced past the seat check', async () => {
       const seat = await freeSeat({ strategy: BOOKING_STRATEGY.OPTIMISTIC });
       let response: Promise<request.Response> | undefined;
+      verifyDelayMs = SLOW_REQUEST_MS;
 
       // An uncommitted active booking of the seat: the request's seat check cannot see it, so its
       // insert waits on the unique index and fails once this transaction commits.
@@ -221,7 +234,7 @@ describe('booking endpoints', () => {
             sql`select 1 from pg_stat_activity where wait_event_type = 'Lock' and query ilike 'insert into "bookings"%'`
           );
           expect(waiting.length).toBeGreaterThan(0);
-        });
+        }, LOCK_WAIT_TIMEOUT_MS);
       });
 
       expect((await response)?.status).toBe(409);
