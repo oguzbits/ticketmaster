@@ -19,29 +19,81 @@ docker compose up --build   # the whole stack; open http://localhost:8080
 
 For development with reload: `pnpm dev` (API on port 3000, web on port 4200).
 
+The start page has no registration: one click logs in as a **customer**, an **organizer** or an
+**admin**. The demo login creates a temporary user in Keycloak with that role; the user expires
+after an hour by default and is then deleted. Each demo user gets four private sandbox events of
+their own.
+
+| Role      | Can do                                                                                   |
+| --------- | ---------------------------------------------------------------------------------------- |
+| customer  | hold a seat, pay, cancel, list their own bookings                                        |
+| organizer | list venues, create events, see sales and utilization of their own events                |
+| admin     | switch the booking strategy of an event (a demo admin: of their own sandbox events only) |
+
+Anyone, signed in or not, can browse public events and watch the seat map.
+
 ## Requirements
 
 - Browse public events and see the seat map of an event with the live status of every seat
-  (available, held, sold).
+  (available, held, sold); changes by other buyers appear within about a second.
 - Hold a seat for a short time, pay for it with a simulated payment, cancel it. A seat is never
   sold twice, whichever of the four booking strategies the event uses.
+- Roles with checks on the server: customers book, organizers create events and see their sales,
+  admins switch the strategy of an event. A user sees and changes only their own bookings.
 - Keyboard operation, visible focus and a seat status that does not rely on color alone.
+
+## Architecture
+
+Preliminary. Caddy serves the web app and forwards `/api` and `/health` to the API; the API
+verifies Keycloak tokens, writes to PostgreSQL and publishes every seat change to Redis, which fans
+it out to the open seat streams. The worker runs the scheduled jobs (hold expiry, cleanup of demo
+users).
+
+```mermaid
+flowchart LR
+  browser[Browser: Angular app] -->|HTTP, SSE| caddy[Caddy]
+  caddy -->|/api, /health| api[API: NestJS]
+  api -->|verify tokens by JWKS, demo login| keycloak[Keycloak]
+  api --> postgres[(PostgreSQL)]
+  api -->|publish seat changes| redis[(Redis: pub/sub, rate limits)]
+  redis -->|seat stream| api
+  worker[Worker: NestJS] --> postgres
+  worker -->|publish seat changes| redis
+  worker -->|delete expired demo users| keycloak
+```
 
 ## Entities
 
-Venues, events, seats, bookings and their transitions. The tables and relations are in
-[docs/data-model.md](docs/data-model.md).
+Venues, events, seats, bookings, their transitions and the temporary demo users. The tables and
+relations are in [docs/data-model.md](docs/data-model.md).
 
 ## API
 
-REST routes under `/api`, for example `GET /api/events` and `GET /api/events/:id`. Contracts are Zod
-schemas in `packages/shared`; the routes are listed in [docs/api/rest.md](docs/api/rest.md).
+REST routes under `/api`; contracts are Zod schemas in `packages/shared`. The full description
+(answers, errors, limits) is in [docs/api/rest.md](docs/api/rest.md).
+
+| Route                              | Role      | Purpose                                              |
+| ---------------------------------- | --------- | ---------------------------------------------------- |
+| `GET /api/events`                  | public    | public events (and the caller's own sandbox events)  |
+| `GET /api/events/:id`              | public    | event with every seat and its status                 |
+| `GET /api/events/:id/seats/stream` | public    | server-sent events: snapshot, then one change a seat |
+| `POST /api/demo-login`             | public    | temporary user and tokens for a role                 |
+| `POST /api/auth/refresh`           | public    | new tokens for a refresh token                       |
+| `POST /api/bookings`               | customer  | hold a seat                                          |
+| `POST /api/bookings/:id/payment`   | customer  | pay (header `Idempotency-Key`)                       |
+| `POST /api/bookings/:id/cancel`    | customer  | cancel a held or confirmed booking                   |
+| `GET /api/bookings`                | customer  | the caller's bookings with their transitions         |
+| `GET /api/venues`                  | organizer | venue templates                                      |
+| `POST /api/events`                 | organizer | create an event from a venue template                |
+| `GET /api/organizer/events`        | organizer | own events with sold and held counts                 |
+| `PATCH /api/events/:id/strategy`   | admin     | switch the booking strategy                          |
 
 ## Checks
 
 - `pnpm check`: typecheck, lint, architecture rules, dead code, duplication, audits, formatting.
 - `pnpm test`: unit tests, offline.
 - `pnpm test:db`: tests that need Postgres and Redis (`pnpm db:up` and `pnpm db:migrate` first).
+- `pnpm e2e`: browser tests against the whole Compose stack (builds it, runs it, removes it).
 
 ## Documentation
 

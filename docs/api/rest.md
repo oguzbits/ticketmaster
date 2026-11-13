@@ -129,9 +129,8 @@ enum and an inferred type.
 
 ## Auth, booking and organizer contracts
 
-The schemas below are defined in `packages/shared` ahead of their routes; each route is documented
-in the table above when it is implemented. Authentication is described in
-[ADR 0003](../adr/0003-authentication-and-demo-login.md).
+The schemas below are in `packages/shared`; the routes that use them are in the table above.
+Authentication is described in [ADR 0003](../adr/0003-authentication-and-demo-login.md).
 
 | Schema                                                                                  | Purpose                                                                                                   |
 | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |

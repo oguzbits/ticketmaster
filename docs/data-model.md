@@ -32,6 +32,7 @@ erDiagram
         booking_strategy strategy
         uuid owner_id
         uuid sandbox_user_id "null for a public event"
+        timestamptz created_at
     }
     seats {
         uuid id PK
@@ -51,6 +52,8 @@ erDiagram
         booking_status status
         timestamptz hold_expires_at
         text payment_idempotency_key "unique, null until payment"
+        timestamptz created_at
+        timestamptz updated_at
     }
     demo_users {
         uuid user_id PK "the sub of the user's tokens"
@@ -64,7 +67,7 @@ erDiagram
         booking_status from_status "null for the first one"
         booking_status to_status
         transition_reason reason
-        uuid actor_id
+        uuid actor_id "the user, or the nil UUID for the system"
         timestamptz at
     }
 ```
@@ -111,6 +114,7 @@ double book. An index cannot look at another table, so the strategy is copied fr
 the booking and the index excludes `NAIVE`. A booking keeps the strategy it was made under even if
 an admin later switches the event.
 
-`bookings(status, hold_expires_at)` serves the expiry job, which looks for HELD bookings whose hold
+`seats` is unique per `(event_id, section, row, number)`, and `bookings(seat_id)` is indexed for the
+seat status lookups. `bookings(status, hold_expires_at)` serves the expiry job, which looks for HELD bookings whose hold
 has passed. `bookings(event_id, status)` serves the per-event counts: the organizer's sold and held
 seats and the double-booking count.
