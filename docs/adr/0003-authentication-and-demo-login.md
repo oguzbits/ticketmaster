@@ -128,3 +128,9 @@ Chosen: option 1, with a global default-deny guard and token refresh through the
 
 - Good: explicit at each route.
 - Bad: a new controller without the guard is open; default-deny cannot be forgotten.
+- **Cleanup deletes bookings without a transition.** The bookings of an expired demo user on public
+  events are deleted, including confirmed ones, so no transition is stored for them. This is a
+  deliberate exception to the stored-transition rule: the user and their data are removed as a whole.
+- **Tokens live in `sessionStorage`.** The web app keeps both tokens there, so a script that runs in
+  the page could read them. The defence is the CSP (no inline scripts) and Angular's escaping; the app
+  has no `innerHTML` or `bypassSecurityTrust` call. Access tokens last 300 s and refresh tokens rotate.
