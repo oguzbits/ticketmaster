@@ -312,11 +312,14 @@ strongest model.
 
 ## Ledger
 
-| Task       | Duration            | Subagent tokens     | Notes                         |
-| ---------- | ------------------- | ------------------- | ----------------------------- |
-| 1          | 2165 s              | 126.7k              |                               |
-| 2+3        | 1737 s              | 237.1k              |                               |
-| Review 2+3 | 124 s               | 71.9k               |                               |
-| Fix wave   | 675 s               | 132.7k              |                               |
-| 4          | 734 s               | 156.3k              |                               |
-| 5          | see dispatch result | see dispatch result | e2e spec, docs, phase 1 check |
+| Task                           | Duration   | Subagent tokens | Notes                                                                  |
+| ------------------------------ | ---------- | --------------- | ---------------------------------------------------------------------- |
+| 1                              | 2165 s     | 126.7k          |                                                                        |
+| 2+3                            | 1737 s     | 237.1k          |                                                                        |
+| Review 2+3                     | 124 s      | 71.9k           |                                                                        |
+| Fix wave                       | 675 s      | 132.7k          |                                                                        |
+| 4                              | 734 s      | 156.3k          |                                                                        |
+| 5                              | 804 s      | 95.6k           | e2e spec, docs, phase 1 check                                          |
+| Final review (strongest model) | 350 s      | 97.9k           | approved; web 429 message, destroy-bound subscription, backlog entries |
+| Follow-up fixes                | n/a        | n/a             |                                                                        |
+| **Sum**                        | **6589 s** | **918.2k**      | agent time; follow-up fixes not included                               |
