@@ -11,7 +11,7 @@ import type { Redis } from '../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
 import { watchSeatChanges } from '../../testing/seat-changes.js';
-import { EXPIRY_SPEC_START } from '../../testing/time.js';
+import { EXPIRY_SPEC_START, SPEC_NOW } from '../../testing/time.js';
 import type { BookingsService } from './bookings.service.js';
 import { SYSTEM_ACTOR_ID } from './domain/booking-state-machine.js';
 import { HOLD_OUTCOME } from './domain/seat-reservation.js';
@@ -107,6 +107,34 @@ describe('expireHolds', () => {
 
     expect(watch.changes.map(({ seatId }) => seatId).toSorted()).toEqual([dueA, dueB].toSorted());
     expect(watch.changes.every(({ status }) => status === SEAT_STATUS.AVAILABLE)).toBe(true);
+  });
+
+  // Lives here, not with the other seat changes: expireHolds works on the whole table, so only
+  // this file may call it (a second file's call would expire this file's holds, and the reverse).
+  it('publishes HELD, not AVAILABLE, for an expiring hold of a seat another booking still holds', async () => {
+    const { eventId, seatIds } = await createTestEvent(db, {
+      strategy: BOOKING_STRATEGY.NAIVE,
+      seats: 1,
+    });
+    const seat = { eventId, seatId: seatIds[0] ?? '' };
+    now = START;
+    await service.hold({ ...seat, userId: randomUUID() });
+    // NAIVE refuses a second hold only after it read the first; a race leaves two active
+    // bookings, which this row stands for.
+    await db.insert(bookings).values({
+      ...seat,
+      userId: randomUUID(),
+      strategy: BOOKING_STRATEGY.NAIVE,
+      status: BOOKING_STATUS.HELD,
+      holdExpiresAt: SPEC_NOW,
+    });
+    const watch = await watchSeatChanges(redis, eventId);
+
+    await service.expireHolds(new Date(START.getTime() + ttlMs));
+    await watch.settle();
+    await watch.stop();
+
+    expect(watch.changes.map(({ status }) => status)).toEqual([SEAT_STATUS.HELD]);
   });
 
   it('publishes only after the expiry is committed: a reader on another connection sees EXPIRED', async () => {

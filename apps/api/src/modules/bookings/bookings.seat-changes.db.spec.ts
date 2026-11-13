@@ -251,24 +251,6 @@ describe('seat changes published after the booking commits', () => {
       ]);
       await watch.stop();
     });
-
-    it('an expiring hold of a seat that is still held publishes HELD, not AVAILABLE', async () => {
-      const { watch, bookingA } = await twoHolds();
-      await db
-        .update(bookings)
-        .set({ holdExpiresAt: new Date(0) })
-        .where(eq(bookings.id, bookingA));
-
-      // Far in the past: no booking of another spec file is due, only this one.
-      expect(await service.expireHolds(new Date(1))).toBe(1);
-      await watch.settle();
-
-      expect(watch.changes.map(({ status }) => status)).toEqual([
-        SEAT_STATUS.HELD,
-        SEAT_STATUS.HELD,
-      ]);
-      await watch.stop();
-    });
   });
 
   it('a publisher that throws neither fails the hold nor stays silent', async () => {
