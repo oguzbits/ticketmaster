@@ -18,7 +18,10 @@ function run(command, args) {
   return spawnSync(command, args, { stdio: 'inherit', env }).status ?? 1;
 }
 
-let status = run('docker', ['compose', 'up', '--detach', '--build', '--wait']);
+// The specs import the dictionaries of @app/shared at runtime, so its dist must exist (a clean
+// checkout, like CI, has none).
+let status = run('pnpm', ['--filter', '@app/shared', 'build']);
+if (status === 0) status = run('docker', ['compose', 'up', '--detach', '--build', '--wait']);
 if (status === 0) status = run('pnpm', ['--filter', '@app/web', 'e2e']);
 if (status !== 0) run('docker', ['compose', 'logs', '--no-color', '--tail', '100']);
 run('docker', ['compose', 'down', '--volumes', '--remove-orphans']);
