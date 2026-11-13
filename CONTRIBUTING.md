@@ -20,7 +20,7 @@ Ports of the local stack (`docker-compose.yml`):
 | Service  | Host port | Notes                                             |
 | -------- | --------- | ------------------------------------------------- |
 | web      | 8080      | Caddy: static web app, proxies `/health/*` and `/api/*` to api |
-| keycloak | 8081      | admin console, local admin user `admin` / `admin` |
+| keycloak | 8081      | bound to 127.0.0.1; admin console, local admin user `admin` / `admin` |
 | postgres | 54330     | databases `app` and `keycloak`, user `app`        |
 | redis    | 63790     |                                                   |
 

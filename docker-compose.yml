@@ -42,7 +42,7 @@ services:
       KC_DB_PASSWORD: app
       KC_HEALTH_ENABLED: 'true'
     ports:
-      - '8081:8080'
+      - '127.0.0.1:8081:8080'
     volumes:
       - ./docker/keycloak/ticketmaster-realm.json:/opt/keycloak/data/import/ticketmaster-realm.json:ro
     depends_on:

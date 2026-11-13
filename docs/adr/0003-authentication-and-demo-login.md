@@ -74,6 +74,14 @@ Chosen: option 1, with a global default-deny guard and token refresh through the
 - Bad: the local client secret is committed with the realm file and is the local default of
   `KEYCLOAK_DEMO_CLIENT_SECRET`, like the compose credentials: local containers only. Production
   requires the variable.
+- Bad: the realm file with its local client secret and the `admin` / `admin` bootstrap of the compose
+  Keycloak are local only and must never be imported or reused in production. Compose binds the
+  Keycloak port to `127.0.0.1` for the same reason.
+- Bad (known gap): the guard accepts the RS256 access token of any client of the realm. It checks
+  signature, issuer, expiry and `sub`, but neither `aud` nor `azp`. Acceptable while the realm has
+  only this system's clients; revisit before another client is added.
+- Bad: a route without `@Roles` accepts any authenticated token, so every new route needs an
+  explicit `@Roles(...)` unless any signed-in user really may call it.
 
 ## Pros and cons of the options
 
