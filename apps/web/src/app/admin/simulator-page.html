@@ -1,0 +1,198 @@
+<h1 class="text-2xl font-semibold">Rush simulator</h1>
+
+<section aria-label="Start a run" class="flex flex-col gap-3">
+  <h2 class="text-lg font-medium">Start a run</h2>
+  <p class="text-text-muted">
+    Virtual buyers race for the seats of a fresh sandbox event under one booking strategy.
+  </p>
+  <form class="flex flex-wrap items-end gap-3" (submit)="start($event)">
+    <div class="flex flex-col gap-1">
+      <label for="sim-buyers" class="text-sm font-medium">Buyers</label>
+      <input
+        id="sim-buyers"
+        type="number"
+        required
+        step="1"
+        min="1"
+        [max]="limits.BUYERS_MAX"
+        class="w-28 rounded border border-edge bg-surface-raised px-3 py-2"
+        [value]="buyers()"
+        (input)="buyers.set(buyersInput.valueAsNumber)"
+        #buyersInput
+      />
+    </div>
+    <div class="flex flex-col gap-1">
+      <label for="sim-seats" class="text-sm font-medium">Seats</label>
+      <input
+        id="sim-seats"
+        type="number"
+        required
+        step="1"
+        min="1"
+        [max]="limits.SEATS_MAX"
+        class="w-28 rounded border border-edge bg-surface-raised px-3 py-2"
+        [value]="seats()"
+        (input)="seats.set(seatsInput.valueAsNumber)"
+        #seatsInput
+      />
+    </div>
+    <div class="flex flex-col gap-1">
+      <label for="sim-strategy" class="text-sm font-medium">Strategy</label>
+      <select
+        id="sim-strategy"
+        class="rounded border border-edge bg-surface-raised px-3 py-2"
+        (change)="pickStrategy(strategyInput.value)"
+        #strategyInput
+      >
+        @for (item of strategies; track item) {
+          <option [value]="item" [selected]="item === strategy()">{{ item }}</option>
+        }
+      </select>
+    </div>
+    <button
+      type="submit"
+      class="btn disabled:cursor-not-allowed disabled:opacity-60"
+      [disabled]="active()"
+    >
+      {{
+        starting()
+          ? 'Starting…'
+          : active()
+            ? 'Run in progress'
+            : problem()
+              ? 'Try again'
+              : 'Start run'
+      }}
+    </button>
+  </form>
+  @if (problem(); as text) {
+    <p role="alert" class="text-danger">{{ text }}</p>
+  }
+</section>
+
+@if (run(); as current) {
+  <section aria-label="Current run" class="flex flex-col gap-3">
+    <h2 class="text-lg font-medium">
+      Current run: {{ current.strategy }}, {{ current.buyers }} buyers, {{ current.seats }} seats
+    </h2>
+    <p role="status">Status: {{ progress()?.status ?? current.status }}</p>
+    @if (progress(); as live) {
+      @if (live.status === failed) {
+        <p role="alert" class="text-danger">{{ message.FAILED }}</p>
+      }
+      <progress
+        class="h-3 w-full accent-accent"
+        aria-label="Buyers done"
+        [max]="current.buyers"
+        [value]="live.metrics.buyersDone"
+      >
+        {{ live.metrics.buyersDone }} of {{ current.buyers }}
+      </progress>
+      <dl class="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-4">
+        <div>
+          <dt class="text-sm text-text-muted">Buyers done</dt>
+          <dd>{{ live.metrics.buyersDone }} of {{ current.buyers }}</dd>
+        </div>
+        <div>
+          <dt class="text-sm text-text-muted">Attempts</dt>
+          <dd>{{ live.metrics.attempts }}</dd>
+        </div>
+        <div>
+          <dt class="text-sm text-text-muted">Holds</dt>
+          <dd>{{ live.metrics.holds }}</dd>
+        </div>
+        <div>
+          <dt class="text-sm text-text-muted">Conflicts</dt>
+          <dd>{{ live.metrics.conflicts }}</dd>
+        </div>
+        <div>
+          <dt class="text-sm text-text-muted">Retries</dt>
+          <dd>{{ live.metrics.retries }}</dd>
+        </div>
+        <div>
+          <dt class="text-sm text-text-muted">p50</dt>
+          <dd>{{ live.metrics.p50Ms | number: '1.0-0' }} ms</dd>
+        </div>
+        <div>
+          <dt class="text-sm text-text-muted">p95</dt>
+          <dd>{{ live.metrics.p95Ms | number: '1.0-0' }} ms</dd>
+        </div>
+        <div>
+          <dt class="text-sm text-text-muted">Double bookings</dt>
+          <dd>
+            @if (live.metrics.doubleBookings === null) {
+              counted when the run ends
+            } @else if (live.metrics.doubleBookings > 0) {
+              <strong class="text-danger">
+                {{ live.metrics.doubleBookings }} seats sold twice
+              </strong>
+            } @else {
+              0, no seat sold twice
+            }
+          </dd>
+        </div>
+      </dl>
+    }
+    @if (streamProblem(); as text) {
+      <p role="alert" class="text-danger">{{ text }}</p>
+      <button type="button" class="btn self-start" (click)="watch(current.id)">Reconnect</button>
+    }
+  </section>
+}
+
+<section aria-label="Comparison" class="flex flex-col gap-3">
+  <h2 class="text-lg font-medium">Finished runs</h2>
+  @if (runs.error()) {
+    <p role="alert" class="text-danger">The finished runs could not be loaded.</p>
+    <button type="button" class="btn self-start" (click)="runs.reload()">Try again</button>
+  } @else if (!runs.hasValue()) {
+    <p role="status">Loading finished runs…</p>
+  } @else {
+    @let list = runs.value();
+    @if (list.length === 0) {
+      <p>No finished runs yet. Start one above.</p>
+    } @else {
+      <div class="overflow-x-auto">
+        <table class="w-full border-collapse text-left text-sm">
+          <caption class="sr-only">
+            Finished runs, newest first
+          </caption>
+          <thead>
+            <tr class="border-b border-edge">
+              <th scope="col" class="py-2 pr-3">Strategy</th>
+              <th scope="col" class="py-2 pr-3">Buyers</th>
+              <th scope="col" class="py-2 pr-3">Seats</th>
+              <th scope="col" class="py-2 pr-3">Holds</th>
+              <th scope="col" class="py-2 pr-3">Conflicts</th>
+              <th scope="col" class="py-2 pr-3">Double bookings</th>
+              <th scope="col" class="py-2">p95</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (item of list; track item.id) {
+              <tr class="border-b border-edge">
+                <th scope="row" class="py-2 pr-3 font-medium">{{ item.strategy }}</th>
+                <td class="py-2 pr-3">{{ item.buyers }}</td>
+                <td class="py-2 pr-3">{{ item.seats }}</td>
+                <td class="py-2 pr-3">{{ item.metrics?.holds }}</td>
+                <td class="py-2 pr-3">{{ item.metrics?.conflicts }}</td>
+                <td class="py-2 pr-3">
+                  @if ((item.metrics?.doubleBookings ?? 0) > 0) {
+                    <strong class="text-danger"
+                      >{{ item.metrics?.doubleBookings }} seats sold twice</strong
+                    >
+                  } @else {
+                    0
+                  }
+                </td>
+                <td class="py-2 whitespace-nowrap">
+                  {{ item.metrics?.p95Ms | number: '1.0-0' }} ms
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  }
+</section>

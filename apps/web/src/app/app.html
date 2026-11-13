@@ -7,6 +7,8 @@
         <a routerLink="/bookings" class="underline">My bookings</a>
       } @else if (store.role() === organizer) {
         <a routerLink="/organizer" class="underline">Organizer</a>
+      } @else if (store.role() === admin) {
+        <a routerLink="/admin/simulator" class="underline">Simulator</a>
       }
       @if (store.role(); as role) {
         <span class="text-text-muted">Signed in as {{ role }}</span>

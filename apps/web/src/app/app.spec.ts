@@ -51,7 +51,7 @@ describe('App', () => {
     [null, ['Events']],
     [ROLE.CUSTOMER, ['Events', 'My bookings']],
     [ROLE.ORGANIZER, ['Events', 'Organizer']],
-    [ROLE.ADMIN, ['Events']],
+    [ROLE.ADMIN, ['Events', 'Simulator']],
   ])('shows these header links for %s: %j', (role, links) => {
     if (role) TestBed.inject(SessionStore).set(tokensFor(role));
     const { fixture, element } = render();

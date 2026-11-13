@@ -15,4 +15,5 @@ export class App {
   protected readonly auth = inject(AuthService);
   protected readonly customer = ROLE.CUSTOMER;
   protected readonly organizer = ROLE.ORGANIZER;
+  protected readonly admin = ROLE.ADMIN;
 }
