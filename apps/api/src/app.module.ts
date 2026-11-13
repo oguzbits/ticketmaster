@@ -6,6 +6,7 @@ import { ClockModule } from './infrastructure/clock/clock.module.js';
 import { DatabaseModule } from './infrastructure/database/database.module.js';
 import { requestId } from './infrastructure/logging/request-id.js';
 import { RedisModule } from './infrastructure/redis/redis.module.js';
+import { BookingsModule } from './modules/bookings/index.js';
 import { HealthModule } from './modules/health/index.js';
 
 @Module({
@@ -21,6 +22,7 @@ import { HealthModule } from './modules/health/index.js';
     DatabaseModule,
     RedisModule,
     HealthModule,
+    BookingsModule,
   ],
 })
 export class AppModule {}

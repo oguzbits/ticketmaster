@@ -4,7 +4,12 @@ import { createClient } from 'redis';
 import { APP_CONFIG } from '../../config/config.module.js';
 import type { Env } from '../../config/env.js';
 
-export type Redis = ReturnType<typeof createClient>;
+/** One place that calls `createClient`, so `Redis` is the exact type it returns (also for the tests). */
+export function createRedisClient(url: string) {
+  return createClient({ url });
+}
+
+export type Redis = ReturnType<typeof createRedisClient>;
 
 export const REDIS = Symbol('REDIS');
 
@@ -14,7 +19,7 @@ export const REDIS = Symbol('REDIS');
     {
       provide: REDIS,
       useFactory: async (env: Env) => {
-        const client = createClient({ url: env.REDIS_URL });
+        const client = createRedisClient(env.REDIS_URL);
         // node-redis reconnects by itself; without a listener an 'error' event would crash the process.
         client.on('error', (error: Error) => new Logger('Redis').error(error.message));
         await client.connect();
