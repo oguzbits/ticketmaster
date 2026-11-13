@@ -11,16 +11,19 @@ import { createSqsClient, SqsMessageQueue } from './sqs-message-queue.js';
 // reappear after the visibility timeout; the poll time is a little longer than that.
 const VISIBILITY_SECONDS = 1;
 const POLL_SECONDS = 2;
+const SHORT_TIMEOUT_MS = 500;
 
 describe('SqsMessageQueue against the local emulator', () => {
   let client: SQSClient;
   let queue: SqsMessageQueue;
+  let queueName: string;
   let destroy: () => Promise<void>;
 
   beforeAll(async () => {
     client = createSqsClient(loadEnv());
     const scratch = await createScratchQueue(client, VISIBILITY_SECONDS);
     destroy = scratch.destroy;
+    queueName = scratch.queueName;
     queue = await SqsMessageQueue.connect(client, scratch.queueName, POLL_SECONDS);
   });
   afterAll(async () => {
@@ -61,6 +64,15 @@ describe('SqsMessageQueue against the local emulator', () => {
     expect(second).toMatchObject({ messageId, receiveCount: 2 });
     if (second === undefined) throw new Error('nothing received');
     await queue.delete(second.receiptHandle);
+  });
+
+  it('a long poll may outlast the default request timeout', async () => {
+    const impatient = createSqsClient(loadEnv(), SHORT_TIMEOUT_MS);
+    const waiting = await SqsMessageQueue.connect(impatient, queueName, POLL_SECONDS);
+
+    // The poll waits POLL_SECONDS on the empty queue, longer than the client's default timeout.
+    expect(await waiting.receive(1)).toEqual([]);
+    impatient.destroy();
   });
 
   it('a deleted message does not come back', async () => {

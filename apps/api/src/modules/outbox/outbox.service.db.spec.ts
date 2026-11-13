@@ -153,6 +153,24 @@ describe('OutboxService', () => {
     }
   });
 
+  it('a relay whose send hangs past the transaction limit fails and keeps the row for the next relay', async () => {
+    const hangMs = 1500;
+    const limitMs = 300;
+    const hung = new FakeMessageQueue(async () => {
+      await new Promise((resolve) => setTimeout(resolve, hangMs));
+    });
+    const [only] = await enqueueMessages(serviceWith(hung), 1);
+    if (only === undefined) throw new Error('no message');
+
+    // The database ends a transaction that sits idle for longer than the limit.
+    await expect(serviceWith(hung).relay(BATCH, limitMs)).rejects.toThrow();
+
+    expect(await rowOf(only.messageId)).toMatchObject({ publishedAt: null });
+    const healthy = new FakeMessageQueue();
+    await serviceWith(healthy).relay(BATCH);
+    expect(healthy.sentCount(only.messageId)).toBe(1);
+  });
+
   it('two relays at once: the second does not wait for the rows of the first and no row goes out twice', async () => {
     let release: () => void = () => undefined;
     const gate = new Promise<void>((resolve) => {

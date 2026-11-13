@@ -140,6 +140,18 @@ follows, then phase 2. Still open from earlier notes:
   the transaction, so a cancel or an expiry can land while the provider answers. The apply step
   then answers 409, stores nothing and logs the booking ID; the money is not returned. Needs a
   refund call on the provider port and a stored reason.
+- **No database guard for one `BOOKING_CONFIRMED` per booking.** The outbox row is written in the
+  apply step of the payment; that exactly one row exists per confirmed booking rests on the row
+  lock and the status check, not on a unique constraint. A unique index on the booking ID in the
+  payload would make it a database guarantee.
+- **The outbox relay holds a transaction while it sends.** The rows stay locked (`SKIP LOCKED`
+  keeps other relays away) until the batch is sent and marked. A send is bounded by the queue
+  client's request timeout (5 s, one attempt), a batch is 20 rows, and the database ends a relay
+  transaction that sits idle for 120 s; a send that was made but not marked is repeated (at least
+  once, consumers dedupe). Selecting, sending outside the transaction and marking afterwards would
+  need a claim state on the row.
+- **Published outbox rows are never deleted.** The table grows with every confirmed booking; a
+  retention job (like the simulation retention) is needed before it matters.
 - **Initial web bundle is about 790 kB**, over the 500 kB warning budget. Zod makes up a large part of it.
   Measure, then decide (lazy routes, `zod/mini`).
 - **A running hold is not restored after a reload.** The seat map keeps the customer's hold in the

@@ -10,6 +10,13 @@ import { MESSAGE_QUEUE, type MessageQueue } from './domain/message-queue.js';
 /** The oldest unpublished row may be this old before the ready probe reports the outbox as stuck. */
 export const OUTBOX_STUCK_SECONDS = 300;
 
+/**
+ * The relay holds its transaction (and the locks of its rows) while it sends. The database ends a
+ * transaction that sits idle longer than this: a batch of sends, each bounded by the request
+ * timeout of the queue client (5 s), stays far below it.
+ */
+export const OUTBOX_RELAY_TRANSACTION_LIMIT_MS = 120_000;
+
 @Injectable()
 export class OutboxService {
   constructor(
@@ -33,10 +40,18 @@ export class OutboxService {
    * another relay holds are skipped, so relays side by side never wait for each other and send
    * each row once. A failed send keeps its row, counts the attempt and stores the error name; it
    * does not stop the batch. A crash between a send and the commit sends the row again later: the
-   * delivery is at least once and consumers dedupe by the message ID.
+   * delivery is at least once and consumers dedupe by the message ID. A relay that sits idle in
+   * its transaction past `transactionLimitMs` (a send that hangs) is ended by the database: it
+   * rejects, its rows stay unpublished and the sends it made are repeated by the next relay.
    */
-  relay(batchSize: number): Promise<{ sent: number; failed: number }> {
+  relay(
+    batchSize: number,
+    transactionLimitMs: number = OUTBOX_RELAY_TRANSACTION_LIMIT_MS
+  ): Promise<{ sent: number; failed: number }> {
     return this.db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select set_config('idle_in_transaction_session_timeout', ${String(transactionLimitMs)}, true)`
+      );
       const rows = await tx
         .select()
         .from(outboxMessages)

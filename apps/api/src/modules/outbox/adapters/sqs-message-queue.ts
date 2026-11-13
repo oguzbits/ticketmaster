@@ -15,14 +15,32 @@ import type { MessageQueue, ReceivedMessage } from '../domain/message-queue.js';
 const MESSAGE_ID_ATTRIBUTE = 'messageId';
 const RECEIVE_COUNT_ATTRIBUTE = 'ApproximateReceiveCount';
 
+/** A send, a delete or a lookup that takes longer fails: the relay holds a transaction meanwhile. */
+const SQS_REQUEST_TIMEOUT_MS = 5000;
+const SQS_CONNECTION_TIMEOUT_MS = 3000;
+/** A long poll is a request that waits on purpose; it gets its wait plus this much. */
+const LONG_POLL_MARGIN_MS = 5000;
+
 type AwsEnv = Pick<
   Env,
   'AWS_ENDPOINT_URL' | 'AWS_REGION' | 'AWS_ACCESS_KEY_ID' | 'AWS_SECRET_ACCESS_KEY'
 >;
 
 /** Endpoint and credentials come from the config module only; the SDK reads no environment itself. */
-export function createSqsClient(env: AwsEnv): SQSClient {
+export function createSqsClient(
+  env: AwsEnv,
+  requestTimeoutMs: number = SQS_REQUEST_TIMEOUT_MS
+): SQSClient {
   return new SQSClient({
+    // One attempt: the relay and the consumer loop retry, so a down queue cannot hold a batch long.
+    maxAttempts: 1,
+    // Options of the node request handler (verified in @smithy/node-http-handler 4.x): without
+    // `throwOnRequestTimeout` a breach of `requestTimeout` only logs a warning.
+    requestHandler: {
+      connectionTimeout: SQS_CONNECTION_TIMEOUT_MS,
+      requestTimeout: requestTimeoutMs,
+      throwOnRequestTimeout: true,
+    },
     // Unset means real AWS.
     ...(env.AWS_ENDPOINT_URL === undefined ? {} : { endpoint: env.AWS_ENDPOINT_URL }),
     region: env.AWS_REGION,
@@ -83,7 +101,8 @@ export class SqsMessageQueue implements MessageQueue {
         WaitTimeSeconds: this.waitSeconds,
         MessageAttributeNames: [MESSAGE_ID_ATTRIBUTE],
         MessageSystemAttributeNames: [RECEIVE_COUNT_ATTRIBUTE],
-      })
+      }),
+      { requestTimeout: this.waitSeconds * 1000 + LONG_POLL_MARGIN_MS }
     );
     return Messages.map((raw) => {
       const message = ReceivedSchema.parse(raw);
