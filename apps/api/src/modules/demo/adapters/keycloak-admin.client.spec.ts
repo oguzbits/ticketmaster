@@ -1,9 +1,14 @@
 import { randomUUID } from 'node:crypto';
 
 import { ROLE } from '@app/shared';
-import { ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
+import {
+  HttpException,
+  Logger,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { type DefaultBodyType, http, HttpResponse } from 'msw';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { server } from '../../../testing/mock-server.js';
 import type { NewDemoUser } from '../domain/demo-user.js';
@@ -231,24 +236,40 @@ describe('KeycloakAdminClient', () => {
       });
     });
 
-    it.each([400, 401])(
-      'answers 401 when Keycloak refuses the refresh token with %i',
-      async (status) => {
-        server.use(
-          http.post(TOKEN_URL, () => HttpResponse.json({ error: 'invalid_grant' }, { status }))
-        );
+    it('answers 401 when Keycloak refuses the refresh token as an invalid grant', async () => {
+      server.use(
+        http.post(TOKEN_URL, () => HttpResponse.json({ error: 'invalid_grant' }, { status: 400 }))
+      );
 
-        await expect(client.refresh('bad')).rejects.toBeInstanceOf(UnauthorizedException);
-      }
-    );
+      await expect(client.refresh('bad')).rejects.toBeInstanceOf(UnauthorizedException);
+    });
 
-    it('does not blame the caller when Keycloak itself fails', async () => {
-      server.use(http.post(TOKEN_URL, () => new HttpResponse(null, { status: 503 })));
+    describe('does not blame the caller for a failure of ours', () => {
+      const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      afterEach(() => logged.mockClear());
+      afterAll(() => logged.mockRestore());
 
-      const failure = await client.refresh('any').catch((error: Error) => error);
+      it.each([
+        ['a wrong client secret', 401, { error: 'invalid_client' }],
+        ['another 400 error', 400, { error: 'invalid_request' }],
+        ['a 400 without an error code', 400, {}],
+        ['a 403', 403, { error: 'access_denied' }],
+      ])('answers 500 for %s and logs the status', async (_name, status, body) => {
+        server.use(http.post(TOKEN_URL, () => HttpResponse.json(body, { status })));
 
-      expect(failure).toBeInstanceOf(Error);
-      expect(failure).not.toBeInstanceOf(UnauthorizedException);
+        const failure = await client.refresh('any').catch((error: Error) => error);
+
+        expect(failure).toBeInstanceOf(Error);
+        expect(failure).not.toBeInstanceOf(HttpException);
+        expect(logged).toHaveBeenCalledWith(expect.stringContaining(String(status)));
+      });
+
+      it('answers 503 when Keycloak itself fails, and logs the status', async () => {
+        server.use(http.post(TOKEN_URL, () => new HttpResponse('<html>', { status: 502 })));
+
+        await expect(client.refresh('any')).rejects.toBeInstanceOf(ServiceUnavailableException);
+        expect(logged).toHaveBeenCalledWith(expect.stringContaining('502'));
+      });
     });
   });
 

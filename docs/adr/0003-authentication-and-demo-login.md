@@ -51,7 +51,9 @@ Chosen: option 1, with a global default-deny guard and token refresh through the
   `default-roles-ticketmaster`, `uma_authorization`); the guard keeps only `customer`, `organizer`
   and `admin`. `sub` is the user's UUID.
 - **Access token** lives 300 s, the refresh token 1800 s; the refresh grant returns a new pair.
-  A bad refresh token answers 400 `invalid_grant`.
+  A bad refresh token answers 400 `invalid_grant`; the API maps only that body to 401. A wrong client
+  secret answers 401 `invalid_client` and, like any other 4xx or 5xx, is a fault of ours (500, or 503
+  for a 5xx), never a bad token.
 - **A user needs `email`, `firstName` and `lastName`.** Without them the password grant answers 400
   `invalid_grant` "Account is not fully set up". The demo user gets a random username, an address
   on the reserved `.invalid` domain (no mail is ever sent) and fixed display names.
