@@ -22,9 +22,13 @@ export const BookingSchema = z.object({
   transitions: z.array(BookingTransitionSchema),
 });
 
-/** Header of the payment request; the same key again returns the first answer without a second charge. */
+/**
+ * Header of the payment request; the same key again returns the first answer without a second
+ * charge. Keys are unique over all users, so a UUID is required: a guessable key of one user would
+ * block another user and reveal that the key exists.
+ */
 export const IDEMPOTENCY_KEY_HEADER = 'idempotency-key';
-export const IdempotencyKeySchema = z.string().min(1).max(128);
+export const IdempotencyKeySchema = z.uuid();
 
 export const BookingListResponseSchema = z.array(BookingSchema);
 

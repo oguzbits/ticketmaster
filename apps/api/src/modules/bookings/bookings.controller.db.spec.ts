@@ -46,9 +46,16 @@ const TOKENS = {
 };
 type Caller = keyof typeof TOKENS;
 
-// The payment key column is unique over the whole table, so every run needs fresh keys.
-const RUN_ID = randomUUID();
-const key = (name: string): string => `${RUN_ID}-${name}`;
+// The payment key column is unique over the whole table and the header must be a UUID: one random
+// UUID per name and run; the same name gives the same key again.
+const KEYS = new Map<string, string>();
+const key = (name: string): string => {
+  const known = KEYS.get(name);
+  if (known !== undefined) return known;
+  const fresh = randomUUID();
+  KEYS.set(name, fresh);
+  return fresh;
+};
 
 describe('booking endpoints', () => {
   const database = openTestDatabase();
@@ -204,6 +211,7 @@ describe('booking endpoints', () => {
       ['a missing key', undefined],
       ['an empty key', ''],
       ['a key over 128 characters', 'k'.repeat(129)],
+      ['a key that is not a UUID', '1'],
     ])('answers 400 for %s and charges nothing', async (_name, idempotencyKey) => {
       const { id } = await hold('alice');
 

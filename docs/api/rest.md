@@ -3,18 +3,18 @@
 Contracts are the Zod schemas in `packages/shared`. Every route except the two probes sits under
 the `/api` prefix (Caddy forwards `/api/*` and `/health/*` to the API).
 
-| Method and path                  | Role     | Answer                                                                                                                                                                                                                             |
-| -------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /health/live`               | public   | 200 `{ status: "UP" }`: the process serves requests                                                                                                                                                                                |
-| `GET /health/ready`              | public   | 200 `{ status: "UP" }` when Postgres (`select 1`) and Redis (`PING`) answer, 503 `{ status: "DOWN" }` otherwise                                                                                                                    |
-| `GET /api/events`                | public   | 200 `EventSummary[]` (`id`, `name`, `startsAt`, `venueName`, `strategy`): public events plus the caller's own sandbox events, ordered by `startsAt`                                                                                |
-| `GET /api/events/:id`            | public   | 200 `EventDetail` (summary plus `seats`: `id`, `section`, `row`, `number`, `priceCents`, `status`), 400 for a non-UUID id, 404 for an unknown event or another user's sandbox event                                                |
-| `POST /api/bookings`             | customer | 201 `Booking` for a `HoldRequest` (`eventId`, `seatId`); 409 when the seat is taken, 404 when the seat is not in the event or the event is another user's sandbox, 400 for a malformed body                                        |
-| `POST /api/bookings/:id/payment` | customer | 200 `Booking` (`CONFIRMED`, or `CANCELLED` when the payment fails); header `Idempotency-Key` (1 to 128 characters) is required, else 400; 403 for another user's booking, 409 for an expired hold or a booking that cannot be paid |
-| `POST /api/bookings/:id/cancel`  | customer | 200 `Booking` (`CANCELLED`) from `HELD` or `CONFIRMED`; 403 for another user's booking, 409 from any other status                                                                                                                  |
-| `GET /api/bookings`              | customer | 200 `Booking[]`: the caller's own bookings, newest first, each with its stored transitions newest first                                                                                                                            |
-| `POST /api/demo-login`           | public   | 200 `TokenResponse` for a `DemoLoginRequest` (`role`: `customer`, `organizer` or `admin`), 400 for another role; creates a temporary user, rate limit `DEMO_LOGIN`                                                                 |
-| `POST /api/auth/refresh`         | public   | 200 `TokenResponse` (a new access and refresh token) for a `RefreshRequest` (`refreshToken`), 400 for a malformed body, 401 when Keycloak refuses the token; rate limit `REFRESH`                                                  |
+| Method and path                  | Role     | Answer                                                                                                                                                                                                                |
+| -------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health/live`               | public   | 200 `{ status: "UP" }`: the process serves requests                                                                                                                                                                   |
+| `GET /health/ready`              | public   | 200 `{ status: "UP" }` when Postgres (`select 1`) and Redis (`PING`) answer, 503 `{ status: "DOWN" }` otherwise                                                                                                       |
+| `GET /api/events`                | public   | 200 `EventSummary[]` (`id`, `name`, `startsAt`, `venueName`, `strategy`): public events plus the caller's own sandbox events, ordered by `startsAt`                                                                   |
+| `GET /api/events/:id`            | public   | 200 `EventDetail` (summary plus `seats`: `id`, `section`, `row`, `number`, `priceCents`, `status`), 400 for a non-UUID id, 404 for an unknown event or another user's sandbox event                                   |
+| `POST /api/bookings`             | customer | 201 `Booking` for a `HoldRequest` (`eventId`, `seatId`); 409 when the seat is taken, 404 when the seat is not in the event or the event is another user's sandbox, 400 for a malformed body                           |
+| `POST /api/bookings/:id/payment` | customer | 200 `Booking` (`CONFIRMED`, or `CANCELLED` when the payment fails); header `Idempotency-Key` (a UUID) is required, else 400; 403 for another user's booking, 409 for an expired hold or a booking that cannot be paid |
+| `POST /api/bookings/:id/cancel`  | customer | 200 `Booking` (`CANCELLED`) from `HELD` or `CONFIRMED`; 403 for another user's booking, 409 from any other status                                                                                                     |
+| `GET /api/bookings`              | customer | 200 `Booking[]`: the caller's own bookings, newest first, each with its stored transitions newest first                                                                                                               |
+| `POST /api/demo-login`           | public   | 200 `TokenResponse` for a `DemoLoginRequest` (`role`: `customer`, `organizer` or `admin`), 400 for another role; creates a temporary user, rate limit `DEMO_LOGIN`                                                    |
+| `POST /api/auth/refresh`         | public   | 200 `TokenResponse` (a new access and refresh token) for a `RefreshRequest` (`refreshToken`), 400 for a malformed body, 401 when Keycloak refuses the token; rate limit `REFRESH`                                     |
 
 A seat's `status` is derived in one query from its active booking (`HELD`, `PAID` or `CONFIRMED`
 occupy the seat) and is `AVAILABLE` when there is none; it is never stored. A sandbox event is
@@ -64,6 +64,15 @@ Every response carries no personal data; requests are logged with the `x-request
 | `DEMO_LOGIN` | the demo login (replaces `DEFAULT` for the address)           | client address                                | 5 per 60 s         |
 | `REFRESH`    | the token refresh (replaces `DEFAULT` for the address)        | client address                                | 30 per 60 s        |
 
+## Payment idempotency
+
+The payment `Idempotency-Key` is a UUID that the client generates randomly for each payment attempt
+and sends again only to repeat that same attempt (retry after a timeout). The same key on the same
+booking returns the first answer without a second charge. The stored key is unique over all
+bookings of all users, so a predictable key (`1`, an order number) of one user would make another
+user's payment fail with 409 and reveal that the key exists. A random UUID cannot be guessed, which
+is why any other format answers 400.
+
 ## Dictionaries
 
 `packages/shared` holds the values every contract uses, each as an `as const` dictionary with a Zod
@@ -87,7 +96,7 @@ in the table above when it is implemented. Authentication is described in
 | `RoleSchema` (`ROLE`)                                                 | Realm roles: `customer`, `organizer`, `admin`                                                      |
 | `DemoLoginRequestSchema`, `RefreshRequestSchema`                      | `{ role }` for the demo login, `{ refreshToken }` for the token refresh                            |
 | `TokenResponseSchema`                                                 | `{ accessToken, refreshToken, expiresIn }`                                                         |
-| `HoldRequestSchema`, `IdempotencyKeySchema`                           | `{ eventId, seatId }`; the `Idempotency-Key` header value (1 to 128 characters)                    |
+| `HoldRequestSchema`, `IdempotencyKeySchema`                           | `{ eventId, seatId }`; the `Idempotency-Key` header value (a UUID)                                 |
 | `BookingSchema`, `BookingListResponseSchema`                          | A booking with its seat position and stored transitions (`fromStatus`, `toStatus`, `reason`, `at`) |
 | `VenueSchema`, `CreateEventRequestSchema`, `SetStrategyRequestSchema` | Venue templates with `seatCount`; create an event; switch the strategy                             |
 | `OrganizerEventSchema`                                                | An event summary with `seatCount`, `soldCount`, `heldCount` and `utilization` (0..1)               |
