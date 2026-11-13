@@ -2,7 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
-import { ROLE } from '@app/shared';
+import { ROLE, type Role } from '@app/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { tokensFor } from '../testing/tokens';
@@ -45,6 +45,20 @@ describe('App', () => {
     await fixture.whenStable();
 
     expect(element.textContent).toContain('No events yet');
+  });
+
+  it.each<[Role | null, string[]]>([
+    [null, ['Events']],
+    [ROLE.CUSTOMER, ['Events', 'My bookings']],
+    [ROLE.ORGANIZER, ['Events', 'Organizer']],
+    [ROLE.ADMIN, ['Events']],
+  ])('shows these header links for %s: %j', (role, links) => {
+    if (role) TestBed.inject(SessionStore).set(tokensFor(role));
+    const { fixture, element } = render();
+    fixture.detectChanges();
+
+    const names = [...element.querySelectorAll('nav a')].map((a) => a.textContent?.trim());
+    expect(names).toEqual(links);
   });
 
   it('shows the role of the signed-in user and logs out to the start page', async () => {

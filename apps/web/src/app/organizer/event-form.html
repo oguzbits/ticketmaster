@@ -1,0 +1,81 @@
+<h2 class="text-lg font-medium">Create an event</h2>
+
+@if (venues.isLoading()) {
+  <p role="status">Loading venues…</p>
+} @else if (venues.error()) {
+  <p role="alert" class="text-danger">The venues could not be loaded.</p>
+  <button type="button" class="btn self-start" (click)="venues.reload()">Try again</button>
+} @else {
+  @let list = venues.value() ?? [];
+  @if (list.length === 0) {
+    <p>No venues are available yet.</p>
+  } @else {
+    <form class="flex flex-col gap-3" (submit)="submit($event)" novalidate>
+      <div class="flex flex-col gap-1">
+        <label for="event-venue" class="text-sm font-medium">Venue</label>
+        <select
+          id="event-venue"
+          class="rounded border border-edge bg-surface-raised px-3 py-2"
+          (change)="venueId.set(venue.value)"
+          #venue
+        >
+          @for (item of list; track item.id) {
+            <option [value]="item.id" [selected]="item.id === venueId()">
+              {{ item.name }} ({{ item.seatCount }} seats)
+            </option>
+          }
+        </select>
+      </div>
+      <div class="flex flex-col gap-1">
+        <label for="event-name" class="text-sm font-medium">Name</label>
+        <input
+          id="event-name"
+          type="text"
+          maxlength="120"
+          class="rounded border border-edge bg-surface-raised px-3 py-2"
+          [value]="name()"
+          (input)="name.set(nameInput.value)"
+          #nameInput
+        />
+      </div>
+      <div class="flex flex-col gap-1">
+        <label for="event-starts-at" class="text-sm font-medium">Starts at</label>
+        <input
+          id="event-starts-at"
+          type="datetime-local"
+          class="rounded border border-edge bg-surface-raised px-3 py-2"
+          [value]="startsAt()"
+          (input)="startsAt.set(startInput.value)"
+          #startInput
+        />
+      </div>
+      <div class="flex flex-col gap-1">
+        <label for="event-strategy" class="text-sm font-medium">Strategy</label>
+        <select
+          id="event-strategy"
+          class="rounded border border-edge bg-surface-raised px-3 py-2"
+          (change)="pickStrategy(strategyInput.value)"
+          #strategyInput
+        >
+          @for (item of strategies; track item) {
+            <option [value]="item" [selected]="item === strategy()">{{ item }}</option>
+          }
+        </select>
+      </div>
+
+      @if (problem(); as text) {
+        <p role="alert" class="text-danger">{{ text }}</p>
+      }
+      @if (done()) {
+        <p role="status">Event created.</p>
+      }
+      <button
+        type="submit"
+        class="btn self-start disabled:cursor-not-allowed disabled:opacity-60"
+        [disabled]="pending()"
+      >
+        {{ pending() ? 'Creating…' : 'Create event' }}
+      </button>
+    </form>
+  }
+}
