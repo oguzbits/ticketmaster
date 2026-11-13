@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { BOOKING_STRATEGY, SEAT_STATUS, SEAT_STREAM_EVENT, type SeatChange } from '@app/shared';
-import { Logger, NotFoundException } from '@nestjs/common';
+import { HttpException, HttpStatus, Logger, NotFoundException } from '@nestjs/common';
 import type { Subscription } from 'rxjs';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -10,7 +10,17 @@ import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
 import { seatChannel } from '../bookings/index.js';
 import { EventsService } from './events.service.js';
-import { HEARTBEAT_MS, type SeatStreamMessage, SeatStreamService } from './seat-stream.service.js';
+import {
+  HEARTBEAT_MS,
+  MAX_STREAMS_PER_IP,
+  MAX_STREAMS_TOTAL,
+  type SeatStreamMessage,
+  SeatStreamService,
+  STREAM_MAX_LIFETIME_MS,
+} from './seat-stream.service.js';
+
+const ADDRESS = '10.0.0.1';
+const OTHER_ADDRESS = '10.0.0.2';
 
 describe('SeatStreamService', () => {
   const database = openTestDatabase();
@@ -44,10 +54,10 @@ describe('SeatStreamService', () => {
   });
 
   /** Subscribes like the SSE route does and records what arrives. */
-  function listen(eventId: string, userId: string | null = null) {
+  function listen(eventId: string, userId: string | null = null, address = ADDRESS) {
     const messages: SeatStreamMessage[] = [];
     const state: { error?: Error; completed: boolean } = { completed: false };
-    const subscription = service.stream(eventId, userId).subscribe({
+    const subscription = service.stream(eventId, userId, address).subscribe({
       next: (message) => messages.push(message),
       error: (error: Error) => (state.error = error),
       complete: () => (state.completed = true),
@@ -143,6 +153,30 @@ describe('SeatStreamService', () => {
     await vi.waitFor(async () => expect(await subscribersOf(eventId)).toBe(0));
   });
 
+  it('a viewer who joins right after the last one left still gets the changes', async () => {
+    const { eventId, seatIds } = await newEvent();
+    const first = listen(eventId);
+    await vi.waitFor(() => expect(first.messages).toHaveLength(1));
+
+    first.subscription.unsubscribe();
+    const second = listen(eventId);
+    await vi.waitFor(() => expect(second.messages).toHaveLength(1));
+    await publish(change(eventId, seatIds[0] ?? ''));
+
+    await vi.waitFor(() => expect(second.messages).toHaveLength(2));
+  });
+
+  it('leaves nothing subscribed when a viewer joins and leaves right after the last one left', async () => {
+    const { eventId } = await newEvent();
+    const first = listen(eventId);
+    await vi.waitFor(() => expect(first.messages).toHaveLength(1));
+    first.subscription.unsubscribe();
+    const second = listen(eventId);
+    second.subscription.unsubscribe();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await subscribersOf(eventId)).toBe(0);
+  });
+
   it('fails with NotFound for an event the viewer may not see, and leaves nothing subscribed', async () => {
     const { eventId } = await createTestEvent(db, {
       strategy: BOOKING_STRATEGY.PESSIMISTIC,
@@ -190,6 +224,148 @@ describe('SeatStreamService', () => {
   });
 });
 
+describe('SeatStreamService limits', () => {
+  const database = openTestDatabase();
+  const { db } = database;
+  let redis: Redis;
+  let service: SeatStreamService;
+  const open: Subscription[] = [];
+
+  beforeAll(async () => {
+    redis = await openTestRedis();
+    service = new SeatStreamService(redis, new EventsService(db));
+    await service.onModuleInit();
+  });
+  afterEach(() => {
+    for (const subscription of open.splice(0)) subscription.unsubscribe();
+    service.maxStreamsPerIp = MAX_STREAMS_PER_IP;
+    service.maxStreamsTotal = MAX_STREAMS_TOTAL;
+    service.maxLifetimeMs = STREAM_MAX_LIFETIME_MS;
+  });
+  afterAll(async () => {
+    await service.onModuleDestroy();
+    await redis.quit();
+    await database.close();
+  });
+
+  const newEvent = () => createTestEvent(db, { strategy: BOOKING_STRATEGY.PESSIMISTIC, seats: 1 });
+  function listen(eventId: string, address: string) {
+    const state = { completed: false, messages: 0 };
+    open.push(
+      service.stream(eventId, null, address).subscribe({
+        next: () => (state.messages += 1),
+        complete: () => (state.completed = true),
+      })
+    );
+    return state;
+  }
+  const refusedWith = (eventId: string, address: string): number => {
+    try {
+      listen(eventId, address);
+    } catch (error) {
+      if (error instanceof HttpException) return error.getStatus();
+      throw error;
+    }
+    return HttpStatus.OK;
+  };
+
+  it('has the documented defaults', () => {
+    expect([MAX_STREAMS_PER_IP, MAX_STREAMS_TOTAL, STREAM_MAX_LIFETIME_MS]).toEqual([
+      10, 500, 600_000,
+    ]);
+  });
+
+  it('refuses a stream over the per-address cap with 429, lets other addresses in, frees the slot on disconnect', async () => {
+    const { eventId } = await newEvent();
+    service.maxStreamsPerIp = 2;
+    listen(eventId, ADDRESS);
+    listen(eventId, ADDRESS);
+
+    expect(refusedWith(eventId, ADDRESS)).toBe(HttpStatus.TOO_MANY_REQUESTS);
+    expect(refusedWith(eventId, OTHER_ADDRESS)).toBe(HttpStatus.OK);
+    open[0]?.unsubscribe();
+
+    expect(refusedWith(eventId, ADDRESS)).toBe(HttpStatus.OK);
+  });
+
+  it('refuses a stream over the process cap with 503, whoever asks, frees the slot on disconnect', async () => {
+    const { eventId } = await newEvent();
+    service.maxStreamsTotal = 2;
+    listen(eventId, ADDRESS);
+    listen(eventId, OTHER_ADDRESS);
+
+    expect(refusedWith(eventId, '10.0.0.3')).toBe(HttpStatus.SERVICE_UNAVAILABLE);
+    open[1]?.unsubscribe();
+
+    expect(refusedWith(eventId, '10.0.0.3')).toBe(HttpStatus.OK);
+  });
+
+  it('ends a stream after its maximum lifetime and frees its slot and its Redis subscription', async () => {
+    const { eventId } = await newEvent();
+    service.maxLifetimeMs = 50;
+    service.maxStreamsPerIp = 1;
+    const viewer = listen(eventId, ADDRESS);
+
+    await vi.waitFor(() => expect(viewer.completed).toBe(true));
+
+    await vi.waitFor(async () =>
+      expect((await redis.pubSubNumSub(seatChannel(eventId)))[seatChannel(eventId)]).toBe(0)
+    );
+    expect(refusedWith(eventId, ADDRESS)).toBe(HttpStatus.OK);
+  });
+
+  it('keeps a stream open before its maximum lifetime', async () => {
+    const { eventId } = await newEvent();
+    const viewer = listen(eventId, ADDRESS);
+    await vi.waitFor(() => expect(viewer.messages).toBe(1));
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(viewer.completed).toBe(false);
+  });
+});
+
+describe('SeatStreamService after the subscriber connection was lost', () => {
+  const database = openTestDatabase();
+  const { db } = database;
+  afterAll(() => database.close());
+
+  /** Kills the server side of the service's subscriber connection, found by its client name. */
+  async function dropConnection(redis: Redis, name: string): Promise<void> {
+    const list = await redis.sendCommand<string>(['CLIENT', 'LIST']);
+    const line = list.split('\n').find((entry) => entry.includes(`name=${name} `));
+    const id = /id=(\d+)/.exec(line ?? '')?.[1];
+    if (id === undefined) throw new Error('subscriber connection not found');
+    await redis.sendCommand(['CLIENT', 'KILL', 'ID', id]);
+  }
+
+  it('ends every open stream once it is connected again, so clients reconnect and read a fresh snapshot', async () => {
+    const redis = await openTestRedis();
+    const name = `seat-stream-spec-${randomUUID()}`;
+    const duplicate = redis.duplicate.bind(redis);
+    vi.spyOn(redis, 'duplicate').mockImplementation(() => duplicate({ name }));
+    const service = new SeatStreamService(redis, new EventsService(db));
+    await service.onModuleInit();
+    const { eventId } = await createTestEvent(db, {
+      strategy: BOOKING_STRATEGY.PESSIMISTIC,
+      seats: 1,
+    });
+    const messages: SeatStreamMessage[] = [];
+    let completed = false;
+    service.stream(eventId, null, ADDRESS).subscribe({
+      next: (message) => messages.push(message),
+      complete: () => (completed = true),
+    });
+    await vi.waitFor(() => expect(messages).toHaveLength(1));
+
+    await dropConnection(redis, name);
+
+    await vi.waitFor(() => expect(completed).toBe(true));
+    await service.onModuleDestroy();
+    await redis.quit();
+  });
+});
+
 describe('SeatStreamService shutdown', () => {
   const database = openTestDatabase();
   afterAll(() => database.close());
@@ -204,7 +380,7 @@ describe('SeatStreamService shutdown', () => {
     });
     const messages: SeatStreamMessage[] = [];
     let completed = false;
-    service.stream(eventId, null).subscribe({
+    service.stream(eventId, null, ADDRESS).subscribe({
       next: (message) => messages.push(message),
       complete: () => (completed = true),
     });

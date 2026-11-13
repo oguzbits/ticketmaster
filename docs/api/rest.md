@@ -49,7 +49,11 @@ a client disconnects its stream is released; on shutdown every open stream is co
 the application does not wait for the clients. The route is public like the other events routes, and
 a token that is sent unlocks the caller's own sandbox events; a browser `EventSource` cannot send an
 `Authorization` header, so a client that needs a sandbox event reads the stream with `fetch`. The
-rate limit counts the request that opens the stream, not its duration.
+rate limit counts the request that opens the stream, not its duration; open streams are capped
+separately: at most 10 per client address (429) and 500 per process (503), counted in memory per
+process. A stream ends on its own after 10 minutes, and every stream ends when the API's Redis
+subscriber reconnects (changes published during the outage are lost); the client then reconnects and
+receives a fresh snapshot, so a clean end of the stream is not an error.
 
 Booking routes take the user from the verified token only; no route reads a user ID from the body,
 query or path, and a booking of another user answers 403 without changing. The payment key is unique

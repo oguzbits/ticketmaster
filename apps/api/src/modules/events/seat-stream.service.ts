@@ -5,13 +5,16 @@ import {
   type SeatSnapshot,
 } from '@app/shared';
 import {
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
   Logger,
   type OnModuleDestroy,
   type OnModuleInit,
+  ServiceUnavailableException,
 } from '@nestjs/common';
-import { interval, Observable, Subject } from 'rxjs';
+import { interval, Observable, Subject, timer } from 'rxjs';
 
 import { REDIS, type Redis } from '../../infrastructure/redis/redis.module.js';
 import { seatChannel } from '../bookings/index.js';
@@ -19,6 +22,12 @@ import { EventsService } from './events.service.js';
 
 /** A comment line keeps proxies and browsers from closing a stream that is quiet. */
 export const HEARTBEAT_MS = 15_000;
+
+/** Open streams one client address may hold, and the open streams one process serves. */
+export const MAX_STREAMS_PER_IP = 10;
+export const MAX_STREAMS_TOTAL = 500;
+/** After this long the server ends a stream; the client reconnects and gets a fresh snapshot. */
+export const STREAM_MAX_LIFETIME_MS = 600_000;
 
 /** What the stream sends: the first event and every change are named, a heartbeat is a comment. */
 export type SeatStreamMessage =
@@ -41,10 +50,19 @@ interface Topic {
  */
 @Injectable()
 export class SeatStreamService implements OnModuleInit, OnModuleDestroy {
+  // Public so a spec can shorten them, like `heartbeatMs`.
   heartbeatMs = HEARTBEAT_MS;
+  maxLifetimeMs = STREAM_MAX_LIFETIME_MS;
+  maxStreamsPerIp = MAX_STREAMS_PER_IP;
+  maxStreamsTotal = MAX_STREAMS_TOTAL;
   private readonly logger = new Logger(SeatStreamService.name);
   private readonly subscriber: Redis;
   private readonly topics = new Map<string, Topic>();
+  // shortcut: the counts live in this process; move them to Redis when the API scales out (phase 2).
+  private readonly streamsPerIp = new Map<string, number>();
+  private streamsTotal = 0;
+  /** Subscribe and unsubscribe calls run one after another, see `enqueue`. */
+  private subscriptionQueue: Promise<void> = Promise.resolve();
 
   constructor(
     @Inject(REDIS) redis: Redis,
@@ -57,22 +75,38 @@ export class SeatStreamService implements OnModuleInit, OnModuleDestroy {
     // node-redis reconnects by itself and subscribes again; without a listener an 'error' event
     // would crash the process.
     this.subscriber.on('error', (error: Error) => this.logger.error(error.message));
+    // Changes published while the connection was down are lost for good. node-redis subscribes
+    // again by itself, but a viewer would keep a stale seat map, so every stream ends once the
+    // connection is back ('ready' also fires for the first connect, when no stream exists yet):
+    // the clients reconnect and read a fresh snapshot.
+    this.subscriber.on('ready', () => {
+      this.logger.warn('seat stream subscriber is ready, ending the open streams');
+      this.endStreams();
+    });
     await this.subscriber.connect();
   }
 
   /** Ends every open stream, so the HTTP server can close, then closes the connection. */
   async onModuleDestroy(): Promise<void> {
-    for (const topic of [...this.topics.values()]) topic.changes.complete();
+    this.endStreams();
     if (this.subscriber.isOpen) await this.subscriber.quit();
+  }
+
+  private endStreams(): void {
+    for (const topic of [...this.topics.values()]) topic.changes.complete();
   }
 
   /**
    * The snapshot, then every change. The subscription comes first and the snapshot is read after
    * it is active, so a change committed in between is not lost: it waits in `pending` and follows
    * the snapshot. A change older than the snapshot is harmless, the client applies changes in the
-   * order they arrive. Errors (an event the viewer may not see: NotFound) end the stream.
+   * order they arrive. Errors (an event the viewer may not see: NotFound) end the stream. The
+   * caps are checked here, before an Observable exists: once Nest subscribes it has sent the 200
+   * headers, so a refusal can no longer be a status code. The slot is taken now and given back when
+   * the stream ends, however it ends, so the caller must subscribe right away.
    */
-  stream(eventId: string, userId: string | null): Observable<SeatStreamMessage> {
+  stream(eventId: string, userId: string | null, address: string): Observable<SeatStreamMessage> {
+    this.admit(address);
     return new Observable<SeatStreamMessage>((out) => {
       const topic = this.join(eventId);
       const pending: SeatChange[] = [];
@@ -87,6 +121,7 @@ export class SeatStreamService implements OnModuleInit, OnModuleDestroy {
       const heartbeat = interval(this.heartbeatMs).subscribe(() =>
         out.next({ comment: 'heartbeat' })
       );
+      const lifetime = timer(this.maxLifetimeMs).subscribe(() => out.complete());
       void this.readSnapshot(topic, eventId, userId).then(
         (snapshot) => {
           out.next({ type: SEAT_STREAM_EVENT.SNAPSHOT, data: snapshot });
@@ -100,9 +135,30 @@ export class SeatStreamService implements OnModuleInit, OnModuleDestroy {
       return () => {
         link.unsubscribe();
         heartbeat.unsubscribe();
+        lifetime.unsubscribe();
         this.leave(eventId, topic);
+        this.release(address);
       };
     });
+  }
+
+  private admit(address: string): void {
+    if (this.streamsTotal >= this.maxStreamsTotal) {
+      throw new ServiceUnavailableException('Too many open streams, try again later');
+    }
+    const open = this.streamsPerIp.get(address) ?? 0;
+    if (open >= this.maxStreamsPerIp) {
+      throw new HttpException('Too many open streams', HttpStatus.TOO_MANY_REQUESTS);
+    }
+    this.streamsPerIp.set(address, open + 1);
+    this.streamsTotal += 1;
+  }
+
+  private release(address: string): void {
+    const open = (this.streamsPerIp.get(address) ?? 1) - 1;
+    if (open > 0) this.streamsPerIp.set(address, open);
+    else this.streamsPerIp.delete(address);
+    this.streamsTotal -= 1;
   }
 
   private async readSnapshot(
@@ -128,7 +184,7 @@ export class SeatStreamService implements OnModuleInit, OnModuleDestroy {
       const change = this.parse(message);
       if (change !== undefined) changes.next(change);
     };
-    const ready = this.subscriber.subscribe(seatChannel(eventId), listener);
+    const ready = this.enqueue(() => this.subscriber.subscribe(seatChannel(eventId), listener));
     const topic: Topic = { changes, listener, ready, viewers: 0 };
     this.topics.set(eventId, topic);
     // A failed subscription must not stay in the map, or every later viewer would wait on it.
@@ -142,9 +198,27 @@ export class SeatStreamService implements OnModuleInit, OnModuleDestroy {
     topic.viewers -= 1;
     if (topic.viewers > 0) return;
     if (this.topics.get(eventId) === topic) this.topics.delete(eventId);
-    this.subscriber.unsubscribe(seatChannel(eventId), topic.listener).catch((error: Error) => {
-      this.logger.error(`could not unsubscribe from the seats of event ${eventId}: ${error.name}`);
-    });
+    this.enqueue(() => this.subscriber.unsubscribe(seatChannel(eventId), topic.listener)).catch(
+      (error: Error) => {
+        this.logger.error(
+          `could not unsubscribe from the seats of event ${eventId}: ${error.name}`
+        );
+      }
+    );
+  }
+
+  /**
+   * A viewer who joins right after the last one left sends SUBSCRIBE while the UNSUBSCRIBE of the
+   * old topic is still in flight; node-redis then drops the new listener and the channel stays
+   * subscribed with nobody listening. One call at a time avoids that.
+   */
+  private enqueue<T>(call: () => Promise<T>): Promise<T> {
+    const result = this.subscriptionQueue.then(call);
+    this.subscriptionQueue = result.then(
+      () => undefined,
+      () => undefined
+    );
+    return result;
   }
 
   /** A message that is not a seat change is dropped and logged (the payload could be anything). */

@@ -22,6 +22,7 @@ import { fakeTokenVerifier, randomClientAddress } from '../../testing/http.js';
 import { openTestRedis } from '../../testing/redis.js';
 import { TOKEN_VERIFIER } from '../auth/index.js';
 import { seatChannel } from '../bookings/index.js';
+import { MAX_STREAMS_PER_IP, SeatStreamService } from './seat-stream.service.js';
 
 const CUSTOMER = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
 const STRANGER = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
@@ -35,14 +36,19 @@ interface ServerEvent {
 }
 
 /** Reads an SSE response block by block; comment-only blocks (the heartbeat) are skipped. */
-async function openStream(app: INestApplication, path: string, caller?: Caller) {
+async function openStream(
+  app: INestApplication,
+  path: string,
+  caller?: Caller,
+  address = randomClientAddress()
+) {
   const { port } = app.getHttpServer().address() as AddressInfo; // SAFETY: listen() was called with a port
   const abort = new AbortController();
   const origin = `http://127.0.0.1:${port}`;
   const response = await fetch(`${origin}/api${path}`, {
     signal: abort.signal,
     headers: {
-      'X-Forwarded-For': randomClientAddress(),
+      'X-Forwarded-For': address,
       ...(caller === undefined ? {} : { Authorization: `Bearer ${caller}` }),
     },
   });
@@ -157,6 +163,28 @@ describe('GET /api/events/:id/seats/stream', () => {
     expect(own.response.status).toBe(200);
     await vi.waitFor(() => expect(own.events).toHaveLength(1));
     own.abort();
+  });
+
+  it('refuses a stream over the per-address cap with 429 and counts each client address on its own', async () => {
+    const { eventId } = await newEvent();
+    const path = `/events/${eventId}/seats/stream`;
+    const service = app.get(SeatStreamService);
+    service.maxStreamsPerIp = 1;
+    const address = randomClientAddress();
+    try {
+      const first = await openStream(app, path, undefined, address);
+      expect(first.response.status).toBe(200);
+
+      const second = await openStream(app, path, undefined, address);
+      const elsewhere = await openStream(app, path, undefined, randomClientAddress());
+
+      expect(second.response.status).toBe(429);
+      expect(elsewhere.response.status).toBe(200);
+      first.abort();
+      elsewhere.abort();
+    } finally {
+      service.maxStreamsPerIp = MAX_STREAMS_PER_IP;
+    }
   });
 
   it('stops listening to Redis when the client disconnects', async () => {
