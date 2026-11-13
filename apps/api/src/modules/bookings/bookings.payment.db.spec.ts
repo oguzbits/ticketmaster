@@ -287,6 +287,45 @@ describe('payment and cancel', () => {
     expect(await transitionsOf(bookingId)).toHaveLength(3);
   });
 
+  it('a retry after the hold ran out but inside the grace confirms once, dated at the claim', async () => {
+    const { bookingId, userId } = await heldBooking();
+    const idempotencyKey = key('grace-retry');
+    provider.failNext = true;
+    await expect(service.pay({ bookingId, userId, idempotencyKey })).rejects.toThrow(
+      'provider down'
+    );
+    now = new Date(NOW.getTime() + (env.HOLD_TTL_SECONDS + 1) * 1000);
+
+    const retried = await service.pay({ bookingId, userId, idempotencyKey });
+    const again = await service.pay({ bookingId, userId, idempotencyKey });
+
+    expect(retried.status).toBe(BOOKING_STATUS.CONFIRMED);
+    expect(again.status).toBe(BOOKING_STATUS.CONFIRMED);
+    expect(provider.calls).toHaveLength(2);
+    const [row, ...more] = await outboxRowsOf(bookingId);
+    expect(more).toEqual([]);
+    expect(row?.payload).toMatchObject({ occurredAt: NOW.toISOString() });
+    const stored = await rowOf(bookingId);
+    expect(stored.updatedAt).toEqual(NOW);
+    expect(stored.paymentClaimedAt).toEqual(NOW);
+  });
+
+  it('a second retry keeps the time of the first claim', async () => {
+    const { bookingId, userId } = await heldBooking();
+    const idempotencyKey = key('claim-time');
+    provider.failNext = true;
+    await expect(service.pay({ bookingId, userId, idempotencyKey })).rejects.toThrow(
+      'provider down'
+    );
+    now = new Date(NOW.getTime() + 5000);
+    provider.failNext = true;
+    await expect(service.pay({ bookingId, userId, idempotencyKey })).rejects.toThrow(
+      'provider down'
+    );
+
+    expect((await rowOf(bookingId)).paymentClaimedAt).toEqual(NOW);
+  });
+
   it('ten parallel payments with one key charge once and all answer CONFIRMED', async () => {
     const { bookingId, userId } = await heldBooking();
     const idempotencyKey = key('ten');

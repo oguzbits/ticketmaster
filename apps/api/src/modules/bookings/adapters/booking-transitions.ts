@@ -35,12 +35,20 @@ export function planTransition(
 }
 
 /**
- * Stores the payment idempotency key before the charge. The column is unique over all bookings: a
+ * Stores the payment idempotency key and the claim time before the charge. The column is unique over all bookings: a
  * key another booking already holds is a conflict, so nothing is charged for it.
  */
-export async function claimPaymentKey(tx: Tx, bookingId: string, key: string): Promise<void> {
+export async function claimPaymentKey(
+  tx: Tx,
+  bookingId: string,
+  key: string,
+  claimedAt: Date
+): Promise<void> {
   try {
-    await tx.update(bookings).set({ paymentIdempotencyKey: key }).where(eq(bookings.id, bookingId));
+    await tx
+      .update(bookings)
+      .set({ paymentIdempotencyKey: key, paymentClaimedAt: claimedAt })
+      .where(eq(bookings.id, bookingId));
   } catch (error) {
     if (PaymentKeyViolationSchema.safeParse(error instanceof Error ? error.cause : null).success) {
       throw new ConflictException('Idempotency key already used for another booking');

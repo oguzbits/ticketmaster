@@ -43,6 +43,13 @@
       "when": 1794610620308,
       "tag": "0005_gigantic_dexter_bennett",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794612657355,
+      "tag": "0006_acoustic_korath",
+      "breakpoints": true
     }
   ]
 }

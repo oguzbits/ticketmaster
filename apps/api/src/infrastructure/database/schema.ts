@@ -107,6 +107,8 @@ export const bookings = pgTable(
     holdExpiresAt: timestamp('hold_expires_at', { withTimezone: true }).notNull(),
     // Idempotency key of the payment request (see the payment contract).
     paymentIdempotencyKey: text('payment_idempotency_key').unique(),
+    // When the key was claimed; the payment is planned at this time, however late a retry runs.
+    paymentClaimedAt: timestamp('payment_claimed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

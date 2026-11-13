@@ -139,7 +139,9 @@ provider answers alike for the same key, and finishes the booking. Another key o
 key is claimed, and a payment that finishes after the booking left `HELD` (cancelled or expired
 meanwhile), answer 409; the second case stores nothing. The provider is not refunded in that case
 (see the backlog). The expiry job leaves a `HELD` booking with a claimed key alone until its hold
-is 120 seconds past (`PAYMENT_GRACE_SECONDS`), so a charge that started in time can finish.
+is 120 seconds past (`PAYMENT_GRACE_SECONDS`), so a charge that started in time can finish. The time of
+the claim is stored with the key and kept on retries: the result of the payment is dated at the
+claim, so a retry after the hold ran out but inside the grace period still confirms.
 
 ## Dictionaries
 

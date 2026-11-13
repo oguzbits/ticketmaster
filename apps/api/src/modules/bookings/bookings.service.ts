@@ -150,35 +150,34 @@ export class BookingsService {
     userId: string;
     idempotencyKey: string;
   }): Promise<
-    { settled: BookingState } | { settled: null; amountCents: number; seat: SeatRef; now: Date }
+    | { settled: BookingState }
+    | { settled: null; amountCents: number; seat: SeatRef; claimedAt: Date }
   > {
     return this.db.transaction(async (tx) => {
-      const { booking, paymentIdempotencyKey, priceCents, seat } = await this.lockOwnBooking(
-        tx,
-        input.bookingId,
-        input.userId
-      );
+      const { booking, paymentIdempotencyKey, paymentClaimedAt, priceCents, seat } =
+        await this.lockOwnBooking(tx, input.bookingId, input.userId);
       const sameKey = paymentIdempotencyKey === input.idempotencyKey;
       // The same key on a booking that left HELD: the stored result, nothing to charge or announce.
       if (sameKey && booking.status !== BOOKING_STATUS.HELD) return { settled: booking };
-      const now = this.clock.now();
+      // A retry keeps the first claim time: the hold was valid then and may finish inside the grace.
+      const claimedAt = sameKey && paymentClaimedAt !== null ? paymentClaimedAt : this.clock.now();
       // Refused before the charge: another key on a settled booking, or a hold that ran out.
-      planTransition(booking, TRANSITION_REASON.PAYMENT_SUCCEEDED, input.userId, now);
+      planTransition(booking, TRANSITION_REASON.PAYMENT_SUCCEEDED, input.userId, claimedAt);
       if (!sameKey) {
         // Another key is already being charged for this booking.
         if (paymentIdempotencyKey !== null) {
           throw new ConflictException('Another payment of this booking is in progress');
         }
-        await claimPaymentKey(tx, booking.id, input.idempotencyKey);
+        await claimPaymentKey(tx, booking.id, input.idempotencyKey, claimedAt);
       }
-      return { settled: null, amountCents: priceCents, seat, now };
+      return { settled: null, amountCents: priceCents, seat, claimedAt };
     });
   }
 
   /** Steps 2 and 3. */
   private async chargeAndApply(
     input: { bookingId: string; userId: string; idempotencyKey: string },
-    claim: { amountCents: number; seat: SeatRef; now: Date }
+    claim: { amountCents: number; seat: SeatRef; claimedAt: Date }
   ): Promise<{ state: BookingState; seat: SeatRef | null }> {
     const { succeeded } = await this.ports.payments.charge({
       bookingId: input.bookingId,
@@ -197,9 +196,9 @@ export class BookingsService {
         );
         throw new ConflictException(`Booking is ${booking.status}, the payment was not applied`);
       }
-      // Planned at the time of the claim: a hold that was valid then may finish inside the grace.
+      // Planned at the claim time (stored, so also for a late retry): the hold was valid then.
       const plan = (from: BookingState, reason: TransitionReason) =>
-        planTransition(from, reason, input.userId, claim.now);
+        planTransition(from, reason, input.userId, claim.claimedAt);
       if (!succeeded) {
         const failed = plan(booking, TRANSITION_REASON.PAYMENT_FAILED);
         return { state: await storeTransition(tx, failed), seat: claim.seat };
@@ -213,7 +212,7 @@ export class BookingsService {
         bookingId: booking.id,
         eventId: claim.seat.eventId,
         userId: input.userId,
-        occurredAt: claim.now.toISOString(),
+        occurredAt: claim.claimedAt.toISOString(),
       });
       return { state: confirmed, seat: claim.seat };
     });
@@ -305,6 +304,7 @@ export class BookingsService {
   ): Promise<{
     booking: BookingState;
     paymentIdempotencyKey: string | null;
+    paymentClaimedAt: Date | null;
     priceCents: number;
     seat: { eventId: string; seatId: string };
   }> {
@@ -314,6 +314,7 @@ export class BookingsService {
         status: bookings.status,
         holdExpiresAt: bookings.holdExpiresAt,
         paymentIdempotencyKey: bookings.paymentIdempotencyKey,
+        paymentClaimedAt: bookings.paymentClaimedAt,
         ownerId: bookings.userId,
         eventId: bookings.eventId,
         seatId: bookings.seatId,
@@ -325,10 +326,11 @@ export class BookingsService {
       .for('update', { of: bookings });
     if (row === undefined) throw new NotFoundException('Booking not found');
     if (row.ownerId !== userId) throw new ForbiddenException('Booking belongs to another user');
-    const { id, status, holdExpiresAt, paymentIdempotencyKey, priceCents, eventId, seatId } = row;
+    const { id, status, holdExpiresAt, priceCents, eventId, seatId } = row;
     return {
       booking: { id, status, holdExpiresAt },
-      paymentIdempotencyKey,
+      paymentIdempotencyKey: row.paymentIdempotencyKey,
+      paymentClaimedAt: row.paymentClaimedAt,
       priceCents,
       seat: { eventId, seatId },
     };
