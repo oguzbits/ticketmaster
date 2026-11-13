@@ -1,6 +1,8 @@
 import {
   BOOKING_STATUS,
   BOOKING_STRATEGY,
+  OUTBOX_MESSAGE_TYPE,
+  type QueueMessage,
   ROLE,
   SIMULATION_STATUS,
   type SimulationMetrics,
@@ -26,6 +28,7 @@ export const bookingStatusEnum = pgEnum('booking_status', BOOKING_STATUS);
 export const transitionReasonEnum = pgEnum('transition_reason', TRANSITION_REASON);
 export const userRoleEnum = pgEnum('user_role', ROLE);
 export const simulationStatusEnum = pgEnum('simulation_status', SIMULATION_STATUS);
+export const outboxMessageTypeEnum = pgEnum('outbox_message_type', OUTBOX_MESSAGE_TYPE);
 
 // The index predicate is DDL, so the values are written into it instead of passed as parameters.
 const literal = (value: string) => sql.raw(`'${value}'`);
@@ -168,4 +171,42 @@ export const simulationRuns = pgTable(
   },
   // Serves the cap query: runs that are still active and started within the timeout.
   (t) => [index('simulation_runs_status_started_at_idx').on(t.status, t.startedAt)]
+);
+
+/**
+ * A message that goes to the queue, written in the transaction of the state change it announces.
+ * The relay in the worker sends it and sets `published_at`. The ID is the message ID: the
+ * idempotency key of every consumer.
+ */
+export const outboxMessages = pgTable(
+  'outbox_messages',
+  {
+    id: uuid('id').primaryKey(),
+    type: outboxMessageTypeEnum('type').notNull(),
+    // The whole message, as the queue carries it.
+    payload: jsonb('payload').$type<QueueMessage>().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+    // Failed sends so far; `last_error` holds the error name of the latest one, never a message text.
+    attempts: integer('attempts').notNull().default(0),
+    lastError: text('last_error'),
+  },
+  // Serves the relay (oldest unpublished first) and the readiness check; stays small however many
+  // rows are published.
+  (t) => [
+    index('outbox_messages_unpublished_idx')
+      .on(t.createdAt)
+      .where(sql`${t.publishedAt} is null`),
+  ]
+);
+
+/** The messages a consumer has handled: the primary key makes a second delivery a no-op. */
+export const processedMessages = pgTable(
+  'processed_messages',
+  {
+    consumer: text('consumer').notNull(),
+    messageId: uuid('message_id').notNull(),
+    processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.consumer, t.messageId] })]
 );

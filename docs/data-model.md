@@ -83,6 +83,20 @@ erDiagram
         uuid actor_id "the user, or the nil UUID for the system"
         timestamptz at
     }
+    outbox_messages {
+        uuid id PK "the message ID"
+        outbox_message_type type
+        jsonb payload "the message, IDs only"
+        timestamptz created_at
+        timestamptz published_at "null until the relay has sent it"
+        int attempts "failed sends"
+        text last_error "error name of the latest failed send"
+    }
+    processed_messages {
+        text consumer PK
+        uuid message_id PK
+        timestamptz processed_at
+    }
 ```
 
 `demo_users` lists the temporary Keycloak users of the demo login. It has no foreign key: `user_id`
@@ -96,6 +110,17 @@ by the admin who started it, so it never shows in the public list); deleting the
 run. `metrics` is a JSON document of the shape `SimulationMetricsSchema`, null until the run ends.
 `simulation_runs(status, started_at)` serves the cap query, which counts the runs that are still
 active and started within the timeout.
+
+`outbox_messages` holds the queue messages of state changes. A row is written in the transaction of
+the change it announces, so it exists if and only if the change committed. The relay in the worker
+selects unpublished rows oldest first with `FOR UPDATE SKIP LOCKED`, sends them and sets
+`published_at`; a failed send raises `attempts` and stores the error name in `last_error`. The row
+ID is the message ID. `outbox_messages(created_at)` is a partial index on the unpublished rows, so
+it serves the relay and the readiness check however many rows are published. Published rows are
+kept; deleting old ones is a backlog item. `processed_messages(consumer, message_id)` is the
+consumers' idempotency record: the primary key turns a second delivery of a message ID into a
+no-op for that consumer. Neither table has a foreign key: the payload holds IDs of rows that may
+be deleted later (a demo user's cleanup), and a message must survive that.
 
 Seats are copied from the venue template when an event is created (one `INSERT ... SELECT` in the
 same transaction as the event), so a later change of the template does not move seats of events

@@ -5,20 +5,32 @@ import {
   BOOKING_STRATEGY,
   type BookingStatus,
   type BookingStrategy,
+  OUTBOX_MESSAGE_TYPE,
   SIMULATION_STATUS,
 } from '@app/shared';
-import { and, count, eq, inArray } from 'drizzle-orm';
+import { and, count, eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { SPEC_NOW } from '../../testing/time.js';
 import type { Database } from './database.module.js';
-import { bookings, events, seats, simulationRuns, venues, venueSeats } from './schema.js';
+import {
+  bookings,
+  events,
+  outboxMessages,
+  processedMessages,
+  seats,
+  simulationRuns,
+  venues,
+  venueSeats,
+} from './schema.js';
 import { HALL, SEED, seed } from './seed.js';
 
 const HOLD_MS = 600_000;
 const UNIQUE_VIOLATION = '23505';
 const ACTIVE_SEAT_INDEX = 'bookings_active_seat_uidx';
+const UNPUBLISHED_INDEX = 'outbox_messages_unpublished_idx';
+const SPEC_CONSUMER = 'schema-spec';
 
 describe('booking schema', () => {
   const database = openTestDatabase();
@@ -137,5 +149,43 @@ describe('booking schema', () => {
 
     const rows = await db.select().from(simulationRuns).where(eq(simulationRuns.id, runId));
     expect(rows).toEqual([]);
+  });
+
+  it('a new outbox row is unpublished with no attempts', async () => {
+    const id = randomUUID();
+
+    await db.insert(outboxMessages).values({
+      id,
+      type: OUTBOX_MESSAGE_TYPE.BOOKING_CONFIRMED,
+      payload: {
+        messageId: id,
+        type: OUTBOX_MESSAGE_TYPE.BOOKING_CONFIRMED,
+        bookingId: randomUUID(),
+        eventId: randomUUID(),
+        userId: randomUUID(),
+        occurredAt: SPEC_NOW.toISOString(),
+      },
+    });
+
+    const [row] = await db.select().from(outboxMessages).where(eq(outboxMessages.id, id));
+    expect(row).toMatchObject({ publishedAt: null, attempts: 0, lastError: null });
+  });
+
+  it('the index on unpublished outbox rows is partial', async () => {
+    const rows = await db.execute<{ definition: string }>(
+      sql`select indexdef as definition from pg_indexes where indexname = ${UNPUBLISHED_INDEX}`
+    );
+
+    expect(rows[0]?.definition).toMatch(/where \(?published_at is null\)?/i);
+  });
+
+  it('a consumer records a message ID once; another consumer may record the same ID', async () => {
+    const messageId = randomUUID();
+    await db.insert(processedMessages).values({ consumer: SPEC_CONSUMER, messageId });
+
+    await expect(
+      db.insert(processedMessages).values({ consumer: SPEC_CONSUMER, messageId })
+    ).rejects.toMatchObject({ cause: { code: UNIQUE_VIOLATION } });
+    await db.insert(processedMessages).values({ consumer: `${SPEC_CONSUMER}-other`, messageId });
   });
 });
