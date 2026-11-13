@@ -62,3 +62,22 @@ export {
   VenueListResponseSchema,
   VenueSchema,
 } from './organizer.js';
+export {
+  SIMULATION_CONSUMER_GROUP,
+  SIMULATION_LIMITS,
+  SIMULATION_STATUS,
+  SIMULATION_STREAM_KEY,
+  type SimulationCommand,
+  SimulationCommandSchema,
+  SimulationListResponseSchema,
+  type SimulationMetrics,
+  SimulationMetricsSchema,
+  type SimulationProgress,
+  SimulationProgressSchema,
+  type SimulationRun,
+  SimulationRunSchema,
+  type SimulationStatus,
+  SimulationStatusSchema,
+  type StartSimulationRequest,
+  StartSimulationRequestSchema,
+} from './simulations.js';

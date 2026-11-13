@@ -126,6 +126,7 @@ enum and an inferred type.
 | `BOOKING_STATUS`    | `HELD`, `PAID`, `CONFIRMED`, `EXPIRED`, `CANCELLED`                                             |
 | `SEAT_STATUS`       | `AVAILABLE`, `HELD`, `SOLD` (derived from the bookings of a seat)                               |
 | `TRANSITION_REASON` | `HOLD`, `PAYMENT_SUCCEEDED`, `PAYMENT_FAILED`, `CONFIRMED`, `HOLD_EXPIRED`, `CANCELLED_BY_USER` |
+| `SIMULATION_STATUS` | `QUEUED`, `RUNNING`, `FINISHED`, `FAILED` (status of a simulation run)                          |
 
 ## Auth, booking and organizer contracts
 
@@ -143,3 +144,20 @@ Authentication is described in [ADR 0003](../adr/0003-authentication-and-demo-lo
 | `VenueSchema`, `CreateEventRequestSchema`, `SetStrategyRequestSchema`                   | Venue templates with `seatCount`; create an event; switch the strategy                                    |
 | `OrganizerEventSchema`                                                                  | An event summary with `seatCount`, `soldCount`, `heldCount` and `utilization` (0..1)                      |
 | `SeatChangeSchema`, `SeatSnapshotSchema` and `SEAT_STREAM_EVENT` (`snapshot`, `change`) | One seat's new derived status; the `{ seats }` of the first event; the two event names of the seat stream |
+
+## Simulation contracts
+
+The rush simulator runs virtual buyers against a fresh sandbox event under one booking strategy.
+The schemas are in `packages/shared`; the routes come with the API slice.
+
+| Schema                                                                          | Purpose                                                                                                                                                        |
+| ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `StartSimulationRequestSchema`                                                  | `{ buyers, seats, strategy }`; `buyers` 1 to 2000 (default 500), `seats` 1 to 500 (default 100), limits in `SIMULATION_LIMITS`                                 |
+| `SimulationMetricsSchema`                                                       | Counters (`attempts`, `holds`, `conflicts`, `constraintViolations`, `retries`, `buyersDone`), `p50Ms`, `p95Ms`, and `doubleBookings` (null until the run ends) |
+| `SimulationProgressSchema`                                                      | `{ status, metrics }`, the payload of the live progress                                                                                                        |
+| `SimulationRunSchema`, `SimulationListResponseSchema`                           | A run with its event, strategy, size, status, final metrics (null until finished) and ISO timestamps                                                           |
+| `SimulationCommandSchema`, `SIMULATION_STREAM_KEY`, `SIMULATION_CONSUMER_GROUP` | The queue message `{ runId }` on the Redis stream `simulations` and the consumer group that reads it; the worker takes the parameters from the run row         |
+
+`doubleBookings` always comes from the database (active bookings per seat minus one), never from the
+runner's counters. A buyer retries by picking another seat, so `retries` counts attempts beyond a
+buyer's first.
