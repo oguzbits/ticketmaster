@@ -3,7 +3,13 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, eq, inArray, isNull, or, type SQL, sql } from 'drizzle-orm';
 
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
-import { bookings, events, seats, venues } from '../../infrastructure/database/schema.js';
+import {
+  bookings,
+  demoUsers,
+  events,
+  seats,
+  venues,
+} from '../../infrastructure/database/schema.js';
 import { ACTIVE_BOOKING_STATUSES, seatStatusOf } from '../bookings/index.js';
 
 /** Public events, plus the sandbox events of the caller. */
@@ -44,12 +50,26 @@ export class EventsService {
     if (event === undefined) throw new NotFoundException('Event not found');
   }
 
-  /** Admin switch: later holds use the new strategy, existing bookings keep their own. */
-  async setStrategy(id: string, strategy: BookingStrategy): Promise<EventSummary> {
+  /**
+   * Admin switch: later holds use the new strategy, existing bookings keep their own. The demo
+   * login hands out admin tokens, so a demo admin may only switch their own sandbox events; a
+   * regular admin switches public events. Anything else does not exist for the caller (NotFound).
+   */
+  async setStrategy(
+    id: string,
+    strategy: BookingStrategy,
+    callerId: string
+  ): Promise<EventSummary> {
+    const [demoUser] = await this.db
+      .select({ userId: demoUsers.userId })
+      .from(demoUsers)
+      .where(eq(demoUsers.userId, callerId));
+    const scope =
+      demoUser === undefined ? isNull(events.sandboxUserId) : eq(events.sandboxUserId, callerId);
     const [updated] = await this.db
       .update(events)
       .set({ strategy })
-      .where(eq(events.id, id))
+      .where(and(eq(events.id, id), scope))
       .returning({ id: events.id });
     if (updated === undefined) throw new NotFoundException('Event not found');
     const [event] = await this.db

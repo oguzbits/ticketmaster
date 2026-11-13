@@ -20,7 +20,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { AppModule } from '../../app.module.js';
 import { configureApp } from '../../app.setup.js';
-import { bookings } from '../../infrastructure/database/schema.js';
+import { bookings, demoUsers } from '../../infrastructure/database/schema.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { fakeTokenVerifier, randomClientAddress } from '../../testing/http.js';
 import { SPEC_NOW } from '../../testing/time.js';
@@ -33,6 +33,11 @@ const OWNER_TOKEN = 'sandbox-owner';
 const OTHER_TOKEN = 'other-user';
 const ADMIN_TOKEN = 'admin';
 const ORGANIZER_TOKEN = 'organizer';
+const DEMO_ADMIN = { id: randomUUID(), roles: [ROLE.ADMIN] };
+const OTHER_DEMO_ADMIN = { id: randomUUID(), roles: [ROLE.ADMIN] };
+const DEMO_ADMIN_TOKEN = 'demo-admin';
+const OTHER_DEMO_ADMIN_TOKEN = 'other-demo-admin';
+const DEMO_EXPIRES_AT = new Date('2100-01-01T00:00:00Z');
 
 describe('events endpoints', () => {
   const database = openTestDatabase();
@@ -50,11 +55,20 @@ describe('events endpoints', () => {
           [OTHER_TOKEN]: OTHER_USER,
           [ADMIN_TOKEN]: { id: randomUUID(), roles: [ROLE.ADMIN] },
           [ORGANIZER_TOKEN]: { id: randomUUID(), roles: [ROLE.ORGANIZER] },
+          [DEMO_ADMIN_TOKEN]: DEMO_ADMIN,
+          [OTHER_DEMO_ADMIN_TOKEN]: OTHER_DEMO_ADMIN,
         })
       )
       .compile();
     app = configureApp(moduleRef.createNestApplication<NestExpressApplication>());
     await app.init();
+    await db.insert(demoUsers).values(
+      [DEMO_ADMIN, OTHER_DEMO_ADMIN].map(({ id }) => ({
+        userId: id,
+        role: ROLE.ADMIN,
+        expiresAt: DEMO_EXPIRES_AT,
+      }))
+    );
   });
   afterAll(async () => {
     await app.close();
@@ -212,6 +226,63 @@ describe('events endpoints', () => {
       });
       expect(await strategyOfBooking(before)).toBe(STRATEGY);
       expect(await strategyOfBooking(after)).toBe(BOOKING_STRATEGY.NAIVE);
+    });
+
+    describe('a demo admin is scoped to their sandbox', () => {
+      const strategyOf = async (eventId: string) =>
+        EventDetailSchema.parse((await get(`/api/events/${eventId}`, ADMIN_TOKEN).expect(200)).body)
+          .strategy;
+      const naive = { strategy: BOOKING_STRATEGY.NAIVE };
+
+      it('cannot switch a public event: 404, the strategy stays', async () => {
+        const { eventId } = await createTestEvent(db, { strategy: STRATEGY, seats: 1 });
+
+        await patch(eventId, naive, DEMO_ADMIN_TOKEN).expect(404);
+
+        expect(await strategyOf(eventId)).toBe(STRATEGY);
+      });
+
+      it('switches the strategy of their own sandbox event', async () => {
+        const { eventId } = await createTestEvent(db, {
+          strategy: STRATEGY,
+          seats: 1,
+          sandboxUserId: DEMO_ADMIN.id,
+        });
+
+        await patch(eventId, naive, DEMO_ADMIN_TOKEN).expect(200);
+
+        const detail = await get(`/api/events/${eventId}`, DEMO_ADMIN_TOKEN).expect(200);
+        expect(EventDetailSchema.parse(detail.body).strategy).toBe(BOOKING_STRATEGY.NAIVE);
+      });
+
+      it("cannot switch another demo user's sandbox event: 404", async () => {
+        const { eventId } = await createTestEvent(db, {
+          strategy: STRATEGY,
+          seats: 1,
+          sandboxUserId: OTHER_DEMO_ADMIN.id,
+        });
+
+        await patch(eventId, naive, DEMO_ADMIN_TOKEN).expect(404);
+
+        const detail = await get(`/api/events/${eventId}`, OTHER_DEMO_ADMIN_TOKEN).expect(200);
+        expect(EventDetailSchema.parse(detail.body).strategy).toBe(STRATEGY);
+      });
+    });
+
+    it('a regular admin switches public events but not a sandbox event: 404', async () => {
+      const publicEvent = await createTestEvent(db, { strategy: STRATEGY, seats: 1 });
+      const sandbox = await createTestEvent(db, {
+        strategy: STRATEGY,
+        seats: 1,
+        sandboxUserId: DEMO_ADMIN.id,
+      });
+      const body = { strategy: BOOKING_STRATEGY.NAIVE };
+
+      await patch(publicEvent.eventId, body, ADMIN_TOKEN).expect(200);
+      await patch(sandbox.eventId, body, ADMIN_TOKEN).expect(404);
+
+      const detail = await get(`/api/events/${sandbox.eventId}`, DEMO_ADMIN_TOKEN).expect(200);
+      expect(EventDetailSchema.parse(detail.body).strategy).toBe(STRATEGY);
     });
 
     it('answers 404 for an unknown event and 400 for a bad ID or strategy', async () => {

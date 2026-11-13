@@ -86,6 +86,9 @@ Chosen: option 1, with a global default-deny guard and token refresh through the
   only this system's clients; revisit before another client is added.
 - Bad: a route without `@Roles` accepts any authenticated token, so every new route needs an
   explicit `@Roles(...)` unless any signed-in user really may call it.
+- Bad: the public demo login hands out `admin` tokens, so an admin role alone proves nothing. Demo
+  admins are scoped to their sandbox: `PATCH /api/events/:id/strategy` accepts a demo user only for
+  events whose `sandbox_user_id` is their own, and a regular admin only for public events.
 
 ### Known limits of the demo login
 
