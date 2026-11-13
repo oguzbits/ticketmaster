@@ -99,7 +99,6 @@ describe('SimulationConsumer', () => {
       bookings: { hold, countDoubleBookings: (eventId) => bookings.countDoubleBookings(eventId) },
       clock: { now: () => NOW },
       random: Math.random,
-      newUserId: randomUUID,
       intervalMs: PROGRESS_INTERVAL_MS,
     });
   }

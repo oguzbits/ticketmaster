@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto';
-
 import { Module } from '@nestjs/common';
 
 import { CLOCK, type Clock } from '../../core/clock.js';
@@ -20,13 +18,12 @@ const PROGRESS_INTERVAL_MS = 250;
     SimulationStreamService,
     {
       provide: SimulationRunner,
-      // Math.random and randomUUID belong here, in the wiring: the runner takes them as inputs.
+      // Math.random belongs here, in the wiring: the runner takes them as inputs.
       useFactory: (bookings: BookingsService, clock: Clock) =>
         new SimulationRunner({
           bookings,
           clock,
           random: Math.random,
-          newUserId: randomUUID,
           intervalMs: PROGRESS_INTERVAL_MS,
         }),
       inject: [BookingsService, CLOCK],

@@ -35,7 +35,6 @@ describe('SimulationRunner against the database', () => {
       bookings: createBookingsService(db, redis, clock),
       clock,
       random,
-      newUserId: randomUUID,
       intervalMs: PROGRESS_INTERVAL_MS,
     });
   }
@@ -48,6 +47,7 @@ describe('SimulationRunner against the database', () => {
         buyers,
         seats: seatIds,
         concurrency: CONCURRENCY,
+        buyerId: randomUUID(),
         onProgress: () => undefined,
       })
     );

@@ -7,6 +7,7 @@ import { HOLD_OUTCOME, type HoldInput, type HoldResult } from '../bookings/index
 import { SimulationRunner } from './simulation-runner.js';
 
 const EVENT_ID = randomUUID();
+const BUYER_ID = randomUUID();
 const PLACED: HoldResult = {
   outcome: HOLD_OUTCOME.PLACED,
   bookingId: randomUUID(),
@@ -25,7 +26,6 @@ function build(hold: Hold, overrides: { clock?: Clock; intervalMs?: number } = {
     clock: overrides.clock ?? { now: () => new Date(0) },
     // Cycles through the seats, so every pick is predictable.
     random: () => ((next++ % SEATS.length) + 0.5) / SEATS.length,
-    newUserId: randomUUID,
     intervalMs: overrides.intervalMs ?? 1000,
   });
 }
@@ -42,6 +42,7 @@ function run(
     buyers,
     seats: SEATS,
     concurrency,
+    buyerId: BUYER_ID,
     onProgress: (metrics) => progress.push(metrics.buyersDone),
   });
 }
