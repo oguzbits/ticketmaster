@@ -6,6 +6,7 @@ import {
   BookingListResponseSchema,
   BookingSchema,
   type BookingStatus,
+  type BookingStrategy,
   IDEMPOTENCY_KEY_HEADER,
   ROLE,
   TRANSITION_REASON,
@@ -13,9 +14,9 @@ import {
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import request from 'supertest';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppModule } from '../../app.module.js';
 import { configureApp } from '../../app.setup.js';
@@ -36,11 +37,13 @@ const ORGANIZER = { id: randomUUID(), roles: [ROLE.ORGANIZER] };
 const DORA = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
 const ELI = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
 const NEWCOMER = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
+const FRIDA = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
 const TOKENS = {
   alice: ALICE,
   bob: BOB,
   dora: DORA,
   eli: ELI,
+  frida: FRIDA,
   newcomer: NEWCOMER,
   organizer: ORGANIZER,
 };
@@ -62,10 +65,11 @@ describe('booking endpoints', () => {
   const { db } = database;
   const { HOLD_TTL_SECONDS } = loadEnv();
   const charges: Parameters<PaymentProvider['charge']>[0][] = [];
+  let paymentSucceeds = true;
   const provider: PaymentProvider = {
     charge: (input) => {
       charges.push(input);
-      return Promise.resolve({ succeeded: true });
+      return Promise.resolve({ succeeded: paymentSucceeds });
     },
   };
   let now = SPEC_NOW;
@@ -89,6 +93,7 @@ describe('booking endpoints', () => {
   });
   beforeEach(() => {
     now = SPEC_NOW;
+    paymentSucceeds = true;
     charges.length = 0;
   });
 
@@ -103,7 +108,7 @@ describe('booking endpoints', () => {
   };
 
   async function freeSeat(
-    input: { sandboxUserId?: string } = {}
+    input: { sandboxUserId?: string; strategy?: BookingStrategy } = {}
   ): Promise<{ eventId: string; seatId: string }> {
     const { eventId, seatIds } = await createTestEvent(db, {
       strategy: BOOKING_STRATEGY.PESSIMISTIC,
@@ -191,6 +196,36 @@ describe('booking endpoints', () => {
       await hold('alice', seat);
     });
 
+    it('answers 409 when the database refuses a hold that raced past the seat check', async () => {
+      const seat = await freeSeat({ strategy: BOOKING_STRATEGY.OPTIMISTIC });
+      let response: Promise<request.Response> | undefined;
+
+      // An uncommitted active booking of the seat: the request's seat check cannot see it, so its
+      // insert waits on the unique index and fails once this transaction commits.
+      await db.transaction(async (tx) => {
+        await tx.insert(bookings).values({
+          ...seat,
+          userId: BOB.id,
+          strategy: BOOKING_STRATEGY.OPTIMISTIC,
+          status: BOOKING_STATUS.HELD,
+          holdExpiresAt: SPEC_NOW,
+        });
+        response = call('post', '/bookings', 'alice')
+          .send(seat)
+          .then((answer) => answer);
+        await vi.waitFor(async () => {
+          const waiting = await db.execute(
+            sql`select 1 from pg_stat_activity where wait_event_type = 'Lock' and query ilike 'insert into "bookings"%'`
+          );
+          expect(waiting.length).toBeGreaterThan(0);
+        });
+      });
+
+      expect((await response)?.status).toBe(409);
+    });
+
+    // The body schema strips an unknown `userId`, so flipping the spread order in the controller is
+    // not observable here; only a controller that read the raw body would be, and none does.
     it('takes the user from the token, never from the body', async () => {
       const seat = await freeSeat();
 
@@ -248,6 +283,33 @@ describe('booking endpoints', () => {
       expect(await statusOf(id)).toBe(BOOKING_STATUS.HELD);
     });
 
+    it('answers 404 for an unknown booking and charges nothing', async () => {
+      await pay(randomUUID(), 'alice', key('unknown')).expect(404);
+
+      expect(charges).toHaveLength(0);
+    });
+
+    it('cancels the booking and answers 200 when the provider refuses the payment', async () => {
+      const { id } = await hold('alice');
+      paymentSucceeds = false;
+
+      const response = await pay(id, 'alice', key('declined')).expect(200);
+
+      expect(BookingSchema.parse(response.body).status).toBe(BOOKING_STATUS.CANCELLED);
+      expect(charges).toHaveLength(1);
+      expect(await statusOf(id)).toBe(BOOKING_STATUS.CANCELLED);
+    });
+
+    it('answers 409 for a paid booking with a new key and charges nothing more', async () => {
+      const { id } = await hold('alice');
+      await pay(id, 'alice', key('first')).expect(200);
+
+      await pay(id, 'alice', key('second')).expect(409);
+
+      expect(charges).toHaveLength(1);
+      expect(await statusOf(id)).toBe(BOOKING_STATUS.CONFIRMED);
+    });
+
     it('refuses an expired hold with 409 and charges nothing', async () => {
       const { id } = await hold('alice');
       now = new Date(SPEC_NOW.getTime() + (HOLD_TTL_SECONDS + 1) * 1000);
@@ -277,6 +339,17 @@ describe('booking endpoints', () => {
       expect(BookingSchema.parse(response.body).status).toBe(BOOKING_STATUS.CANCELLED);
     });
 
+    it('answers 404 for an unknown booking', async () => {
+      await call('post', `/bookings/${randomUUID()}/cancel`, 'alice').expect(404);
+    });
+
+    it('answers 409 for a booking that is already cancelled', async () => {
+      const { id } = await hold('alice');
+      await call('post', `/bookings/${id}/cancel`, 'alice').expect(200);
+
+      await call('post', `/bookings/${id}/cancel`, 'alice').expect(409);
+    });
+
     it('answers 403 for the booking of another customer and changes nothing', async () => {
       const { id } = await hold('alice');
 
@@ -303,6 +376,24 @@ describe('booking endpoints', () => {
       ]);
       const elis = await call('get', '/bookings', 'eli').expect(200);
       expect(BookingListResponseSchema.parse(elis.body).map(({ id }) => id)).toEqual([theirs.id]);
+    });
+
+    it('orders bookings and their transitions newest first', async () => {
+      const first = await hold('frida');
+      now = new Date(SPEC_NOW.getTime() + 60_000);
+      const second = await hold('frida');
+      now = new Date(SPEC_NOW.getTime() + 120_000);
+      await pay(first.id, 'frida', key('order')).expect(200);
+
+      const response = await call('get', '/bookings', 'frida').expect(200);
+
+      const list = BookingListResponseSchema.parse(response.body);
+      expect(list.map(({ id }) => id)).toEqual([second.id, first.id]);
+      expect(list[1]?.transitions.map(({ reason }) => reason)).toEqual([
+        TRANSITION_REASON.CONFIRMED,
+        TRANSITION_REASON.PAYMENT_SUCCEEDED,
+        TRANSITION_REASON.HOLD,
+      ]);
     });
 
     it('is an empty list for a customer without bookings', async () => {
