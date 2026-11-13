@@ -14,7 +14,7 @@ import {
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
-import { and, eq, gte, lte } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
@@ -30,6 +30,7 @@ import { SPEC_NOW } from '../../testing/time.js';
 import { TOKEN_VERIFIER } from '../auth/index.js';
 import { EMPTY_METRICS, simulationProgressKey } from './simulation-progress.js';
 import { MAX_SIMULATION_STREAMS, SimulationStreamService } from './simulation-stream.service.js';
+import { clearSimulationRuns, lockSimulationRuns } from './testing/exclusive-runs.js';
 
 const ADMIN = { id: randomUUID(), roles: [ROLE.ADMIN] };
 const TOKENS = {
@@ -41,10 +42,10 @@ type Caller = keyof typeof TOKENS;
 const STRATEGY = BOOKING_STRATEGY.PESSIMISTIC;
 const BODY = { buyers: 10, seats: 5, strategy: STRATEGY };
 const HOUR_MS = 60 * 60 * 1000;
-// The cap counts the runs of the whole table inside a window around the clock, so this file's
-// runs sit at SPEC_NOW and are cleared before every test; the other specs use other days.
+// The cap counts the runs of the whole table that started within its timeout up to now: this file
+// holds the spec lock and clears every run from WINDOW_START on before each test.
 const WINDOW_START = new Date(SPEC_NOW.getTime() - HOUR_MS);
-const WINDOW_END = new Date(SPEC_NOW.getTime() + HOUR_MS);
+const SPEC_LOCK_TIMEOUT_MS = 300_000;
 // Later than any run another spec stores, so these are the latest finished runs of the table.
 const FAR_FUTURE = new Date('2300-01-01T00:00:00.000Z');
 
@@ -53,8 +54,10 @@ describe('simulation endpoints', () => {
   const { db } = database;
   let app: INestApplication;
   let redis: Redis;
+  let unlock: () => Promise<void>;
 
   beforeAll(async () => {
+    unlock = await lockSimulationRuns(db);
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(TOKEN_VERIFIER)
       .useValue(fakeTokenVerifier(TOKENS))
@@ -66,15 +69,12 @@ describe('simulation endpoints', () => {
     redis = app.get(REDIS);
     // A venue to host the sandbox events (a fresh test database has none).
     await createTestEvent(db, { strategy: STRATEGY, seats: 0 });
-  });
+  }, SPEC_LOCK_TIMEOUT_MS);
   beforeEach(async () => {
-    await db
-      .delete(simulationRuns)
-      .where(
-        and(gte(simulationRuns.startedAt, WINDOW_START), lte(simulationRuns.startedAt, WINDOW_END))
-      );
+    await clearSimulationRuns(db, WINDOW_START);
   });
   afterAll(async () => {
+    await unlock();
     await app.close();
     await database.close();
   });

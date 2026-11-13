@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { BOOKING_STRATEGY, SIMULATION_STATUS, type SimulationStatus } from '@app/shared';
 import { HttpStatus } from '@nestjs/common';
-import { and, eq, gte, lte } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { events, simulationRuns } from '../../infrastructure/database/schema.js';
@@ -14,12 +14,13 @@ import {
   SIMULATION_RUN_TIMEOUT_MS,
   SimulationsService,
 } from './simulations.service.js';
+import { clearSimulationRuns, lockSimulationRuns } from './testing/exclusive-runs.js';
 
-// The cap counts the runs of the whole table inside a window around the clock, so this file owns a
-// day of its own (the controller spec uses SPEC_NOW, the stream spec the day after).
+// The cap counts the runs of the whole table that started within its timeout up to now: this file
+// holds the spec lock and clears every run from WINDOW_START on before each test.
 const NOW = new Date(SPEC_NOW.getTime() + 24 * 60 * 60 * 1000);
 const WINDOW_START = new Date(NOW.getTime() - 60 * 60 * 1000);
-const WINDOW_END = new Date(NOW.getTime() + 60 * 60 * 1000);
+const SPEC_LOCK_TIMEOUT_MS = 300_000;
 const STRATEGY = BOOKING_STRATEGY.PESSIMISTIC;
 const REQUEST = { buyers: 10, seats: 5, strategy: STRATEGY };
 
@@ -29,22 +30,21 @@ describe('SimulationsService.start', () => {
   const streamKey = `simulations:spec:${randomUUID()}`;
   let redis: Awaited<ReturnType<typeof openTestRedis>>;
   let service: SimulationsService;
+  let unlock: () => Promise<void>;
 
   beforeAll(async () => {
+    unlock = await lockSimulationRuns(db);
     redis = await openTestRedis();
     service = new SimulationsService(db, redis, { now: () => NOW });
     service.streamKey = streamKey;
     // A venue to host the sandbox events (a fresh test database has none).
     await createTestEvent(db, { strategy: STRATEGY, seats: 0 });
-  });
+  }, SPEC_LOCK_TIMEOUT_MS);
   beforeEach(async () => {
-    await db
-      .delete(simulationRuns)
-      .where(
-        and(gte(simulationRuns.startedAt, WINDOW_START), lte(simulationRuns.startedAt, WINDOW_END))
-      );
+    await clearSimulationRuns(db, WINDOW_START);
   });
   afterAll(async () => {
+    await unlock();
     await redis.del(streamKey);
     await redis.quit();
     await database.close();
@@ -119,6 +119,23 @@ describe('SimulationsService.start', () => {
       MAX_ACTIVE_RUNS,
       MAX_ACTIVE_RUNS,
     ]);
+  });
+
+  it('counts runs that started after the clock reading of a request that lost the lock race', async () => {
+    // A request reads the clock before it gets the lock, so its reading can be older than the runs
+    // that committed meanwhile: the clock goes back by a minute with every reading here.
+    let reading = NOW.getTime();
+    const lagging = new SimulationsService(db, redis, {
+      now: () => new Date((reading -= 60_000)),
+    });
+    lagging.streamKey = streamKey;
+
+    await lagging.start(REQUEST, randomUUID());
+    await lagging.start(REQUEST, randomUUID());
+
+    await expect(lagging.start(REQUEST, randomUUID())).rejects.toMatchObject({
+      status: HttpStatus.TOO_MANY_REQUESTS,
+    });
   });
 
   it('marks the run FAILED and rethrows when the queue entry cannot be written', async () => {

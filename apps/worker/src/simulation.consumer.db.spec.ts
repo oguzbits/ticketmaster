@@ -6,7 +6,7 @@ import { CLOCK } from '@app/api/clock';
 import { type Database, DB } from '@app/api/database';
 import { REDIS, type Redis } from '@app/api/redis';
 import { simulationProgressKey, SimulationRunner, SimulationsService } from '@app/api/simulations';
-import { ensureVenue } from '@app/api/simulations/testing';
+import { clearSimulationRuns, ensureVenue, lockSimulationRuns } from '@app/api/simulations/testing';
 import {
   BOOKING_STRATEGY,
   SIMULATION_CONSUMER_GROUP,
@@ -21,9 +21,11 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { SimulationConsumer } from './simulation.consumer.js';
 import { WorkerModule } from './worker.module.js';
 
-// The cap of the start route counts the runs of the whole table inside a window around the clock:
-// this file owns a day of its own, apart from the API specs (they use SPEC_NOW and the days after).
+// The cap of the start route counts the runs of the whole table that started within its timeout up
+// to now: this file holds the spec lock and clears every run from WINDOW_START on before each test.
 const NOW = new Date('2200-01-04T12:00:00.000Z');
+const WINDOW_START = new Date(NOW.getTime() - 60 * 60 * 1000);
+const SPEC_LOCK_TIMEOUT_MS = 300_000;
 const REQUEST = { buyers: 10, seats: 5, strategy: BOOKING_STRATEGY.PESSIMISTIC };
 const PROGRESS_INTERVAL_MS = 20;
 const BLOCK_MS = 200;
@@ -36,6 +38,8 @@ describe('SimulationConsumer', () => {
   let bookings: BookingsService;
   let streamKey: string;
   const consumers: SimulationConsumer[] = [];
+  let database: Database;
+  let unlock: () => Promise<void>;
 
   beforeAll(async () => {
     moduleRef = await Test.createTestingModule({ imports: [WorkerModule] })
@@ -45,9 +49,12 @@ describe('SimulationConsumer', () => {
     redis = moduleRef.get<Redis>(REDIS, { strict: false });
     simulations = moduleRef.get(SimulationsService, { strict: false });
     bookings = moduleRef.get(BookingsService, { strict: false });
-    await ensureVenue(moduleRef.get<Database>(DB, { strict: false }));
-  });
-  beforeEach(() => {
+    database = moduleRef.get<Database>(DB, { strict: false });
+    unlock = await lockSimulationRuns(database);
+    await ensureVenue(database);
+  }, SPEC_LOCK_TIMEOUT_MS);
+  beforeEach(async () => {
+    await clearSimulationRuns(database, WINDOW_START);
     // A stream of its own per test: the API specs write to the real one.
     streamKey = `simulations:spec:${randomUUID()}`;
     simulations.streamKey = streamKey;
@@ -58,6 +65,7 @@ describe('SimulationConsumer', () => {
     vi.restoreAllMocks();
   });
   afterAll(async () => {
+    await unlock();
     await moduleRef.close();
   });
 

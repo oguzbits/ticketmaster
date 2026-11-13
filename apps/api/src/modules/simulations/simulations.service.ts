@@ -6,7 +6,7 @@ import {
   type StartSimulationRequest,
 } from '@app/shared';
 import { HttpException, HttpStatus, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, count, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 
 import { CLOCK, type Clock } from '../../core/clock.js';
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
@@ -75,9 +75,10 @@ export class SimulationsService {
    * so the worker never reads a run it cannot see; when that fails the run is marked FAILED.
    */
   async start(input: StartSimulationRequest, adminId: string): Promise<SimulationRun> {
-    const now = this.clock.now();
     const run = await this.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${START_LOCK_KEY}))`);
+      // Read under the lock: a reading from before it could miss runs that committed meanwhile.
+      const now = this.clock.now();
       await this.assertBelowCap(tx, now);
       const [venue] = await tx.select({ id: venues.id }).from(venues).orderBy(venues.name).limit(1);
       if (venue === undefined) throw new Error('a simulation needs a venue, none exists');
@@ -124,7 +125,7 @@ export class SimulationsService {
     return run;
   }
 
-  /** Counts the active runs of the window [now - timeout, now]; refuses with 429 at the cap. */
+  /** Counts the active runs that started within the timeout up to now; refuses with 429 at the cap. */
   private async assertBelowCap(tx: Tx, now: Date): Promise<void> {
     const [active] = await tx
       .select({ total: count() })
@@ -132,8 +133,7 @@ export class SimulationsService {
       .where(
         and(
           inArray(simulationRuns.status, ACTIVE_STATUSES),
-          gte(simulationRuns.startedAt, new Date(now.getTime() - SIMULATION_RUN_TIMEOUT_MS)),
-          lte(simulationRuns.startedAt, now)
+          gte(simulationRuns.startedAt, new Date(now.getTime() - SIMULATION_RUN_TIMEOUT_MS))
         )
       );
     if ((active?.total ?? 0) >= MAX_ACTIVE_RUNS) {
