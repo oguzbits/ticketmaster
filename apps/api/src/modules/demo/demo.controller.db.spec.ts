@@ -9,16 +9,21 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { AppModule } from '../../app.module.js';
 import { configureApp } from '../../app.setup.js';
+import { seed } from '../../infrastructure/database/seed.js';
 import { RATE_LIMIT } from '../../infrastructure/rate-limit/rate-limit.decorator.js';
+import { openTestDatabase } from '../../testing/database.js';
 import { randomClientAddress } from '../../testing/http.js';
 import { KEYCLOAK_ADMIN } from './domain/demo-user.js';
 import { FAKE_TOKENS, FakeKeycloakAdmin } from './testing/fake-keycloak-admin.js';
 
 describe('demo login and refresh endpoints', () => {
+  const database = openTestDatabase();
   const keycloak = new FakeKeycloakAdmin();
   let app: INestApplication;
 
   beforeAll(async () => {
+    // A login copies the hall's layout into sandbox events; a fresh test database has no hall yet.
+    await seed(database.db);
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(KEYCLOAK_ADMIN)
       .useValue(keycloak)
@@ -26,7 +31,10 @@ describe('demo login and refresh endpoints', () => {
     app = configureApp(moduleRef.createNestApplication<NestExpressApplication>());
     await app.init();
   });
-  afterAll(() => app.close());
+  afterAll(async () => {
+    await app.close();
+    await database.close();
+  });
 
   const post = (path: string, body: object, client = randomClientAddress()) =>
     request(app.getHttpServer()).post(`/api${path}`).set('X-Forwarded-For', client).send(body);
