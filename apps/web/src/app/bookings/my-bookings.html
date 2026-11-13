@@ -1,0 +1,49 @@
+<h1 class="text-2xl font-semibold">My bookings</h1>
+
+@if (bookings.isLoading()) {
+  <p role="status">Loading your bookings…</p>
+} @else if (bookings.error()) {
+  <p role="alert" class="text-danger">Your bookings could not be loaded.</p>
+  <button type="button" class="btn self-start" (click)="bookings.reload()">Try again</button>
+} @else {
+  @if (cancelFailed()) {
+    <p role="alert" class="text-danger">The booking could not be cancelled. Try again.</p>
+  }
+  @let list = bookings.value() ?? [];
+  @if (list.length === 0) {
+    <p>No bookings yet. <a routerLink="/events" class="underline">Browse events</a></p>
+  } @else {
+    <ul class="flex flex-col gap-3">
+      @for (booking of list; track booking.id) {
+        <li class="flex flex-col gap-2 rounded border border-edge bg-surface-raised p-4">
+          <p class="text-lg font-medium">
+            Section {{ booking.seat.section }}, row {{ booking.seat.row }}, seat
+            {{ booking.seat.number }}
+          </p>
+          <p>Status: {{ status(booking.status) }}</p>
+          <a [routerLink]="['/events', booking.eventId]" class="self-start text-sm underline">
+            Open the event
+          </a>
+          <ol class="text-sm text-text-muted">
+            @for (transition of booking.transitions; track $index) {
+              <li>
+                {{ transition.at | date: 'medium' }}: {{ status(transition.fromStatus) }} to
+                {{ status(transition.toStatus) }} ({{ reason(transition.reason) }})
+              </li>
+            }
+          </ol>
+          @if (canCancel(booking)) {
+            <button
+              type="button"
+              class="btn self-start disabled:cursor-not-allowed disabled:opacity-60"
+              [disabled]="cancelling() !== null"
+              (click)="cancel(booking)"
+            >
+              {{ cancelling() === booking.id ? 'Cancelling…' : 'Cancel booking' }}
+            </button>
+          }
+        </li>
+      }
+    </ul>
+  }
+}

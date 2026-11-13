@@ -80,6 +80,9 @@ is in [PLAN.md](PLAN.md#phase-1-core). Still open from earlier notes:
 
 - **Initial web bundle is 740 kB**, over the 500 kB warning budget. Zod makes up a large part of it.
   Measure, then decide (lazy routes, `zod/mini`).
+- **A running hold is not restored after a reload.** The seat map keeps the customer's hold in the
+  page only; after a reload the seat shows as held and the customer can cancel it under "My
+  bookings" but not pay it. Reading `GET /api/bookings` on load would restore the payment panel.
 - **The event list has no pagination.** The API returns every public event.
 - **The worker has no healthcheck and no restart policy** in the Compose stack (phase 5, with the
   container hardening).

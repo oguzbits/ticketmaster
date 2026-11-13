@@ -18,6 +18,100 @@
       </p>
     </header>
 
+    @if (!isCustomer()) {
+      <p class="text-sm text-text-muted">
+        @if (role() === null) {
+          <a routerLink="/" class="underline">Log in as a customer</a> to reserve seats.
+        } @else {
+          The seat map is read-only for the {{ role() }} role. Log in as a customer to reserve
+          seats.
+        }
+      </p>
+    }
+
+    @if (bookings.notice(); as notice) {
+      <p [attr.role]="notice.error ? 'alert' : 'status'" [class.text-danger]="notice.error">
+        {{ notice.text }}
+      </p>
+    }
+    @if (refreshFailed()) {
+      <p role="alert" class="text-danger">The seats could not be refreshed.</p>
+      <button type="button" class="btn self-start" (click)="refreshSeats()">Refresh seats</button>
+    }
+
+    @let booking = bookings.booking();
+    @if (booking) {
+      <section
+        aria-label="Your booking"
+        class="flex flex-col gap-2 rounded border border-edge bg-surface-raised p-4"
+      >
+        <h2 class="text-lg font-medium">
+          Section {{ booking.seat.section }}, row {{ booking.seat.row }}, seat
+          {{ booking.seat.number }}
+        </h2>
+        @switch (booking.status) {
+          @case (held) {
+            @if (bookings.holdRanOut()) {
+              <p role="alert" class="text-danger">
+                Your hold expired. The seat is free again. Pick a seat to start over.
+              </p>
+              <button type="button" class="btn self-start" (click)="bookings.dismiss()">
+                Close
+              </button>
+            } @else {
+              <p role="timer">Hold expires in {{ bookings.countdown() }}</p>
+              <div class="flex gap-3">
+                <button
+                  type="button"
+                  class="btn disabled:cursor-not-allowed disabled:opacity-60"
+                  [disabled]="bookings.pending() !== null"
+                  (click)="bookings.pay()"
+                >
+                  {{ bookings.pending() === action.PAY ? 'Paying…' : 'Pay now' }}
+                </button>
+                <button
+                  type="button"
+                  class="rounded border border-edge px-4 py-2 disabled:cursor-not-allowed disabled:opacity-60"
+                  [disabled]="bookings.pending() !== null"
+                  (click)="bookings.cancel()"
+                >
+                  {{ bookings.pending() === action.CANCEL ? 'Cancelling…' : 'Cancel hold' }}
+                </button>
+              </div>
+            }
+          }
+          @case (confirmed) {
+            <p role="status">Booking confirmed.</p>
+            <div class="flex items-center gap-4">
+              <a routerLink="/bookings" class="underline">My bookings</a>
+              <button type="button" class="btn" (click)="bookings.dismiss()">Close</button>
+            </div>
+          }
+          @case (cancelled) {
+            <div class="flex gap-3">
+              <button
+                type="button"
+                class="btn disabled:cursor-not-allowed disabled:opacity-60"
+                [disabled]="bookings.pending() !== null"
+                (click)="bookings.hold(booking.eventId, booking.seatId)"
+              >
+                Hold the seat again
+              </button>
+              <button
+                type="button"
+                class="rounded border border-edge px-4 py-2"
+                (click)="bookings.dismiss()"
+              >
+                Close
+              </button>
+            </div>
+          }
+        }
+      </section>
+    } @else if (bookings.pending() === action.HOLD) {
+      <p role="status">Holding the seat…</p>
+    }
+
     <ul class="flex flex-wrap gap-4 text-sm" aria-label="Legend">
       @for (status of legend; track status) {
         <li class="flex items-center gap-2">
@@ -44,7 +138,8 @@
                   type="button"
                   class="seat seat-{{ seat.status.toLowerCase() }}"
                   [attr.aria-label]="label(seat)"
-                  [attr.aria-disabled]="seat.status === available ? null : 'true'"
+                  [attr.aria-disabled]="canChoose(seat) ? null : 'true'"
+                  (click)="choose(seat)"
                 >
                   {{ seat.number }}
                 </button>

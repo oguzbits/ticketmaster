@@ -1,5 +1,6 @@
 import { Component, inject } from '@angular/core';
 import { RouterLink, RouterOutlet } from '@angular/router';
+import { ROLE } from '@app/shared';
 
 import { AuthService } from './auth/auth.service';
 import { SessionStore } from './auth/session.store';
@@ -12,4 +13,5 @@ import { SessionStore } from './auth/session.store';
 export class App {
   protected readonly store = inject(SessionStore);
   protected readonly auth = inject(AuthService);
+  protected readonly customer = ROLE.CUSTOMER;
 }

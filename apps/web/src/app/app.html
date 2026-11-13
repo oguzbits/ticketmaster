@@ -3,6 +3,9 @@
     <a routerLink="/" class="text-xl font-semibold">ticketmaster-klon</a>
     <nav class="flex items-center gap-4" aria-label="Main">
       <a routerLink="/events" class="underline">Events</a>
+      @if (store.role() === customer) {
+        <a routerLink="/bookings" class="underline">My bookings</a>
+      }
       @if (store.role(); as role) {
         <span class="text-text-muted">Signed in as {{ role }}</span>
         <button type="button" class="btn" (click)="auth.logout()">Log out</button>
