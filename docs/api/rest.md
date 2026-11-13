@@ -230,4 +230,17 @@ The names and the redrive policy of the queues and the bucket are dictionaries i
 `QUEUE_NAME` holds `booking-events` and its dead-letter queue `booking-events-dlq`; `QUEUE_POLICY`
 holds `MAX_RECEIVE_COUNT` (5: a message that was received five times without being deleted moves to
 the dead-letter queue), `VISIBILITY_TIMEOUT_SECONDS` (30) and `LONG_POLL_SECONDS` (20);
-`BUCKET_NAME` holds `tickets`. The message contract itself follows with the outbox.
+`BUCKET_NAME` holds `tickets`.
+
+## Queue messages
+
+Every message on `booking-events` is one `QueueMessageSchema` (`packages/shared/src/outbox.ts`), a
+union told apart by `type` (`OUTBOX_MESSAGE_TYPE`). Today there is one: `BOOKING_CONFIRMED` with
+`messageId`, `bookingId`, `eventId`, `userId` (UUIDs) and `occurredAt` (ISO timestamp). A message
+carries IDs only, never a name or an email address.
+
+Delivery is at least once. `messageId` is the ID of the outbox row (`outbox_messages.id`), is sent
+as the message attribute `messageId` and is the idempotency key of every consumer: a consumer
+records `(consumer, messageId)` in `processed_messages` in the transaction of its effect and
+handles a message ID once. A message that does not parse is not deleted; it ends in the dead-letter
+queue after `QUEUE_POLICY.MAX_RECEIVE_COUNT` receives.

@@ -63,6 +63,7 @@ export {
   VenueListResponseSchema,
   VenueSchema,
 } from './organizer.js';
+export { OUTBOX_MESSAGE_TYPE, type QueueMessage, QueueMessageSchema } from './outbox.js';
 export {
   SIMULATION_CONSUMER_GROUP,
   SIMULATION_LIMITS,
