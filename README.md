@@ -24,11 +24,11 @@ The start page has no registration: one click logs in as a **customer**, an **or
 after an hour by default and is then deleted. Each demo user gets four private sandbox events of
 their own.
 
-| Role      | Can do                                                                                   |
-| --------- | ---------------------------------------------------------------------------------------- |
-| customer  | hold a seat, pay, cancel, list their own bookings                                        |
-| organizer | list venues, create events, see sales and utilization of their own events                |
-| admin     | switch the booking strategy of an event (a demo admin: of their own sandbox events only) |
+| Role      | Can do                                                                                                           |
+| --------- | ---------------------------------------------------------------------------------------------------------------- |
+| customer  | hold a seat, pay, cancel, list their own bookings                                                                |
+| organizer | list venues, create events, see sales and utilization of their own events                                        |
+| admin     | switch the booking strategy of an event (a demo admin: of their own sandbox events only), run the rush simulator |
 
 Anyone, signed in or not, can browse public events and watch the seat map.
 
@@ -40,6 +40,9 @@ Anyone, signed in or not, can browse public events and watch the seat map.
   sold twice, whichever of the four booking strategies the event uses.
 - Roles with checks on the server: customers book, organizers create events and see their sales,
   admins switch the strategy of an event. A user sees and changes only their own bookings.
+- A rush simulator for admins: virtual buyers race for the seats of a fresh sandbox event under one
+  booking strategy, with live counters (holds, conflicts, retries, latency) and a comparison of the
+  finished runs. Only `naive` shows double bookings.
 - Keyboard operation, visible focus and a seat status that does not rely on color alone.
 
 ## Architecture
@@ -47,7 +50,8 @@ Anyone, signed in or not, can browse public events and watch the seat map.
 Preliminary. Caddy serves the web app and forwards `/api` and `/health` to the API; the API
 verifies Keycloak tokens, writes to PostgreSQL and publishes every seat change to Redis, which fans
 it out to the open seat streams. The worker runs the scheduled jobs (hold expiry, cleanup of demo
-users).
+users) and the simulator: the API puts a run on a Redis stream, the worker's consumer runs the
+buyers, and the API streams the progress from a Redis key to the admin's browser.
 
 ```mermaid
 flowchart LR
@@ -60,11 +64,15 @@ flowchart LR
   worker[Worker: NestJS] --> postgres
   worker -->|publish seat changes| redis
   worker -->|delete expired demo users| keycloak
+  api -->|simulation command: stream| redis
+  redis -->|consumer group| worker
+  worker -->|progress key| redis
+  redis -->|progress key polled for SSE| api
 ```
 
 ## Entities
 
-Venues, events, seats, bookings, their transitions and the temporary demo users. The tables and
+Venues, events, seats, bookings, their transitions, the temporary demo users and the simulation runs. The tables and
 relations are in [docs/data-model.md](docs/data-model.md).
 
 ## API
@@ -72,21 +80,25 @@ relations are in [docs/data-model.md](docs/data-model.md).
 REST routes under `/api`; contracts are Zod schemas in `packages/shared`. The full description
 (answers, errors, limits) is in [docs/api/rest.md](docs/api/rest.md).
 
-| Route                              | Role      | Purpose                                              |
-| ---------------------------------- | --------- | ---------------------------------------------------- |
-| `GET /api/events`                  | public    | public events (and the caller's own sandbox events)  |
-| `GET /api/events/:id`              | public    | event with every seat and its status                 |
-| `GET /api/events/:id/seats/stream` | public    | server-sent events: snapshot, then one change a seat |
-| `POST /api/demo-login`             | public    | temporary user and tokens for a role                 |
-| `POST /api/auth/refresh`           | public    | new tokens for a refresh token                       |
-| `POST /api/bookings`               | customer  | hold a seat                                          |
-| `POST /api/bookings/:id/payment`   | customer  | pay (header `Idempotency-Key`)                       |
-| `POST /api/bookings/:id/cancel`    | customer  | cancel a held or confirmed booking                   |
-| `GET /api/bookings`                | customer  | the caller's bookings with their transitions         |
-| `GET /api/venues`                  | organizer | venue templates                                      |
-| `POST /api/events`                 | organizer | create an event from a venue template                |
-| `GET /api/organizer/events`        | organizer | own events with sold and held counts                 |
-| `PATCH /api/events/:id/strategy`   | admin     | switch the booking strategy                          |
+| Route                              | Role      | Purpose                                                   |
+| ---------------------------------- | --------- | --------------------------------------------------------- |
+| `GET /api/events`                  | public    | public events (and the caller's own sandbox events)       |
+| `GET /api/events/:id`              | public    | event with every seat and its status                      |
+| `GET /api/events/:id/seats/stream` | public    | server-sent events: snapshot, then one change a seat      |
+| `POST /api/demo-login`             | public    | temporary user and tokens for a role                      |
+| `POST /api/auth/refresh`           | public    | new tokens for a refresh token                            |
+| `POST /api/bookings`               | customer  | hold a seat                                               |
+| `POST /api/bookings/:id/payment`   | customer  | pay (header `Idempotency-Key`)                            |
+| `POST /api/bookings/:id/cancel`    | customer  | cancel a held or confirmed booking                        |
+| `GET /api/bookings`                | customer  | the caller's bookings with their transitions              |
+| `GET /api/venues`                  | organizer | venue templates                                           |
+| `POST /api/events`                 | organizer | create an event from a venue template                     |
+| `GET /api/organizer/events`        | organizer | own events with sold and held counts                      |
+| `PATCH /api/events/:id/strategy`   | admin     | switch the booking strategy                               |
+| `POST /api/simulations`            | admin     | start a simulator run (answers 429 above two active runs) |
+| `GET /api/simulations`             | admin     | the latest finished runs with their metrics               |
+| `GET /api/simulations/:id`         | public    | one run with its status and metrics                       |
+| `GET /api/simulations/:id/stream`  | public    | server-sent events: the live progress of a run            |
 
 ## Checks
 

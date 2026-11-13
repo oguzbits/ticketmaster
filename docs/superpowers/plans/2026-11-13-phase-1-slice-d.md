@@ -312,5 +312,11 @@ strongest model.
 
 ## Ledger
 
-| Task | Duration | Subagent tokens | Notes |
-| ---- | -------- | --------------- | ----- |
+| Task       | Duration            | Subagent tokens     | Notes                         |
+| ---------- | ------------------- | ------------------- | ----------------------------- |
+| 1          | 2165 s              | 126.7k              |                               |
+| 2+3        | 1737 s              | 237.1k              |                               |
+| Review 2+3 | 124 s               | 71.9k               |                               |
+| Fix wave   | 675 s               | 132.7k              |                               |
+| 4          | 734 s               | 156.3k              |                               |
+| 5          | see dispatch result | see dispatch result | e2e spec, docs, phase 1 check |

@@ -43,6 +43,17 @@ Phase 1, slice B (identity, booking flow, live seat map) is complete:
 - `pnpm e2e` runs Playwright against the Compose stack (booking flow, two tabs on one event,
   role screens), with its own CI job.
 
+Phase 1, slice D (rush simulator) is complete:
+
+- An admin starts a run (buyers, seats, strategy) with `POST /api/simulations`: a fresh sandbox
+  event, a `simulation_runs` row and a command on the Redis stream `simulations`. The worker's
+  consumer group runs the virtual buyers against `BookingsService.hold`, writes the progress to a
+  Redis key, counts the double bookings in SQL and stores the final metrics.
+- The API serves the run and a server-sent progress stream; the web app has the simulator page
+  (live counters, comparison table of finished runs) behind the admin role.
+- The runner spec asserts double bookings above zero for `naive` and zero for the other strategies;
+  `pnpm e2e` runs a small pessimistic run through the browser.
+
 ## Deviations from the plan
 
 - **No SWC for NestJS decorators.** Vitest (Vite 8, Oxc) reads `experimentalDecorators` and
@@ -87,6 +98,21 @@ Slice B:
 - **The end-to-end run uses its own Compose project** (`ticketmaster-klon-e2e`) and
   `docker-compose.e2e.yml`: payment failure rate 0 and no host ports except web.
 
+Slice D:
+
+- **A run has no `eventId` in the start request.** Every run creates its own sandbox event, so the
+  simulator never touches a public event.
+- **The run cap counts rows, not a Redis counter.** At most two runs in `QUEUED` or `RUNNING` that
+  started within the last 10 minutes; a PostgreSQL advisory lock makes parallel starts safe, and the
+  window frees the slot of a run whose worker died.
+- **Progress goes through a Redis key** (`simulation:<runId>:progress`, one-hour expiry) that the
+  SSE route polls, not through pub/sub: no subscriber connection, no race between a snapshot and a
+  subscription, and it works across API instances.
+- **All synthetic buyers book as the admin who owns the sandbox event.** A sandbox event accepts
+  bookings only from its owner, so the buyers are not separate users.
+- **Test helpers live in `@app/api/simulations/testing`**, not in the module barrel, so the
+  production code does not export them.
+
 ## Open points for the owner
 
 - **Server and domain** for the live demo (Hetzner size, DNS name for HTTPS). Needed only for
@@ -97,8 +123,8 @@ Slice B:
 
 ## Next
 
-Phase 1, slice D (the simulator in the worker) and then the phase 1 definition-of-done check
-([PLAN.md](PLAN.md#phase-1-core)). Still open from earlier notes:
+Slice D is done. The phase 1 definition-of-done check against [PLAN.md](PLAN.md#phase-1-core)
+follows, then phase 2. Still open from earlier notes:
 
 - Write the runbooks the docs-map entry for the deploy folder points to (`docs/runbooks/`).
 - API: OpenAPI export.
@@ -136,6 +162,18 @@ Phase 1, slice D (the simulator in the worker) and then the phase 1 definition-o
   seed (this also resets the Keycloak realm, which lives in the same Postgres).
 - **The worker has no healthcheck and no restart policy** in the Compose stack (phase 5, with the
   container hardening).
+- **A run in `QUEUED` or `RUNNING` is never recovered** when the worker dies or Redis loses the
+  stream. The row stays until the 10-minute window frees its slot; the progress stream polls it up
+  to its lifetime, and the pending message is not claimed again.
+- **A run strands in `RUNNING`** when both `finish()` and `fail()` fail (the database is down for
+  both writes).
+- **Finished runs of a real (non-demo) admin are never cleaned**, and neither are their up to 2000
+  `HELD` bookings per run; `GET /api/bookings` of that admin lists them. The cleanup of a demo admin
+  cascades into its runs.
+- **The simulation stream caps are per process** (50 open streams, counted in memory), like the
+  seat-stream caps.
+- **The simulation stream polls the database four times a second** for a `QUEUED` run that has no
+  progress key yet.
 
 ## Deliberately left out
 
