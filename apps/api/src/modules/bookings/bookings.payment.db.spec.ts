@@ -1,17 +1,31 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { BOOKING_STATUS, BOOKING_STRATEGY, TRANSITION_REASON } from '@app/shared';
+import {
+  BOOKING_STATUS,
+  BOOKING_STRATEGY,
+  OUTBOX_MESSAGE_TYPE,
+  type QueueMessage,
+  QueueMessageSchema,
+  TRANSITION_REASON,
+} from '@app/shared';
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { loadEnv } from '../../config/config.module.js';
-import { bookings, bookingTransitions } from '../../infrastructure/database/schema.js';
+import type { Tx } from '../../infrastructure/database/database.module.js';
+import {
+  bookings,
+  bookingTransitions,
+  outboxMessages,
+} from '../../infrastructure/database/schema.js';
 import type { Redis } from '../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
 import { SPEC_NOW } from '../../testing/time.js';
+import { OutboxService } from '../outbox/index.js';
+import { FakeMessageQueue } from '../outbox/testing/index.js';
 import type { BookingsService } from './bookings.service.js';
 import type { PaymentProvider } from './domain/payment-provider.js';
 import { HOLD_OUTCOME } from './domain/seat-reservation.js';
@@ -44,6 +58,18 @@ class RecordingProvider implements PaymentProvider {
   }
 }
 
+/** Writes the row, then dies once: the crash of the apply step after its last write. */
+class CrashingOutbox extends OutboxService {
+  crashNext = false;
+  override async enqueue(tx: Tx, message: QueueMessage): Promise<void> {
+    await super.enqueue(tx, message);
+    if (this.crashNext) {
+      this.crashNext = false;
+      throw new Error('apply crashed');
+    }
+  }
+}
+
 describe('payment and cancel', () => {
   const database = openTestDatabase();
   const { db } = database;
@@ -52,10 +78,13 @@ describe('payment and cancel', () => {
   let now = NOW;
   let redis: Redis;
   let service: BookingsService;
+  let outbox: CrashingOutbox;
 
   beforeAll(async () => {
     redis = await openTestRedis();
-    service = createBookingsService(db, redis, { now: () => now }, provider);
+    const clock = { now: () => now };
+    outbox = new CrashingOutbox(db, clock, new FakeMessageQueue());
+    service = createBookingsService(db, redis, clock, provider, undefined, outbox);
   });
   afterAll(async () => {
     await redis.quit();
@@ -73,6 +102,7 @@ describe('payment and cancel', () => {
     provider.succeed = true;
     provider.chargeDelayMs = 0;
     provider.failNext = false;
+    outbox.crashNext = false;
     provider.duringCharge = async () => {};
     const { eventId, seatIds } = await createTestEvent(db, {
       strategy: BOOKING_STRATEGY.PESSIMISTIC,
@@ -112,6 +142,54 @@ describe('payment and cancel', () => {
     );
   });
 
+  it('a confirmed payment writes one outbox row with IDs only, a failed one writes none', async () => {
+    const paid = await heldBooking();
+    await service.pay({ ...paid, idempotencyKey: key('row-ok') });
+    const failed = await heldBooking();
+    provider.succeed = false;
+    await service.pay({ ...failed, idempotencyKey: key('row-fail') });
+
+    const [row, ...more] = await outboxRowsOf(paid.bookingId);
+
+    expect(more).toEqual([]);
+    expect(row?.type).toBe(OUTBOX_MESSAGE_TYPE.BOOKING_CONFIRMED);
+    expect(row?.payload).toEqual({
+      messageId: row?.id,
+      type: OUTBOX_MESSAGE_TYPE.BOOKING_CONFIRMED,
+      bookingId: paid.bookingId,
+      eventId: paid.eventId,
+      userId: paid.userId,
+      occurredAt: NOW.toISOString(),
+    });
+    expect(QueueMessageSchema.safeParse(row?.payload).success).toBe(true);
+    expect(await outboxRowsOf(failed.bookingId)).toEqual([]);
+  });
+
+  it('an apply step that dies after writing the row rolls everything back; the retry confirms once with one row', async () => {
+    const { bookingId, userId } = await heldBooking();
+    const idempotencyKey = key('crash-apply');
+    outbox.crashNext = true;
+
+    await expect(service.pay({ bookingId, userId, idempotencyKey })).rejects.toThrow(
+      'apply crashed'
+    );
+    const afterCrash = {
+      status: (await rowOf(bookingId)).status,
+      transitions: await transitionsOf(bookingId),
+      rows: await outboxRowsOf(bookingId),
+    };
+    const retried = await service.pay({ bookingId, userId, idempotencyKey });
+
+    expect(afterCrash).toEqual({
+      status: BOOKING_STATUS.HELD,
+      transitions: [`null>${BOOKING_STATUS.HELD}`],
+      rows: [],
+    });
+    expect(retried.status).toBe(BOOKING_STATUS.CONFIRMED);
+    expect(provider.calls).toHaveLength(2);
+    expect(await outboxRowsOf(bookingId)).toHaveLength(1);
+  });
+
   it('a failed charge cancels with PAYMENT_FAILED', async () => {
     const { bookingId, userId } = await heldBooking();
     provider.succeed = false;
@@ -147,6 +225,14 @@ describe('payment and cancel', () => {
     const [row] = await db.select().from(bookings).where(eq(bookings.id, second.bookingId));
     expect(row?.status).toBe(BOOKING_STATUS.HELD);
   });
+
+  /** The rows of this booking only: the table is shared with other specs. */
+  async function outboxRowsOf(bookingId: string) {
+    return db
+      .select()
+      .from(outboxMessages)
+      .where(sql`${outboxMessages.payload}->>'bookingId' = ${bookingId}`);
+  }
 
   async function rowOf(bookingId: string) {
     const [row] = await db.select().from(bookings).where(eq(bookings.id, bookingId));
@@ -213,13 +299,14 @@ describe('payment and cancel', () => {
     expect(new Set(views.map((view) => view.status))).toEqual(new Set([BOOKING_STATUS.CONFIRMED]));
     expect(provider.calls).toHaveLength(1);
     expect(await transitionsOf(bookingId)).toHaveLength(3);
+    expect(await outboxRowsOf(bookingId)).toHaveLength(1);
   });
 
   it('two instances paying with one key at once apply the result once and answer alike', async () => {
     const { bookingId, userId } = await heldBooking();
     const idempotencyKey = key('instances');
     provider.chargeDelayMs = PARALLEL_CHARGE_MS;
-    const other = createBookingsService(db, redis, { now: () => now }, provider);
+    const other = createBookingsService(db, redis, { now: () => now }, provider, undefined, outbox);
 
     const views = await Promise.all([
       service.pay({ bookingId, userId, idempotencyKey }),
@@ -232,6 +319,7 @@ describe('payment and cancel', () => {
       BOOKING_STATUS.CONFIRMED,
     ]);
     expect(await transitionsOf(bookingId)).toHaveLength(3);
+    expect(await outboxRowsOf(bookingId)).toHaveLength(1);
   });
 
   it('ten parallel payments with different keys on one booking: one wins, the others conflict', async () => {
@@ -288,6 +376,7 @@ describe('payment and cancel', () => {
 
     expect(again.status).toBe(BOOKING_STATUS.CONFIRMED);
     expect(provider.calls).toHaveLength(1);
+    expect(await outboxRowsOf(bookingId)).toHaveLength(1);
   });
 
   it('another key on a confirmed booking is a conflict', async () => {

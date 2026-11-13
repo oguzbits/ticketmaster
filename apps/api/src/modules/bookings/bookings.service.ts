@@ -1,4 +1,13 @@
-import { type Booking, BOOKING_STATUS, type BookingStatus, TRANSITION_REASON } from '@app/shared';
+import { randomUUID } from 'node:crypto';
+
+import {
+  type Booking,
+  BOOKING_STATUS,
+  type BookingStatus,
+  OUTBOX_MESSAGE_TYPE,
+  TRANSITION_REASON,
+  type TransitionReason,
+} from '@app/shared';
 import {
   ConflictException,
   ForbiddenException,
@@ -17,6 +26,7 @@ import {
   events,
   seats,
 } from '../../infrastructure/database/schema.js';
+import { BOOKING_PORTS, type BookingPorts } from './adapters/booking-ports.js';
 import {
   claimPaymentKey,
   planTransition,
@@ -25,7 +35,6 @@ import {
 import { loadOwnBookings } from './adapters/load-own-bookings.js';
 import { publishSeatChange } from './adapters/publish-seat-change.js';
 import { SeatReservations } from './adapters/seat-reservations.js';
-import { BOOKING_PORTS, type BookingPorts } from './domain/booking-ports.js';
 import { type BookingState, SYSTEM_ACTOR_ID } from './domain/booking-state-machine.js';
 import { PAYMENT_GRACE_SECONDS } from './domain/payment-provider.js';
 import { HOLD_OUTCOME, type HoldInput, type HoldResult } from './domain/seat-reservation.js';
@@ -121,10 +130,9 @@ export class BookingsService {
   }): Promise<BookingState> {
     const claim = await this.claimPayment(input);
     if (claim.settled !== null) return claim.settled;
-    // Single flight per process: parallel requests with one key (the claim is theirs, the
-    // ownership was checked above) share one charge and one apply.
-    // shortcut: across instances each one may call the provider (it answers a repeated key alike)
-    // and the re-read in the apply step lets the first win; a distributed lock if a provider needs it.
+    // Single flight per process: parallel requests with one key (ownership is checked above) share
+    // one charge and one apply. shortcut: across instances each may call the provider (it answers a
+    // repeated key alike) and the re-read in the apply step lets the first win; a lock if needed.
     const running = this.flights.get(input.idempotencyKey);
     if (running !== undefined) return (await running).state;
     const flight = this.chargeAndApply(input, claim).finally(() => {
@@ -190,26 +198,23 @@ export class BookingsService {
         throw new ConflictException(`Booking is ${booking.status}, the payment was not applied`);
       }
       // Planned at the time of the claim: a hold that was valid then may finish inside the grace.
+      const plan = (from: BookingState, reason: TransitionReason) =>
+        planTransition(from, reason, input.userId, claim.now);
       if (!succeeded) {
-        const failed = planTransition(
-          booking,
-          TRANSITION_REASON.PAYMENT_FAILED,
-          input.userId,
-          claim.now
-        );
+        const failed = plan(booking, TRANSITION_REASON.PAYMENT_FAILED);
         return { state: await storeTransition(tx, failed), seat: claim.seat };
       }
-      const paid = planTransition(
-        booking,
-        TRANSITION_REASON.PAYMENT_SUCCEEDED,
-        input.userId,
-        claim.now
-      );
-      const stored = await storeTransition(tx, paid);
-      const confirmed = await storeTransition(
-        tx,
-        planTransition(stored, TRANSITION_REASON.CONFIRMED, input.userId, claim.now)
-      );
+      const paid = await storeTransition(tx, plan(booking, TRANSITION_REASON.PAYMENT_SUCCEEDED));
+      const confirmed = await storeTransition(tx, plan(paid, TRANSITION_REASON.CONFIRMED));
+      // In this transaction: the row exists if and only if the booking is CONFIRMED.
+      await this.ports.outbox.enqueue(tx, {
+        messageId: randomUUID(),
+        type: OUTBOX_MESSAGE_TYPE.BOOKING_CONFIRMED,
+        bookingId: booking.id,
+        eventId: claim.seat.eventId,
+        userId: input.userId,
+        occurredAt: claim.now.toISOString(),
+      });
       return { state: confirmed, seat: claim.seat };
     });
   }

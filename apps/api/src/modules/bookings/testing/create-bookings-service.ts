@@ -2,6 +2,8 @@ import { loadEnv } from '../../../config/config.module.js';
 import type { Clock } from '../../../core/clock.js';
 import type { Database } from '../../../infrastructure/database/database.module.js';
 import type { Redis } from '../../../infrastructure/redis/redis.module.js';
+import { OutboxService } from '../../outbox/index.js';
+import { FakeMessageQueue } from '../../outbox/testing/index.js';
 import { FakePaymentProvider } from '../adapters/fake-payment.provider.js';
 import { RedisSeatChangePublisher } from '../adapters/redis-seat-changes.js';
 import { SeatReservations } from '../adapters/seat-reservations.js';
@@ -17,8 +19,9 @@ export function createBookingsService(
   redis: Redis,
   clock: Clock,
   payments: PaymentProvider = ALWAYS_SUCCEEDS,
-  publisher: SeatChangePublisher = new RedisSeatChangePublisher(redis)
+  publisher: SeatChangePublisher = new RedisSeatChangePublisher(redis),
+  outbox: OutboxService = new OutboxService(db, clock, new FakeMessageQueue())
 ): BookingsService {
   const reservations = new SeatReservations(db, redis, clock, loadEnv().HOLD_TTL_SECONDS);
-  return new BookingsService(db, reservations, clock, { payments, seatChanges: publisher });
+  return new BookingsService(db, reservations, clock, { payments, seatChanges: publisher, outbox });
 }

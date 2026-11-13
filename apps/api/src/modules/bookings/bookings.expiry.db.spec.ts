@@ -3,11 +3,15 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 import { BOOKING_STATUS, BOOKING_STRATEGY, SEAT_STATUS, TRANSITION_REASON } from '@app/shared';
 import { ConflictException, Logger } from '@nestjs/common';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { loadEnv } from '../../config/config.module.js';
-import { bookings, bookingTransitions } from '../../infrastructure/database/schema.js';
+import {
+  bookings,
+  bookingTransitions,
+  outboxMessages,
+} from '../../infrastructure/database/schema.js';
 import type { Redis } from '../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
@@ -261,6 +265,11 @@ describe('expireHolds', () => {
         [BOOKING_STATUS.HELD, BOOKING_STATUS.EXPIRED].toSorted()
       );
       expect(warn).toHaveBeenCalledWith(expect.stringContaining(bookingId));
+      const rows = await db
+        .select({ id: outboxMessages.id })
+        .from(outboxMessages)
+        .where(sql`${outboxMessages.payload}->>'bookingId' = ${bookingId}`);
+      expect(rows).toEqual([]);
       warn.mockRestore();
     });
   });

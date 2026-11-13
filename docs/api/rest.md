@@ -132,7 +132,8 @@ is why any other format answers 400.
 The charge runs in three steps, none of which holds a database lock while the provider answers:
 the request locks the booking, refuses what cannot be paid and stores the key (committed); the
 provider is called with the key; the request locks the booking again and stores the result
-(`PAID` then `CONFIRMED`, or `CANCELLED`). A request that dies after the first step leaves the key
+(`PAID` then `CONFIRMED`, or `CANCELLED`); a confirmation also writes the `BOOKING_CONFIRMED` outbox
+row in that transaction (a failed payment writes nothing). A request that dies after the first step leaves the key
 claimed on a `HELD` booking. Repeating the request with the same key repeats the charge, which the
 provider answers alike for the same key, and finishes the booking. Another key on a booking whose
 key is claimed, and a payment that finishes after the booking left `HELD` (cancelled or expired
