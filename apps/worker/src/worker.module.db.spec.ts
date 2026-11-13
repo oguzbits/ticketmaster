@@ -3,6 +3,7 @@ import { DemoService } from '@app/api/demo';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it } from 'vitest';
 
+import { SimulationConsumer } from './simulation.consumer.js';
 import { WorkerModule } from './worker.module.js';
 
 describe('WorkerModule', () => {
@@ -13,6 +14,7 @@ describe('WorkerModule', () => {
 
     expect(moduleRef.get(BookingsService, { strict: false })).toBeInstanceOf(BookingsService);
     expect(moduleRef.get(DemoService, { strict: false })).toBeInstanceOf(DemoService);
+    expect(moduleRef.get(SimulationConsumer)).toBeInstanceOf(SimulationConsumer);
     await moduleRef.close();
   });
 });

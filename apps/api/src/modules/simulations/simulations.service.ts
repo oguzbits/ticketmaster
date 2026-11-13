@@ -1,6 +1,7 @@
 import {
   SIMULATION_STATUS,
   SIMULATION_STREAM_KEY,
+  type SimulationMetrics,
   type SimulationRun,
   type StartSimulationRequest,
 } from '@app/shared';
@@ -30,6 +31,14 @@ const START_LOCK_KEY = 'simulation-start';
 /** The one Redis command `start` needs; a spec passes a failing one. */
 export interface QueueWriter {
   xAdd(key: string, id: string, message: Record<string, string>): Promise<string>;
+}
+
+export interface ClaimedRun {
+  eventId: string;
+  buyers: number;
+  seatIds: string[];
+  /** The admin who started the run; the buyers book as this user, see `SimulationRunner`. */
+  startedBy: string;
 }
 
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
@@ -150,6 +159,40 @@ export class SimulationsService {
       .orderBy(desc(simulationRuns.finishedAt))
       .limit(MAX_LISTED_RUNS);
     return rows.map(toRun);
+  }
+
+  /**
+   * The worker's first step: QUEUED to RUNNING, once. Undefined for an unknown run and for a run
+   * that already started (a message that is delivered twice), so a run never executes twice.
+   */
+  async claim(runId: string): Promise<ClaimedRun | undefined> {
+    const [row] = await this.db
+      .update(simulationRuns)
+      .set({ status: SIMULATION_STATUS.RUNNING })
+      .where(and(eq(simulationRuns.id, runId), eq(simulationRuns.status, SIMULATION_STATUS.QUEUED)))
+      .returning();
+    if (row === undefined) return undefined;
+    const seatRows = await this.db
+      .select({ id: seats.id })
+      .from(seats)
+      .where(eq(seats.eventId, row.eventId));
+    return {
+      eventId: row.eventId,
+      buyers: row.buyers,
+      seatIds: seatRows.map(({ id }) => id),
+      startedBy: row.startedBy,
+    };
+  }
+
+  async finish(runId: string, metrics: SimulationMetrics): Promise<void> {
+    await this.db
+      .update(simulationRuns)
+      .set({
+        status: SIMULATION_STATUS.FINISHED,
+        metrics,
+        finishedAt: this.clock.now(),
+      })
+      .where(eq(simulationRuns.id, runId));
   }
 
   /** Only an active run can fail; a run that finished keeps its result. */
