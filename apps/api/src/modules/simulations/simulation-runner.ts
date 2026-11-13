@@ -39,6 +39,11 @@ export interface SimulationRunInput {
   buyers: number;
   seats: readonly string[];
   concurrency: number;
+  /**
+   * Every buyer books as this user instead of a synthetic one. A sandbox event accepts bookings
+   * only from its owner, and the run's event is the starting admin's sandbox.
+   */
+  buyerId?: string;
   onProgress(metrics: SimulationMetrics): void;
 }
 
@@ -80,7 +85,7 @@ export class SimulationRunner {
   }
 
   private async runBuyer(input: SimulationRunInput, recorder: SimulationMetricsRecorder) {
-    const userId = this.deps.newUserId();
+    const userId = input.buyerId ?? this.deps.newUserId();
     for (let attempt = 0; attempt < MAX_ATTEMPTS_PER_BUYER; attempt += 1) {
       const seatId = input.seats[Math.floor(this.deps.random() * input.seats.length)];
       if (seatId === undefined) throw new Error('the random source left the range [0, 1)');

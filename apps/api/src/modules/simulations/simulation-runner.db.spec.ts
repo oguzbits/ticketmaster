@@ -79,4 +79,26 @@ describe('SimulationRunner against the database', () => {
 
     expect(metrics).toMatchObject({ holds: 10, conflicts: 0, retries: 0, doubleBookings: 0 });
   });
+
+  it('books as the given user, which a sandbox event requires: it accepts only its owner', async () => {
+    const owner = randomUUID();
+    const { eventId, seatIds } = await createTestEvent(db, {
+      strategy: BOOKING_STRATEGY.PESSIMISTIC,
+      seats: 5,
+      sandboxUserId: owner,
+    });
+
+    const metrics = await runnerWith(Math.random).run({
+      runId: randomUUID(),
+      eventId,
+      buyers: 3,
+      seats: seatIds,
+      concurrency: CONCURRENCY,
+      buyerId: owner,
+      onProgress: () => undefined,
+    });
+
+    expect(metrics.buyersDone).toBe(3);
+    expect(metrics.holds).toBeGreaterThan(0);
+  });
 });
