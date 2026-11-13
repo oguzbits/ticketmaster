@@ -6,3 +6,4 @@ export {
   type HoldResult,
   type SeatReservation,
 } from './domain/seat-reservation.js';
+export { ACTIVE_BOOKING_STATUSES, seatStatusOf } from './domain/seat-status.js';
