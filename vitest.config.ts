@@ -2,6 +2,9 @@ import path from 'node:path';
 
 import { configDefaults, defineConfig } from 'vitest/config';
 
+import { parseEnv } from './apps/api/src/config/env.js';
+import { testDatabaseUrl } from './apps/api/src/testing/test-database-url.js';
+
 const setupFiles = [path.resolve(import.meta.dirname, 'vitest.setup.ts')];
 const DB_SPECS = '**/*.db.spec.ts';
 const project = (name: string, root: string) => ({
@@ -23,6 +26,9 @@ export default defineConfig({
         test: {
           ...project('db', '.').test,
           include: ['apps/{api,worker}/src/**/*.db.spec.ts'],
+          // Own database: the specs write events and bookings that must not reach the dev data.
+          globalSetup: ['./apps/api/src/testing/db-global-setup.ts'],
+          env: { DATABASE_URL: testDatabaseUrl(parseEnv(process.env).DATABASE_URL) },
         },
       },
       project('hooks', './.claude/hooks'),

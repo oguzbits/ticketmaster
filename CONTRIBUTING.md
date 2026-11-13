@@ -63,9 +63,11 @@ The full table is in [AGENTS.md](AGENTS.md#5-commands). The two that matter most
 
 - Unit tests: Vitest, next to the code as `*.spec.ts`. They never reach the network: an unmocked
   request fails the test.
-- Database tests are `*.db.spec.ts`. They need `pnpm db:up` and `pnpm db:migrate` and run with
-  `pnpm test:db`; `pnpm test` skips them. Each test creates its own event with random IDs, so no
-  cleanup is needed.
+- Database tests are `*.db.spec.ts`. They need `pnpm db:up` and run with `pnpm test:db`; `pnpm test`
+  skips them. Before each run a global setup drops and recreates the database `app_test` on the
+  server of `DATABASE_URL` (the local container by default) and applies the migrations, so the
+  specs never touch the development database `app`. Each test creates its own event with random
+  IDs, so no cleanup is needed.
 - Route tests start the NestJS module in the test process and call it over the loopback address.
 - Web tests run through the Angular builder (`pnpm --filter @app/web test`).
 

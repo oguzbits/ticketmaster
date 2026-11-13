@@ -90,7 +90,7 @@ jobs:
         with:
           cache: true
           require-lockfile: true
-      - run: pnpm db:migrate
+      # The global setup creates and migrates its own `app_test` database on the service.
       - run: pnpm test:db
       # drizzle-kit has no drift flag: generating again must not write a new migration.
       - name: Migrations match the schema
