@@ -87,6 +87,22 @@ Chosen: option 1, with a global default-deny guard and token refresh through the
 - Bad: a route without `@Roles` accepts any authenticated token, so every new route needs an
   explicit `@Roles(...)` unless any signed-in user really may call it.
 
+### Known limits of the demo login
+
+- **Orphaned Keycloak user.** If the process dies between `createUser` and the `demo_users` insert,
+  the Keycloak user stays and no row ever finds it. There is no reconciliation job yet; one could
+  sweep users with the `demo-` prefix that are older than the TTL.
+- **Late tokens.** The cleanup waits one access-token lifetime past `expires_at`, but a refresh just
+  before the deletion still yields an access token that outlives the user by up to 300 s. Such a token
+  can book seats that nothing cleans up. Closing this needs a revocation check in the guard.
+- **Refresh tokens are single use.** The realm sets `revokeRefreshToken`, so an old refresh token is
+  refused after a refresh (Keycloak then also ends the session when the old one is replayed). The
+  realm file is imported only into a fresh Keycloak database; an existing local realm keeps its old
+  setting until it is changed in the admin console or the database is recreated.
+- **A failing user holds a batch place.** Cleanup takes 100 users per run, oldest first. A user whose
+  Keycloak deletion keeps failing is retried first on every run; 100 such users would stall the rest.
+- **The global cap counts rows,** not live Keycloak users, so an orphan (above) is not counted.
+
 ## Pros and cons of the options
 
 ### Option 1: password grant on a confidential client, temporary users

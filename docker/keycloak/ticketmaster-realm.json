@@ -3,6 +3,7 @@
   "enabled": true,
   "registrationAllowed": false,
   "accessTokenLifespan": 300,
+  "revokeRefreshToken": true,
   "roles": {
     "realm": [
       { "name": "customer", "description": "Books seats" },
