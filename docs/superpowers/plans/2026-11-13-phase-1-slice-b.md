@@ -499,5 +499,20 @@ and the final whole-branch review on the strongest model. Check `df -h` before t
 
 ## Ledger
 
-| Task | Duration | Subagent tokens | Notes |
-| ---- | -------- | --------------- | ----- |
+| Task                             | Duration    | Subagent tokens | Notes                                                                                                   |
+| -------------------------------- | ----------- | --------------- | ------------------------------------------------------------------------------------------------------- |
+| 1+2                              | 625 s       | 172.3k          | one dispatch                                                                                            |
+| Review 1+2, fix wave             | 375 s       | 142.1k          | no AppModule wiring test, `exp` not required, port exposure                                             |
+| 3                                | 531 s       | 131.3k          | no own review                                                                                           |
+| 4                                | 340 s       | 118.9k          |                                                                                                         |
+| Review 4, fix wave               | 448 s       | 156.7k          | key is a UUID, test gaps                                                                                |
+| 5                                | 621 s       | 163.1k          | ran beside the review of 4                                                                              |
+| Review 5, fix wave               | 711 s       | 181.1k          | IPv6 keys, demo cap, timeouts, cleanup grace, refresh error mapping                                     |
+| 6+7                              | 1169 s      | 265.5k          |                                                                                                         |
+| Review 6+7, fix wave             | 845 s       | 240.5k          | demo admin could switch any strategy, SSE caps, publish from DB                                         |
+| 8                                | 720 s       | 134.2k          |                                                                                                         |
+| 9a (booking flow, live seat map) | 1461 s      | 230.3k          |                                                                                                         |
+| 9b (organizer, admin screens)    | 639 s       | 153.6k          |                                                                                                         |
+| 10 (e2e, CI, docs)               | 1368 s      | 156.6k          |                                                                                                         |
+| Final review and fix wave        | 157 s       | 100.8k          | strongest model; first run hit the rate limit; worker jobs survive a failing tick, CI fixes done inline |
+| **Sum**                          | **10010 s** | **2347.0k**     | agent time, partly parallel; plus the failed first review run (not reported)                            |
