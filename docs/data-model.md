@@ -17,6 +17,13 @@ erDiagram
     bookings ||--o{ booking_transitions : "records"
     demo_users ||--o{ events : "owns as sandbox (by sandbox_user_id)"
 
+    venue_seats {
+        uuid venue_id PK
+        text section PK
+        int row PK
+        int number PK
+        int price_cents "nullable, see below"
+    }
     events {
         uuid id PK
         uuid venue_id FK
@@ -68,8 +75,13 @@ also carry. The cleanup job reads `expires_at` (indexed) and, per expired user, 
 Keycloak user, then the user's bookings, the sandbox events (their seats and transitions cascade)
 and the row, in one transaction.
 
-Seats are copied from the venue template when an event is created, so a later change of the
-template does not move seats of events that already sell. Foreign keys from seats, bookings and
+Seats are copied from the venue template when an event is created (one `INSERT ... SELECT` in the
+same transaction as the event), so a later change of the template does not move seats of events
+that already sell. The template carries the price per seat (`venue_seats.price_cents`). The column is
+nullable because it was added in the expand step of a backward-compatible change: the idempotent
+seed, which runs on every deploy, fills it for the rows that already exist. A template seat without
+a price makes the creation fail as a whole, since `seats.price_cents` is not null. Making the column
+`not null` is the later contract step. Foreign keys from seats, bookings and
 transitions up to the event cascade on delete. The status of a seat (available, held, sold) is
 derived from its bookings and never stored.
 

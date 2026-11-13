@@ -6,14 +6,14 @@ import {
   type BookingStatus,
   type BookingStrategy,
 } from '@app/shared';
-import { count, inArray } from 'drizzle-orm';
+import { and, count, eq, inArray } from 'drizzle-orm';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { SPEC_NOW } from '../../testing/time.js';
 import type { Database } from './database.module.js';
 import { bookings, events, seats, venues, venueSeats } from './schema.js';
-import { SEED, seed } from './seed.js';
+import { HALL, SEED, seed } from './seed.js';
 
 const HOLD_MS = 600_000;
 const UNIQUE_VIOLATION = '23505';
@@ -97,5 +97,25 @@ describe('booking schema', () => {
 
     expect(await seededRows()).toEqual(first);
     expect(first).toEqual([2, 272, 4, 544]);
+  });
+
+  it('seed() fills the price of a venue seat that was stored without one', async () => {
+    await seed(db);
+    const first = { venueId: SEED.VENUE_IDS.HALL, section: 'A', row: 1, number: 1 };
+    const where = and(
+      eq(venueSeats.venueId, first.venueId),
+      eq(venueSeats.section, first.section),
+      eq(venueSeats.row, first.row),
+      eq(venueSeats.number, first.number)
+    );
+    await db.update(venueSeats).set({ priceCents: null }).where(where);
+
+    await seed(db);
+
+    const [row] = await db
+      .select({ priceCents: venueSeats.priceCents })
+      .from(venueSeats)
+      .where(where);
+    expect(row?.priceCents).toBe(HALL.sections[0]?.priceCents);
   });
 });

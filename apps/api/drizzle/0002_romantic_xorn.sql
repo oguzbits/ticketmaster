@@ -1,0 +1,1 @@
+ALTER TABLE "venue_seats" ADD COLUMN "price_cents" integer;

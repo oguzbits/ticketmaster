@@ -40,6 +40,9 @@ export const venueSeats = pgTable(
     section: text('section').notNull(),
     row: integer('row').notNull(),
     number: integer('number').notNull(),
+    // Copied to the seats of every event held in the venue. Nullable: added in the expand step, the
+    // seed fills it on deploy; a seat without a price makes event creation fail (not null on seats).
+    priceCents: integer('price_cents'),
   },
   (t) => [primaryKey({ columns: [t.venueId, t.section, t.row, t.number] })]
 );

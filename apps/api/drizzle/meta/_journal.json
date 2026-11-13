@@ -15,6 +15,13 @@
       "when": 1794571659638,
       "tag": "0001_adorable_wendigo",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794574093608,
+      "tag": "0002_romantic_xorn",
+      "breakpoints": true
     }
   ]
 }

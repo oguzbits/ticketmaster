@@ -1,4 +1,5 @@
 import { BOOKING_STRATEGY, type BookingStrategy } from '@app/shared';
+import { sql } from 'drizzle-orm';
 
 import type { Database } from './database.module.js';
 import { events, seats, venues, venueSeats } from './schema.js';
@@ -101,10 +102,14 @@ export async function seed(db: Database): Promise<void> {
       .insert(venueSeats)
       .values(
         templates.flatMap(({ venueId, layout }) =>
-          layoutSeats(layout).map(({ section, row, number }) => ({ venueId, section, row, number }))
+          layoutSeats(layout).map((seat) => ({ venueId, ...seat }))
         )
       )
-      .onConflictDoNothing();
+      // Also fills the price of template rows that were written before the column existed.
+      .onConflictDoUpdate({
+        target: [venueSeats.venueId, venueSeats.section, venueSeats.row, venueSeats.number],
+        set: { priceCents: sql`excluded.price_cents` },
+      });
     await tx
       .insert(events)
       .values(
