@@ -35,6 +35,15 @@ export class EventsService {
     return rows.map((row) => ({ ...row, startsAt: row.startsAt.toISOString() }));
   }
 
+  /** NotFound unless the event is public or the caller's own sandbox; cheaper than `detail`. */
+  async assertVisible(id: string, userId: string | null): Promise<void> {
+    const [event] = await this.db
+      .select({ id: events.id })
+      .from(events)
+      .where(and(eq(events.id, id), visibleTo(userId)));
+    if (event === undefined) throw new NotFoundException('Event not found');
+  }
+
   /** Admin switch: later holds use the new strategy, existing bookings keep their own. */
   async setStrategy(id: string, strategy: BookingStrategy): Promise<EventSummary> {
     const [updated] = await this.db

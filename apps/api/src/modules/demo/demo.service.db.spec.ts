@@ -1,6 +1,14 @@
 import { randomUUID } from 'node:crypto';
 
-import { BOOKING_STATUS, BOOKING_STRATEGY, ROLE, TRANSITION_REASON } from '@app/shared';
+import {
+  BOOKING_STATUS,
+  BOOKING_STRATEGY,
+  type BookingStatus,
+  ROLE,
+  SEAT_STATUS,
+  type SeatChange,
+  TRANSITION_REASON,
+} from '@app/shared';
 import { Logger, ServiceUnavailableException } from '@nestjs/common';
 import { count, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -15,6 +23,7 @@ import {
 import { HALL, layoutSeats, SEED, seed } from '../../infrastructure/database/seed.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { SPEC_NOW } from '../../testing/time.js';
+import type { SeatChangePublisher } from '../bookings/index.js';
 import {
   ACCESS_TOKEN_GRACE_SECONDS,
   DEMO_CLEANUP_BATCH,
@@ -37,8 +46,22 @@ describe('DemoService', () => {
   const keycloak = new FakeKeycloakAdmin();
   let now = SPEC_NOW;
   const clock = { now: () => now };
+  const published: { change: SeatChange; bookingsLeft: number }[] = [];
+  let publishFails = false;
+  // Counts the user's bookings through another connection at the moment of the message, so a
+  // publish before the cleanup transaction commits shows up as bookings that are still there.
+  const seatChanges: SeatChangePublisher = {
+    publish: async (change) => {
+      const [left] = await db
+        .select({ total: count() })
+        .from(bookings)
+        .where(eq(bookings.seatId, change.seatId));
+      published.push({ change, bookingsLeft: left?.total ?? 0 });
+      if (publishFails) throw new Error('redis down');
+    },
+  };
   const serviceWithCap = (maxUsers: number) =>
-    new DemoService(db, keycloak, clock, { userTtlSeconds: TTL_SECONDS, maxUsers });
+    new DemoService(db, keycloak, clock, { userTtlSeconds: TTL_SECONDS, maxUsers, seatChanges });
   const service = serviceWithCap(MAX_DEMO_USERS);
 
   beforeAll(() => seed(db));
@@ -52,8 +75,11 @@ describe('DemoService', () => {
   const demoUserRows = (userId: string) =>
     db.select().from(demoUsers).where(eq(demoUsers.userId, userId));
 
-  /** A demo user at time `at`, with one confirmed booking on a public event. */
-  async function loginWithBooking(at: Date): Promise<{ userId: string; bookingId: string }> {
+  /** A demo user at time `at`, with one booking (confirmed unless told otherwise) on a public event. */
+  async function loginWithBooking(
+    at: Date,
+    status: BookingStatus = BOOKING_STATUS.CONFIRMED
+  ): Promise<{ userId: string; bookingId: string; eventId: string; seatId: string }> {
     now = at;
     const before = keycloak.created.length;
     await service.login(ROLE.CUSTOMER);
@@ -69,11 +95,11 @@ describe('DemoService', () => {
         seatId: seatIds[0] ?? '',
         userId,
         strategy: BOOKING_STRATEGY.PESSIMISTIC,
-        status: BOOKING_STATUS.CONFIRMED,
+        status,
         holdExpiresAt: at,
       })
       .returning({ id: bookings.id });
-    return { userId, bookingId: booking?.id ?? '' };
+    return { userId, bookingId: booking?.id ?? '', eventId, seatId: seatIds[0] ?? '' };
   }
 
   const bookingRows = (bookingId: string) =>
@@ -291,6 +317,76 @@ describe('DemoService', () => {
 
       await expect(service.deleteExpired(due)).resolves.toBe(1);
       await expect(service.deleteExpired(due)).resolves.toBe(0);
+    });
+
+    describe('seat changes', () => {
+      const dueAfter = (start: Date) => new Date(start.getTime() + HOUR_MS + GRACE_MS);
+      const publishedFor = (seatId: string) =>
+        published.filter(({ change }) => change.seatId === seatId);
+
+      it('frees the seats the user still held, sold or booked on a public event, after the commit', async () => {
+        const start = era(2006);
+        const holder = await loginWithBooking(start, BOOKING_STATUS.HELD);
+        const buyer = await loginWithBooking(start, BOOKING_STATUS.CONFIRMED);
+        const gone = await loginWithBooking(start, BOOKING_STATUS.CANCELLED);
+
+        await service.deleteExpired(dueAfter(start));
+
+        for (const { eventId, seatId } of [holder, buyer]) {
+          expect(publishedFor(seatId)).toEqual([
+            {
+              change: {
+                eventId,
+                seatId,
+                status: SEAT_STATUS.AVAILABLE,
+                at: dueAfter(start).toISOString(),
+              },
+              bookingsLeft: 0,
+            },
+          ]);
+        }
+        // A cancelled booking did not occupy its seat: nothing changes for the viewers.
+        expect(publishedFor(gone.seatId)).toEqual([]);
+      });
+
+      it('sends nothing for a seat of the user’s own sandbox event, nobody else could see it', async () => {
+        const start = era(2008);
+        const { userId } = await loginWithBooking(start);
+        const [sandbox] = await sandboxEvents(userId);
+        const [seat] = await db
+          .select()
+          .from(seats)
+          .where(eq(seats.eventId, sandbox?.id ?? ''));
+        await db.insert(bookings).values({
+          eventId: seat?.eventId ?? '',
+          seatId: seat?.id ?? '',
+          userId,
+          strategy: sandbox?.strategy ?? BOOKING_STRATEGY.PESSIMISTIC,
+          status: BOOKING_STATUS.HELD,
+          holdExpiresAt: start,
+        });
+
+        await service.deleteExpired(dueAfter(start));
+
+        expect(publishedFor(seat?.id ?? '')).toEqual([]);
+      });
+
+      it('does not fail the cleanup when the publish fails, and logs it', async () => {
+        const start = era(2007);
+        const { userId, bookingId } = await loginWithBooking(start);
+        publishFails = true;
+        const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+        try {
+          await expect(service.deleteExpired(dueAfter(start))).resolves.toBe(1);
+          expect(logged).toHaveBeenCalledWith(expect.stringContaining(userId));
+        } finally {
+          publishFails = false;
+          logged.mockRestore();
+        }
+
+        expect(await bookingRows(bookingId)).toEqual([]);
+      });
     });
 
     it('does nothing when nobody is due', async () => {

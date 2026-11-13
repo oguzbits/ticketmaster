@@ -40,6 +40,9 @@ export const SeatChangeSchema = z.object({
   at: z.iso.datetime(),
 });
 
+/** First event of the seat stream: every seat of the event with its status right now. */
+export const SeatSnapshotSchema = z.object({ seats: z.array(SeatSchema) });
+
 export const SEAT_STREAM_EVENT = {
   SNAPSHOT: 'snapshot',
   CHANGE: 'change',
@@ -49,3 +52,4 @@ export type HoldRequest = z.infer<typeof HoldRequestSchema>;
 export type BookingTransition = z.infer<typeof BookingTransitionSchema>;
 export type Booking = z.infer<typeof BookingSchema>;
 export type SeatChange = z.infer<typeof SeatChangeSchema>;
+export type SeatSnapshot = z.infer<typeof SeatSnapshotSchema>;

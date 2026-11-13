@@ -6,10 +6,13 @@ import { CLOCK, type Clock } from '../../core/clock.js';
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
 import { REDIS, type Redis } from '../../infrastructure/redis/redis.module.js';
 import { FakePaymentProvider } from './adapters/fake-payment.provider.js';
+import { RedisSeatChangePublisher } from './adapters/redis-seat-changes.js';
 import { SeatReservations } from './adapters/seat-reservations.js';
 import { BookingsController } from './bookings.controller.js';
 import { BookingsService } from './bookings.service.js';
-import { PAYMENT_PROVIDER } from './domain/payment-provider.js';
+import { BOOKING_PORTS, type BookingPorts } from './domain/booking-ports.js';
+import { PAYMENT_PROVIDER, type PaymentProvider } from './domain/payment-provider.js';
+import { SEAT_CHANGE_PUBLISHER, type SeatChangePublisher } from './domain/seat-change.js';
 
 @Module({
   controllers: [BookingsController],
@@ -27,7 +30,20 @@ import { PAYMENT_PROVIDER } from './domain/payment-provider.js';
       useFactory: (env: Env) => new FakePaymentProvider(env.PAYMENT_FAILURE_RATE, Math.random),
       inject: [APP_CONFIG],
     },
+    {
+      provide: BOOKING_PORTS,
+      useFactory: (payments: PaymentProvider, seatChanges: SeatChangePublisher): BookingPorts => ({
+        payments,
+        seatChanges,
+      }),
+      inject: [PAYMENT_PROVIDER, SEAT_CHANGE_PUBLISHER],
+    },
+    {
+      provide: SEAT_CHANGE_PUBLISHER,
+      useFactory: (redis: Redis) => new RedisSeatChangePublisher(redis),
+      inject: [REDIS],
+    },
   ],
-  exports: [BookingsService],
+  exports: [BookingsService, SEAT_CHANGE_PUBLISHER],
 })
 export class BookingsModule {}

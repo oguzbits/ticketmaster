@@ -1,5 +1,5 @@
-import { type Booking, BOOKING_STATUS, TRANSITION_REASON } from '@app/shared';
-import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { type Booking, BOOKING_STATUS, type BookingStatus, TRANSITION_REASON } from '@app/shared';
+import { ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { and, count, desc, eq, inArray, lte, type SQL, sql } from 'drizzle-orm';
 
 import { CLOCK, type Clock } from '../../core/clock.js';
@@ -16,22 +16,25 @@ import {
   storeTransition,
 } from './adapters/booking-transitions.js';
 import type { Tx } from './adapters/insert-hold.js';
+import { publishSeatChange } from './adapters/publish-seat-change.js';
 import { SeatReservations } from './adapters/seat-reservations.js';
+import { BOOKING_PORTS, type BookingPorts } from './domain/booking-ports.js';
 import { type BookingState, SYSTEM_ACTOR_ID } from './domain/booking-state-machine.js';
-import { PAYMENT_PROVIDER, type PaymentProvider } from './domain/payment-provider.js';
-import type { HoldInput, HoldResult } from './domain/seat-reservation.js';
-import { ACTIVE_BOOKING_STATUSES } from './domain/seat-status.js';
+import { HOLD_OUTCOME, type HoldInput, type HoldResult } from './domain/seat-reservation.js';
+import { ACTIVE_BOOKING_STATUSES, seatStatusOf } from './domain/seat-status.js';
 
 /** Bookings the expiry job locks and expires per transaction. */
 const EXPIRY_BATCH_SIZE = 500;
 
 @Injectable()
 export class BookingsService {
+  private readonly logger = new Logger(BookingsService.name);
+
   constructor(
     @Inject(DB) private readonly db: Database,
     @Inject(SeatReservations) private readonly reservations: SeatReservations,
     @Inject(CLOCK) private readonly clock: Clock,
-    @Inject(PAYMENT_PROVIDER) private readonly payments: PaymentProvider
+    @Inject(BOOKING_PORTS) private readonly ports: BookingPorts
   ) {}
 
   /**
@@ -50,7 +53,11 @@ export class BookingsService {
     ) {
       throw new NotFoundException('Seat not found in this event');
     }
-    return this.reservations.hold(event.strategy, input);
+    const result = await this.reservations.hold(event.strategy, input);
+    if (result.outcome === HOLD_OUTCOME.PLACED) {
+      await this.announce(result.bookingId, input, BOOKING_STATUS.HELD);
+    }
+    return result;
   }
 
   /** The caller's bookings with their stored transitions, newest booking first. */
@@ -91,47 +98,53 @@ export class BookingsService {
     userId: string;
     idempotencyKey: string;
   }): Promise<BookingState> {
-    return this.db.transaction(async (tx) => {
-      const { booking, paymentIdempotencyKey, priceCents } = await this.lockOwnBooking(
+    const { state, seat } = await this.db.transaction(async (tx) => {
+      const { booking, paymentIdempotencyKey, priceCents, seat } = await this.lockOwnBooking(
         tx,
         input.bookingId,
         input.userId
       );
-      if (paymentIdempotencyKey === input.idempotencyKey) return booking;
+      // The same key again: the stored result, nothing changes, nothing to announce.
+      if (paymentIdempotencyKey === input.idempotencyKey) return { state: booking, seat: null };
       const now = this.clock.now();
       // Refused before the charge: another key on a settled booking, or a hold that ran out.
       const paid = planTransition(booking, TRANSITION_REASON.PAYMENT_SUCCEEDED, input.userId, now);
       await claimPaymentKey(tx, booking.id, input.idempotencyKey);
       // shortcut: the fake charge runs inside the database transaction; a real provider call moves
       // out of it with the outbox in phase 2.
-      const { succeeded } = await this.payments.charge({
+      const { succeeded } = await this.ports.payments.charge({
         bookingId: booking.id,
         amountCents: priceCents,
         idempotencyKey: input.idempotencyKey,
       });
       if (!succeeded) {
         const failed = planTransition(booking, TRANSITION_REASON.PAYMENT_FAILED, input.userId, now);
-        return storeTransition(tx, failed);
+        return { state: await storeTransition(tx, failed), seat };
       }
       const stored = await storeTransition(tx, paid);
-      return storeTransition(
+      const confirmed = await storeTransition(
         tx,
         planTransition(stored, TRANSITION_REASON.CONFIRMED, input.userId, now)
       );
+      return { state: confirmed, seat };
     });
+    if (seat !== null) await this.announce(state.id, seat, state.status);
+    return state;
   }
 
   async cancel(input: { bookingId: string; userId: string }): Promise<BookingState> {
-    return this.db.transaction(async (tx) => {
-      const { booking } = await this.lockOwnBooking(tx, input.bookingId, input.userId);
+    const { state, seat } = await this.db.transaction(async (tx) => {
+      const { booking, seat } = await this.lockOwnBooking(tx, input.bookingId, input.userId);
       const cancelled = planTransition(
         booking,
         TRANSITION_REASON.CANCELLED_BY_USER,
         input.userId,
         this.clock.now()
       );
-      return storeTransition(tx, cancelled);
+      return { state: await storeTransition(tx, cancelled), seat };
     });
+    await this.announce(state.id, seat, state.status);
+    return state;
   }
 
   /** Expires every HELD booking whose hold has passed; returns how many. Safe to run in parallel. */
@@ -145,21 +158,30 @@ export class BookingsService {
             id: bookings.id,
             status: bookings.status,
             holdExpiresAt: bookings.holdExpiresAt,
+            eventId: bookings.eventId,
+            seatId: bookings.seatId,
           })
           .from(bookings)
           .where(and(eq(bookings.status, BOOKING_STATUS.HELD), lte(bookings.holdExpiresAt, now)))
           .limit(EXPIRY_BATCH_SIZE)
           .for('update', { skipLocked: true });
+        const released: { id: string; status: BookingStatus; eventId: string; seatId: string }[] =
+          [];
         for (const booking of due) {
-          await storeTransition(
-            tx,
-            planTransition(booking, TRANSITION_REASON.HOLD_EXPIRED, SYSTEM_ACTOR_ID, now)
+          const result = planTransition(
+            booking,
+            TRANSITION_REASON.HOLD_EXPIRED,
+            SYSTEM_ACTOR_ID,
+            now
           );
+          await storeTransition(tx, result);
+          released.push({ ...booking, status: result.booking.status });
         }
-        return due.length;
+        return released;
       });
-      expired += batch;
-      if (batch < EXPIRY_BATCH_SIZE) return expired;
+      await Promise.all(batch.map((b) => this.announce(b.id, b, b.status)));
+      expired += batch.length;
+      if (batch.length < EXPIRY_BATCH_SIZE) return expired;
     }
   }
 
@@ -216,6 +238,7 @@ export class BookingsService {
     booking: BookingState;
     paymentIdempotencyKey: string | null;
     priceCents: number;
+    seat: { eventId: string; seatId: string };
   }> {
     const [row] = await tx
       .select({
@@ -224,6 +247,8 @@ export class BookingsService {
         holdExpiresAt: bookings.holdExpiresAt,
         paymentIdempotencyKey: bookings.paymentIdempotencyKey,
         ownerId: bookings.userId,
+        eventId: bookings.eventId,
+        seatId: bookings.seatId,
         priceCents: seats.priceCents,
       })
       .from(bookings)
@@ -232,7 +257,31 @@ export class BookingsService {
       .for('update', { of: bookings });
     if (row === undefined) throw new NotFoundException('Booking not found');
     if (row.ownerId !== userId) throw new ForbiddenException('Booking belongs to another user');
-    const { id, status, holdExpiresAt, paymentIdempotencyKey, priceCents } = row;
-    return { booking: { id, status, holdExpiresAt }, paymentIdempotencyKey, priceCents };
+    const { id, status, holdExpiresAt, paymentIdempotencyKey, priceCents, eventId, seatId } = row;
+    return {
+      booking: { id, status, holdExpiresAt },
+      paymentIdempotencyKey,
+      priceCents,
+      seat: { eventId, seatId },
+    };
+  }
+
+  /** Called after the commit: tells the viewers of the event which status the seat has now. */
+  private announce(
+    bookingId: string,
+    seat: { eventId: string; seatId: string },
+    status: BookingStatus
+  ): Promise<void> {
+    return publishSeatChange(
+      this.ports.seatChanges,
+      {
+        eventId: seat.eventId,
+        seatId: seat.seatId,
+        status: seatStatusOf(status),
+        at: this.clock.now().toISOString(),
+      },
+      this.logger,
+      `booking ${bookingId}`
+    );
   }
 }

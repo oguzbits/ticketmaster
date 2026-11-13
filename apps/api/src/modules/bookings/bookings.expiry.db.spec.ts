@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { BOOKING_STATUS, BOOKING_STRATEGY, TRANSITION_REASON } from '@app/shared';
+import { BOOKING_STATUS, BOOKING_STRATEGY, SEAT_STATUS, TRANSITION_REASON } from '@app/shared';
 import { and, eq, inArray } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -10,6 +10,7 @@ import { bookings, bookingTransitions } from '../../infrastructure/database/sche
 import type { Redis } from '../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
+import { watchSeatChanges } from '../../testing/seat-changes.js';
 import { EXPIRY_SPEC_START } from '../../testing/time.js';
 import type { BookingsService } from './bookings.service.js';
 import { SYSTEM_ACTOR_ID } from './domain/booking-state-machine.js';
@@ -82,6 +83,30 @@ describe('expireHolds', () => {
       toStatus: BOOKING_STATUS.EXPIRED,
       actorId: SYSTEM_ACTOR_ID,
     });
+  });
+
+  it('publishes AVAILABLE for each expired hold after the commit, and only for those', async () => {
+    const { eventId, seatIds } = await createTestEvent(db, {
+      strategy: BOOKING_STRATEGY.PESSIMISTIC,
+      seats: 3,
+    });
+    const [dueA, dueB, later] = seatIds;
+    for (const [seatId, heldAt] of [
+      [dueA, START],
+      [dueB, START],
+      [later, new Date(START.getTime() + ttlMs / 2)],
+    ] as const) {
+      now = heldAt;
+      await service.hold({ eventId, seatId: seatId ?? '', userId: randomUUID() });
+    }
+    const watch = await watchSeatChanges(redis, eventId);
+
+    await service.expireHolds(new Date(START.getTime() + ttlMs));
+    await watch.settle();
+    await watch.stop();
+
+    expect(watch.changes.map(({ seatId }) => seatId).toSorted()).toEqual([dueA, dueB].toSorted());
+    expect(watch.changes.every(({ status }) => status === SEAT_STATUS.AVAILABLE)).toBe(true);
   });
 
   it('two parallel expireHolds runs expire each hold once', async () => {

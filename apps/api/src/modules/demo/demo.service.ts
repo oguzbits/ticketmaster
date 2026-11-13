@@ -1,13 +1,18 @@
 import { randomBytes } from 'node:crypto';
 
-import { BOOKING_STRATEGY, type Role, type TokenResponse } from '@app/shared';
+import { BOOKING_STRATEGY, type Role, SEAT_STATUS, type TokenResponse } from '@app/shared';
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
-import { count, eq, lte } from 'drizzle-orm';
+import { and, count, eq, inArray, isNull, lte } from 'drizzle-orm';
 
 import type { Clock } from '../../core/clock.js';
 import type { Database } from '../../infrastructure/database/database.module.js';
 import { bookings, demoUsers, events, seats } from '../../infrastructure/database/schema.js';
 import { HALL, layoutSeats, SEED, STARTS_AT } from '../../infrastructure/database/seed.js';
+import {
+  ACTIVE_BOOKING_STATUSES,
+  publishSeatChange,
+  type SeatChangePublisher,
+} from '../bookings/index.js';
 import { demoIdentity, type KeycloakAdmin } from './domain/demo-user.js';
 
 /** Every demo login makes a Keycloak user and four events, so the number of live ones is capped. */
@@ -23,6 +28,14 @@ export const DEMO_CLEANUP_BATCH = 100;
 const SUFFIX_BYTES = 6;
 const PASSWORD_BYTES = 24;
 
+/** Settings of the demo login and the notice the cleanup sends when it frees seats. */
+export interface DemoOptions {
+  userTtlSeconds: number;
+  maxUsers: number;
+  seatChanges: SeatChangePublisher;
+}
+export const DEMO_OPTIONS = Symbol('DEMO_OPTIONS');
+
 @Injectable()
 export class DemoService {
   private readonly logger = new Logger(DemoService.name);
@@ -31,12 +44,12 @@ export class DemoService {
     private readonly db: Database,
     private readonly keycloak: KeycloakAdmin,
     private readonly clock: Clock,
-    private readonly limits: { userTtlSeconds: number; maxUsers: number }
+    private readonly options: DemoOptions
   ) {}
 
   async login(role: Role): Promise<TokenResponse> {
     const [live] = await this.db.select({ total: count() }).from(demoUsers);
-    if ((live?.total ?? 0) >= this.limits.maxUsers) {
+    if ((live?.total ?? 0) >= this.options.maxUsers) {
       throw new ServiceUnavailableException('The demo is full, try again later');
     }
     const password = randomBytes(PASSWORD_BYTES).toString('base64url');
@@ -79,7 +92,7 @@ export class DemoService {
     const failures: Error[] = [];
     for (const { userId } of due) {
       try {
-        await this.deleteUser(userId);
+        await this.deleteUser(userId, now);
       } catch (error) {
         const failure = error instanceof Error ? error : new Error(String(error));
         this.logger.error(`could not clean up demo user ${userId}: ${failure.name}`);
@@ -94,7 +107,7 @@ export class DemoService {
 
   /** The user's row, and one private event per strategy on the hall's layout. */
   private storeUser(userId: string, role: Role): Promise<void> {
-    const expiresAt = new Date(this.clock.now().getTime() + this.limits.userTtlSeconds * 1000);
+    const expiresAt = new Date(this.clock.now().getTime() + this.options.userTtlSeconds * 1000);
     return this.db.transaction(async (tx) => {
       await tx.insert(demoUsers).values({ userId, role, expiresAt });
       const created = await tx
@@ -119,13 +132,35 @@ export class DemoService {
   }
 
   /** Keycloak first: if the database part fails afterwards, the row stays and the next run retries. */
-  private async deleteUser(userId: string): Promise<void> {
+  private async deleteUser(userId: string, now: Date): Promise<void> {
     await this.keycloak.deleteUser(userId);
-    await this.db.transaction(async (tx) => {
-      // A demo customer may have booked seats of public events too; those go with the user.
+    const freed = await this.db.transaction(async (tx) => {
+      // A demo customer may have booked seats of public events too; those go with the user. Seats
+      // of the user's own sandbox events need no notice: only the user ever looked at them.
+      const occupied = await tx
+        .select({ eventId: bookings.eventId, seatId: bookings.seatId })
+        .from(bookings)
+        .innerJoin(events, eq(events.id, bookings.eventId))
+        .where(
+          and(
+            eq(bookings.userId, userId),
+            isNull(events.sandboxUserId),
+            inArray(bookings.status, [...ACTIVE_BOOKING_STATUSES])
+          )
+        );
       await tx.delete(bookings).where(eq(bookings.userId, userId));
       await tx.delete(events).where(eq(events.sandboxUserId, userId));
       await tx.delete(demoUsers).where(eq(demoUsers.userId, userId));
+      return occupied;
     });
+    // After the commit, so a viewer who reacts to the message by reading sees the freed seat.
+    for (const seat of freed) {
+      await publishSeatChange(
+        this.options.seatChanges,
+        { ...seat, status: SEAT_STATUS.AVAILABLE, at: now.toISOString() },
+        this.logger,
+        `demo user ${userId}`
+      );
+    }
   }
 }

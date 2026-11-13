@@ -36,6 +36,8 @@ export {
   SEAT_STREAM_EVENT,
   type SeatChange,
   SeatChangeSchema,
+  type SeatSnapshot,
+  SeatSnapshotSchema,
 } from './bookings-api.js';
 export {
   type EventDetail,
