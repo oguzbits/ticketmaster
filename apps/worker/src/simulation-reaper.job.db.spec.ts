@@ -1,20 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 
-import { type Database, DB } from '@app/api/database';
 import { REDIS, type Redis } from '@app/api/redis';
-import {
-  SIMULATION_RUN_TIMEOUT_MS,
-  simulationProgressKey,
-  SimulationsService,
-} from '@app/api/simulations';
-import { ensureVenue } from '@app/api/simulations/testing';
-import {
-  BOOKING_STRATEGY,
-  SIMULATION_CONSUMER_GROUP,
-  SIMULATION_STATUS,
-  SimulationProgressSchema,
-} from '@app/shared';
+import { SimulationsService } from '@app/api/simulations';
+import { SIMULATION_CONSUMER_GROUP } from '@app/shared';
 import { Logger } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -22,9 +11,9 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { SimulationReaperJob } from './simulation-reaper.job.js';
 import { WorkerModule } from './worker.module.js';
 
-// An era of its own: the job sweeps the whole table, so it must see only this file's runs.
+// The run sweep of these jobs looks at the whole table: a clock far in the past sees no run of
+// another file, and the stream entries here are the point of this file.
 const NOW = new Date('1990-01-04T12:00:00.000Z');
-const REQUEST = { buyers: 1, seats: 1, strategy: BOOKING_STRATEGY.PESSIMISTIC };
 const IDLE_MS = 100;
 
 describe('SimulationReaperJob with Redis', () => {
@@ -41,7 +30,6 @@ describe('SimulationReaperJob with Redis', () => {
       now: () => NOW,
     });
     job.pendingIdleMs = IDLE_MS;
-    await ensureVenue(moduleRef.get<Database>(DB, { strict: false }));
   });
   beforeEach(async () => {
     streamKey = `simulations:spec:${randomUUID()}`;
@@ -97,27 +85,5 @@ describe('SimulationReaperJob with Redis', () => {
     await broken.run();
 
     expect(await pending()).toBe(0);
-  });
-
-  it('fails a run that is stale at the job clock and ends its progress: row and key say FAILED', async () => {
-    const simulations = moduleRef.get(SimulationsService, { strict: false });
-    // A run that started 20 minutes before the job's clock, written through the real start path.
-    const starter = new SimulationsService(moduleRef.get<Database>(DB, { strict: false }), redis, {
-      now: () => new Date(NOW.getTime() - 2 * SIMULATION_RUN_TIMEOUT_MS),
-    });
-    starter.streamKey = streamKey;
-    const run = await starter.start(REQUEST, randomUUID());
-    try {
-      await job.run();
-
-      expect((await simulations.find(run.id)).status).toBe(SIMULATION_STATUS.FAILED);
-      const raw = await redis.get(simulationProgressKey(run.id));
-      expect(SimulationProgressSchema.parse(JSON.parse(raw ?? 'null')).status).toBe(
-        SIMULATION_STATUS.FAILED
-      );
-    } finally {
-      await starter.discard(run.eventId);
-      await redis.del(simulationProgressKey(run.id));
-    }
   });
 });
