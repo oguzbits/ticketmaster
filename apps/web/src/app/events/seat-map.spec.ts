@@ -50,7 +50,7 @@ function render() {
 describe('SeatMap', () => {
   afterEach(() => TestBed.inject(HttpTestingController).verify());
 
-  it('renders every seat as a disabled button with its status in the accessible name', async () => {
+  it('renders every seat in the tab order with its status in the accessible name', async () => {
     const { element, http, answer } = render();
     expect(element.querySelector('[role=status]')).not.toBeNull();
 
@@ -62,7 +62,13 @@ describe('SeatMap', () => {
       'Section A, row 3, seat 8, sold',
       'Section B, row 1, seat 1, available',
     ]);
-    expect(buttons.every((button) => button.disabled)).toBe(true);
+    // A native `disabled` would drop the seat from the tab order and hide it from screen readers.
+    expect(buttons.every((button) => !button.disabled && button.tabIndex >= 0)).toBe(true);
+    expect(buttons.map((button) => button.getAttribute('aria-disabled'))).toEqual([
+      'true',
+      'true',
+      null,
+    ]);
     expect(element.textContent).toContain('Symphony Evening');
   });
 

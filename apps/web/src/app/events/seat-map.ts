@@ -39,6 +39,7 @@ export class SeatMap {
   });
 
   protected readonly legend = Object.values(SEAT_STATUS);
+  protected readonly available = SEAT_STATUS.AVAILABLE;
 
   /** The API sends the seats ordered by section, row and number. */
   protected readonly sections = computed<SeatSection[]>(() => {

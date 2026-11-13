@@ -42,9 +42,9 @@
               @for (seat of row.seats; track seat.id) {
                 <button
                   type="button"
-                  disabled
                   class="seat seat-{{ seat.status.toLowerCase() }}"
                   [attr.aria-label]="label(seat)"
+                  [attr.aria-disabled]="seat.status === available ? null : 'true'"
                 >
                   {{ seat.number }}
                 </button>

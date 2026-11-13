@@ -90,9 +90,11 @@
     color: var(--color-seat-sold-text);
     text-decoration: line-through;
   }
-  /* The seats are disabled for now; keep their colors readable (WCAG AA) instead of dimmed. */
-  .seat:disabled {
-    opacity: 1;
+  /*
+   * Held and sold seats are announced as unavailable but stay focusable, so keyboard and screen
+   * reader users can reach every seat; the hold action for available seats comes with the booking flow.
+   */
+  .seat[aria-disabled='true'] {
     cursor: not-allowed;
   }
 }
