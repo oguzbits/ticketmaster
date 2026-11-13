@@ -28,6 +28,8 @@ import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { fakeTokenVerifier, randomClientAddress } from '../../testing/http.js';
 import { SPEC_NOW } from '../../testing/time.js';
 import { TOKEN_VERIFIER } from '../auth/index.js';
+import { EMPTY_METRICS, simulationProgressKey } from './simulation-progress.js';
+import { MAX_SIMULATION_STREAMS, SimulationStreamService } from './simulation-stream.service.js';
 
 const ADMIN = { id: randomUUID(), roles: [ROLE.ADMIN] };
 const TOKENS = {
@@ -195,6 +197,42 @@ describe('simulation endpoints', () => {
         id,
         status: SIMULATION_STATUS.FINISHED,
       });
+    });
+  });
+
+  describe('GET /simulations/:id/stream', () => {
+    it('is public and sends the progress of the key until the run is FINISHED', async () => {
+      const id = await seedRun(SIMULATION_STATUS.RUNNING, null);
+      const finished = {
+        status: SIMULATION_STATUS.FINISHED,
+        metrics: { ...EMPTY_METRICS, buyersDone: 10, doubleBookings: 0 },
+      };
+      await redis.set(simulationProgressKey(id), JSON.stringify(finished), { EX: 60 });
+
+      const response = await call('get', `/simulations/${id}/stream`).expect(200);
+
+      expect(response.headers['content-type']).toContain('text/event-stream');
+      expect(response.text).toContain(`data: ${JSON.stringify(finished)}`);
+    });
+
+    it('answers 404 for an unknown run and 400 for a malformed ID, before any stream', async () => {
+      const unknown = await call('get', `/simulations/${randomUUID()}/stream`).expect(404);
+      await call('get', '/simulations/not-a-uuid/stream').expect(400);
+
+      expect(unknown.headers['content-type']).toContain('application/json');
+    });
+
+    it('answers 503 as JSON while the process serves too many streams', async () => {
+      const id = await seedRun(SIMULATION_STATUS.RUNNING, null);
+      const streams = app.get(SimulationStreamService);
+      streams.maxStreams = 0;
+
+      try {
+        const refused = await call('get', `/simulations/${id}/stream`).expect(503);
+        expect(refused.headers['content-type']).toContain('application/json');
+      } finally {
+        streams.maxStreams = MAX_SIMULATION_STREAMS;
+      }
     });
   });
 

@@ -5,6 +5,7 @@ import { Module } from '@nestjs/common';
 import { CLOCK, type Clock } from '../../core/clock.js';
 import { BookingsModule, BookingsService } from '../bookings/index.js';
 import { SimulationRunner } from './simulation-runner.js';
+import { SimulationStreamService } from './simulation-stream.service.js';
 import { SimulationsController } from './simulations.controller.js';
 import { SimulationsService } from './simulations.service.js';
 
@@ -16,6 +17,7 @@ const PROGRESS_INTERVAL_MS = 250;
   controllers: [SimulationsController],
   providers: [
     SimulationsService,
+    SimulationStreamService,
     {
       provide: SimulationRunner,
       // Math.random and randomUUID belong here, in the wiring: the runner takes them as inputs.
