@@ -28,3 +28,20 @@ enum and an inferred type.
 | `BOOKING_STATUS`    | `HELD`, `PAID`, `CONFIRMED`, `EXPIRED`, `CANCELLED`                                             |
 | `SEAT_STATUS`       | `AVAILABLE`, `HELD`, `SOLD` (derived from the bookings of a seat)                               |
 | `TRANSITION_REASON` | `HOLD`, `PAYMENT_SUCCEEDED`, `PAYMENT_FAILED`, `CONFIRMED`, `HOLD_EXPIRED`, `CANCELLED_BY_USER` |
+
+## Auth, booking and organizer contracts
+
+The schemas below are defined in `packages/shared` ahead of their routes; each route is documented
+in the table above when it is implemented. Authentication is described in
+[ADR 0003](../adr/0003-authentication-and-demo-login.md).
+
+| Schema                                                                | Purpose                                                                                            |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `RoleSchema` (`ROLE`)                                                 | Realm roles: `customer`, `organizer`, `admin`                                                      |
+| `DemoLoginRequestSchema`, `RefreshRequestSchema`                      | `{ role }` for the demo login, `{ refreshToken }` for the token refresh                            |
+| `TokenResponseSchema`                                                 | `{ accessToken, refreshToken, expiresIn }`                                                         |
+| `HoldRequestSchema`                                                   | `{ eventId, seatId }`                                                                              |
+| `BookingSchema`, `BookingListResponseSchema`                          | A booking with its seat position and stored transitions (`fromStatus`, `toStatus`, `reason`, `at`) |
+| `VenueSchema`, `CreateEventRequestSchema`, `SetStrategyRequestSchema` | Venue templates with `seatCount`; create an event; switch the strategy                             |
+| `OrganizerEventSchema`                                                | An event summary with `seatCount`, `soldCount`, `heldCount` and `utilization` (0..1)               |
+| `SeatChangeSchema` and `SEAT_STREAM_EVENT` (`snapshot`, `change`)     | One seat's new derived status; the two event names of the seat stream                              |

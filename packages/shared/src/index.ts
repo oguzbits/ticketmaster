@@ -1,4 +1,15 @@
 export {
+  type DemoLoginRequest,
+  DemoLoginRequestSchema,
+  type RefreshRequest,
+  RefreshRequestSchema,
+  ROLE,
+  type Role,
+  RoleSchema,
+  type TokenResponse,
+  TokenResponseSchema,
+} from './auth.js';
+export {
   BOOKING_STATUS,
   BOOKING_STRATEGY,
   type BookingStatus,
@@ -13,6 +24,18 @@ export {
   TransitionReasonSchema,
 } from './booking.js';
 export {
+  type Booking,
+  BookingListResponseSchema,
+  BookingSchema,
+  type BookingTransition,
+  BookingTransitionSchema,
+  type HoldRequest,
+  HoldRequestSchema,
+  SEAT_STREAM_EVENT,
+  type SeatChange,
+  SeatChangeSchema,
+} from './bookings-api.js';
+export {
   type EventDetail,
   EventDetailSchema,
   EventListResponseSchema,
@@ -22,3 +45,15 @@ export {
   SeatSchema,
 } from './events.js';
 export { HEALTH_STATUS, type HealthResponse, HealthResponseSchema } from './health.js';
+export {
+  type CreateEventRequest,
+  CreateEventRequestSchema,
+  type OrganizerEvent,
+  OrganizerEventListResponseSchema,
+  OrganizerEventSchema,
+  type SetStrategyRequest,
+  SetStrategyRequestSchema,
+  type Venue,
+  VenueListResponseSchema,
+  VenueSchema,
+} from './organizer.js';

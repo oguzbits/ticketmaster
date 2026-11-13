@@ -1,0 +1,48 @@
+{
+  "realm": "ticketmaster",
+  "enabled": true,
+  "registrationAllowed": false,
+  "roles": {
+    "realm": [
+      { "name": "customer", "description": "Books seats" },
+      { "name": "organizer", "description": "Creates events and sees their sales" },
+      { "name": "admin", "description": "Switches the booking strategy of an event" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "web",
+      "name": "ticketmaster-klon web app",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["http://localhost:8080/*", "http://localhost:4200/*"],
+      "webOrigins": ["http://localhost:8080", "http://localhost:4200"],
+      "attributes": { "pkce.code.challenge.method": "S256" }
+    },
+    {
+      "clientId": "api-demo",
+      "name": "ticketmaster-klon demo login (server only)",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "local-demo-client-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": true,
+      "defaultClientScopes": ["basic", "profile", "email", "roles", "web-origins", "acr"],
+      "optionalClientScopes": ["kc-admin-api"]
+    }
+  ],
+  "users": [
+    {
+      "username": "service-account-api-demo",
+      "enabled": true,
+      "serviceAccountClientId": "api-demo",
+      "clientRoles": { "realm-management": ["manage-users", "view-users"] }
+    }
+  ]
+}

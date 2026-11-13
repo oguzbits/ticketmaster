@@ -32,7 +32,7 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.8.2
-    command: start-dev
+    command: ['start-dev', '--import-realm']
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
@@ -43,6 +43,8 @@ services:
       KC_HEALTH_ENABLED: 'true'
     ports:
       - '8081:8080'
+    volumes:
+      - ./docker/keycloak/ticketmaster-realm.json:/opt/keycloak/data/import/ticketmaster-realm.json:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -69,6 +71,8 @@ services:
       DATABASE_URL: postgres://app:app@postgres:5432/app
       # Not used here, but the shared env schema requires it in production.
       REDIS_URL: redis://redis:6379
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_DEMO_CLIENT_SECRET: local-demo-client-secret
     depends_on:
       postgres:
         condition: service_healthy
@@ -81,6 +85,8 @@ services:
       PORT: 3000
       DATABASE_URL: postgres://app:app@postgres:5432/app
       REDIS_URL: redis://redis:6379
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_DEMO_CLIENT_SECRET: local-demo-client-secret
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -94,6 +100,8 @@ services:
     environment:
       DATABASE_URL: postgres://app:app@postgres:5432/app
       REDIS_URL: redis://redis:6379
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_DEMO_CLIENT_SECRET: local-demo-client-secret
     depends_on:
       migrate:
         condition: service_completed_successfully

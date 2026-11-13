@@ -31,10 +31,13 @@ jobs (hold expiry every two seconds). `api` and `worker` start only after `migra
 The credentials in the Compose file are for these local containers only.
 
 Outside production the API falls back to the local containers: `DATABASE_URL`
-`postgres://app:app@localhost:54330/app` and `REDIS_URL` `redis://localhost:63790`. To change a
+`postgres://app:app@localhost:54330/app`, `REDIS_URL` `redis://localhost:63790`, `KEYCLOAK_URL`
+`http://localhost:8081` and the local demo client secret. To change a
 value, export it or put it in an `.env` file in `apps/api` (never committed); the `dev` and `start`
-scripts of the API load that file when it exists. With `NODE_ENV=production` both URLs are
-required and a missing one fails the start (the Compose file sets them for the `api` container).
+scripts of the API load that file when it exists. With `NODE_ENV=production` these four variables
+are required and a missing one fails the start (the Compose file sets them for `migrate`, `api` and
+`worker`). Keycloak imports `docker/keycloak/ticketmaster-realm.json` when the realm does not exist
+yet; after a change to that file, delete the realm (or `docker compose down -v`) to import it again.
 
 ## Environment variables
 
@@ -50,6 +53,12 @@ variable with a comment; the table is generated (`pnpm docs:generate`).
 | `REDIS_URL` | required |
 | `HOLD_TTL_SECONDS` | default `600` |
 | `PAYMENT_FAILURE_RATE` | default `0.1` |
+| `CORS_ORIGIN` | optional |
+| `KEYCLOAK_URL` | required |
+| `KEYCLOAK_REALM` | default `ticketmaster` |
+| `KEYCLOAK_DEMO_CLIENT_ID` | default `api-demo` |
+| `KEYCLOAK_DEMO_CLIENT_SECRET` | required |
+| `DEMO_USER_TTL_SECONDS` | default `3600` |
 <!-- /generated -->
 
 ## Commands
