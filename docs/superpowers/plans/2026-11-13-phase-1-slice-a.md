@@ -463,5 +463,12 @@ held seat as HELD and a confirmed one as SOLD`; `detail of a sandbox event is 40
 
 ## Ledger
 
-| Task | Duration | Subagent tokens | Notes |
-| ---- | -------- | --------------- | ----- |
+| Task                      | Duration   | Subagent tokens | Notes                                                                  |
+| ------------------------- | ---------- | --------------- | ---------------------------------------------------------------------- |
+| 1+2                       | 712 s      | 162.7k          | one dispatch, no own review                                            |
+| 3                         | 129 s      | 93.0k           | review clean                                                           |
+| 4                         | 519 s      | 300.7k          | one fix round (count filter, lock release, optimistic retries dropped) |
+| 5                         | 3080 s     | 417.6k          | one fix round (key claimed before charge, parallel pay, test clocks)   |
+| 6                         | 1534 s     | 134.8k          | no own review                                                          |
+| Final review and fix wave | 791 s      | 293.8k          | request log, seat focus, own test database, backlog                    |
+| **Sum**                   | **6765 s** | **1402.6k**     | plus 123 s / 58.1k for the library research before the plan            |
