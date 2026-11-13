@@ -237,7 +237,15 @@ export class BookingsService {
 
   async cancel(input: { bookingId: string; userId: string }): Promise<BookingState> {
     const { state, seat } = await this.db.transaction(async (tx) => {
-      const { booking, seat } = await this.lockOwnBooking(tx, input.bookingId, input.userId);
+      const { booking, paymentIdempotencyKey, seat } = await this.lockOwnBooking(
+        tx,
+        input.bookingId,
+        input.userId
+      );
+      // A claimed key on a HELD booking means a charge may be in flight: the payment decides.
+      if (booking.status === BOOKING_STATUS.HELD && paymentIdempotencyKey !== null) {
+        throw new ConflictException('A payment of this booking is in progress');
+      }
       const cancelled = planTransition(
         booking,
         TRANSITION_REASON.CANCELLED_BY_USER,

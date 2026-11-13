@@ -27,6 +27,7 @@ import { SPEC_NOW } from '../../testing/time.js';
 import { OutboxService } from '../outbox/index.js';
 import { FakeMessageQueue } from '../outbox/testing/index.js';
 import type { BookingsService } from './bookings.service.js';
+import type { BookingState } from './domain/booking-state-machine.js';
 import type { PaymentProvider } from './domain/payment-provider.js';
 import { HOLD_OUTCOME } from './domain/seat-reservation.js';
 import { createBookingsService } from './testing/create-bookings-service.js';
@@ -381,18 +382,35 @@ describe('payment and cancel', () => {
     expect((await rowOf(bookingId)).status).toBe(BOOKING_STATUS.CONFIRMED);
   });
 
-  it('a booking cancelled during the charge is not paid over: conflict, still CANCELLED', async () => {
+  it('a cancel while a payment is claimed is a conflict: the charge may be in flight, the payment still confirms', async () => {
     const { bookingId, userId } = await heldBooking();
+    const cancels: PromiseSettledResult<BookingState>[] = [];
     provider.duringCharge = async () => {
-      await service.cancel({ bookingId, userId });
+      cancels.push(...(await Promise.allSettled([service.cancel({ bookingId, userId })])));
     };
 
-    await expect(
-      service.pay({ bookingId, userId, idempotencyKey: key('cancel-during') })
-    ).rejects.toBeInstanceOf(ConflictException);
+    const view = await service.pay({ bookingId, userId, idempotencyKey: key('cancel-during') });
 
-    expect((await rowOf(bookingId)).status).toBe(BOOKING_STATUS.CANCELLED);
-    expect(await transitionsOf(bookingId)).toHaveLength(2);
+    expect(cancels.map((c) => c.status === 'rejected' && c.reason)).toEqual([
+      expect.any(ConflictException),
+    ]);
+    expect(view.status).toBe(BOOKING_STATUS.CONFIRMED);
+    expect(await transitionsOf(bookingId)).toHaveLength(3);
+  });
+
+  it('a cancel after a payment that died after its claim is a conflict; a hold without a claim cancels', async () => {
+    const claimed = await heldBooking();
+    provider.failNext = true;
+    await expect(
+      service.pay({ ...claimed, idempotencyKey: key('cancel-claimed') })
+    ).rejects.toThrow('provider down');
+    const unclaimed = await heldBooking();
+
+    await expect(service.cancel(claimed)).rejects.toBeInstanceOf(ConflictException);
+    const view = await service.cancel(unclaimed);
+
+    expect((await rowOf(claimed.bookingId)).status).toBe(BOOKING_STATUS.HELD);
+    expect(view.status).toBe(BOOKING_STATUS.CANCELLED);
   });
 
   it('the same key after a failed charge returns CANCELLED and does not charge again', async () => {
