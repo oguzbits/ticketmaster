@@ -7,7 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { AUTH_GUARD_PROVIDERS, Public, TOKEN_VERIFIER } from '../../modules/auth/index.js';
 import { RATE_LIMIT, RateLimit } from './rate-limit.decorator.js';
-import { RateLimitGuard } from './rate-limit.guard.js';
+import { rateLimitAddress, RateLimitGuard } from './rate-limit.guard.js';
 import { RateLimiter, type RateLimitResult } from './rate-limiter.js';
 
 const RETRY_AFTER_SECONDS = 42;
@@ -65,6 +65,8 @@ describe('RateLimitGuard', () => {
       ],
     }).compile();
     app = moduleRef.createNestApplication();
+    // So a spec can pick the client address with X-Forwarded-For.
+    app.getHttpAdapter().getInstance().set('trust proxy', true);
     await app.init();
   });
   afterAll(() => app.close());
@@ -73,8 +75,9 @@ describe('RateLimitGuard', () => {
     limiter.ignoreIps = false;
   });
 
-  const get = (path: string, token?: string) => {
+  const get = (path: string, token?: string, client?: string) => {
     const call = request(app.getHttpServer()).get(path);
+    if (client !== undefined) call.set('X-Forwarded-For', client);
     return token === undefined ? call : call.set('Authorization', `Bearer ${token}`);
   };
 
@@ -101,5 +104,30 @@ describe('RateLimitGuard', () => {
     await get('/probe/private', 'bad').expect(401);
 
     expect(limiter.counts.size).toBe(0);
+  });
+
+  it('counts the addresses of one IPv6 /64 together and other prefixes apart', async () => {
+    for (let hit = 0; hit < RATE_LIMIT.DEMO_LOGIN.limit; hit++) {
+      await get('/probe/strict', undefined, `2001:db8:1:2::${hit + 1}`).expect(200);
+    }
+
+    await get('/probe/strict', undefined, '2001:db8:1:2:ffff::9').expect(429);
+    await get('/probe/strict', undefined, '2001:db8:1:3::1').expect(200);
+  });
+});
+
+describe('rateLimitAddress', () => {
+  it.each([
+    ['203.0.113.7', '203.0.113.7'],
+    ['::ffff:203.0.113.7', '203.0.113.7'],
+    ['::FFFF:203.0.113.7', '203.0.113.7'],
+    ['2001:db8:1:2::1', '2001:db8:1:2::/64'],
+    ['2001:DB8:1:2:abcd:ef01:2345:6789', '2001:db8:1:2::/64'],
+    ['2001:db8::1', '2001:db8:0:0::/64'],
+    ['::1', '0:0:0:0::/64'],
+    ['fe80::1%eth0', 'fe80:0:0:0::/64'],
+    ['64:ff9b::203.0.113.7', '64:ff9b:0:0::/64'],
+  ])('maps %s to %s', (address, expected) => {
+    expect(rateLimitAddress(address)).toBe(expected);
   });
 });

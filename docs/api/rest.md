@@ -56,7 +56,9 @@ Every response carries no personal data; requests are logged with the `x-request
 - Rate limits are fixed windows in Redis, checked by a global guard that runs after the auth guards.
   A request over the limit answers 429 `{ statusCode: 429, message: "Too Many Requests" }` with a
   `Retry-After` header (seconds). A request that fails authentication is not counted. Redis down
-  means the guard fails and the request answers 500.
+  means the guard fails and the request answers 500. The client address is counted per IPv4
+  address (also an IPv4-mapped IPv6 one) and per IPv6 `/64` prefix, so a client cannot dodge a limit
+  by changing the low 64 bits of its address.
 
 | Limit        | Applies to                                                    | Counted per                                   | Allowed per window |
 | ------------ | ------------------------------------------------------------- | --------------------------------------------- | ------------------ |

@@ -1,3 +1,5 @@
+import { isIPv6 } from 'node:net';
+
 import {
   type CanActivate,
   type ExecutionContext,
@@ -10,6 +12,33 @@ import { Reflector } from '@nestjs/core';
 import type { AuthUser } from '../../modules/auth/index.js';
 import { RATE_LIMIT, RATE_LIMIT_KEY, type RateLimitName } from './rate-limit.decorator.js';
 import { RateLimiter } from './rate-limiter.js';
+
+const IPV4_MAPPED = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i;
+const IPV6_GROUPS = 8;
+const PREFIX_GROUPS = 4;
+
+/**
+ * The address a limit counts. An IPv4 address (also IPv4-mapped IPv6) counts alone; an IPv6 client
+ * usually owns a whole /64, so its four prefix groups count together, else it could change address
+ * at will.
+ */
+export function rateLimitAddress(ip: string): string {
+  const mapped = IPV4_MAPPED.exec(ip)?.[1];
+  if (mapped !== undefined) return mapped;
+  if (!isIPv6(ip)) return ip;
+  const [head = '', tail = ''] = (ip.split('%')[0] ?? ip).split('::');
+  // A dotted tail ("64:ff9b::1.2.3.4") stands for two groups; only the count matters there.
+  const groups = (part: string): string[] =>
+    part === ''
+      ? []
+      : part.split(':').flatMap((group) => (group.includes('.') ? ['0', '0'] : [group]));
+  const [first, last] = [groups(head), groups(tail)];
+  const filler = Array<string>(Math.max(IPV6_GROUPS - first.length - last.length, 0)).fill('0');
+  const prefix = [...first, ...filler, ...last]
+    .slice(0, PREFIX_GROUPS)
+    .map((group) => Number.parseInt(group, 16).toString(16));
+  return `${prefix.join(':')}::/64`;
+}
 
 /** The part of the HTTP request and response the guard uses. */
 interface LimitedRequest {
@@ -43,7 +72,7 @@ export class RateLimitGuard implements CanActivate {
       ]) ?? 'DEFAULT';
 
     const response = http.getResponse<LimitedResponse>();
-    await this.count(response, `rl:${name}:ip:${ip}`, name);
+    await this.count(response, `rl:${name}:ip:${rateLimitAddress(ip)}`, name);
     if (user) await this.count(response, `rl:DEFAULT:user:${user.id}`, 'DEFAULT');
     return true;
   }
