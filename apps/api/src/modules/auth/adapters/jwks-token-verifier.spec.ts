@@ -83,6 +83,15 @@ describe('JwksTokenVerifier', () => {
     await expect(verifier.verify(token)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
+  it('rejects a token without an expiry', async () => {
+    const token = await new SignJWT(claims())
+      .setProtectedHeader({ alg: 'RS256', kid: KEY_ID })
+      .setIssuer(ISSUER)
+      .sign(privateKey);
+
+    await expect(verifier.verify(token)).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
   it('rejects a token of another issuer', async () => {
     const token = await sign(claims(), { issuer: 'http://evil.test/realms/ticketmaster' });
 

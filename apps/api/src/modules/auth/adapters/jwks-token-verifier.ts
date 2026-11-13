@@ -38,6 +38,7 @@ export class JwksTokenVerifier implements TokenVerifier {
       const { payload } = await jwtVerify(token, this.keys, {
         issuer: this.issuer,
         algorithms: ['RS256'],
+        requiredClaims: ['exp'],
       });
       const claims = ClaimsSchema.parse(payload);
       return { id: claims.sub, roles: claims.realm_access?.roles ?? [] };
