@@ -4,7 +4,9 @@ import { sql } from 'drizzle-orm';
 
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
 import { REDIS, type Redis } from '../../infrastructure/redis/redis.module.js';
+import { Public } from '../auth/index.js';
 
+@Public()
 @Controller('health')
 export class HealthController {
   private readonly logger = new Logger(HealthController.name);
