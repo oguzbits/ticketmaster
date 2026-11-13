@@ -17,7 +17,12 @@ export class HoldExpiryJob {
 
   @Interval(HOLD_EXPIRY_INTERVAL_MS)
   async run(): Promise<void> {
-    const expired = await this.bookings.expireHolds(this.clock.now());
-    if (expired > 0) this.logger.log(`expired ${expired} holds`);
+    // A rejection out of a scheduled call is unhandled and would stop the worker: log it, retry next tick.
+    try {
+      const expired = await this.bookings.expireHolds(this.clock.now());
+      if (expired > 0) this.logger.log(`expired ${expired} holds`);
+    } catch (error) {
+      this.logger.error(`hold expiry failed: ${error instanceof Error ? error.name : 'unknown'}`);
+    }
   }
 }

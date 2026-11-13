@@ -17,7 +17,12 @@ export class DemoCleanupJob {
 
   @Interval(DEMO_CLEANUP_INTERVAL_MS)
   async run(): Promise<void> {
-    const cleaned = await this.demo.deleteExpired(this.clock.now());
-    if (cleaned > 0) this.logger.log(`deleted ${cleaned} expired demo users`);
+    // A rejection out of a scheduled call is unhandled and would stop the worker: log it, retry next tick.
+    try {
+      const cleaned = await this.demo.deleteExpired(this.clock.now());
+      if (cleaned > 0) this.logger.log(`deleted ${cleaned} expired demo users`);
+    } catch (error) {
+      this.logger.error(`demo cleanup failed: ${error instanceof Error ? error.name : 'unknown'}`);
+    }
   }
 }
