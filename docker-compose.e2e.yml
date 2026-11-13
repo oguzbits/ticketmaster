@@ -1,0 +1,13 @@
+# Overrides for the end-to-end run (`pnpm e2e`), used together with docker-compose.yml.
+# The payment fails 10 % of the time by default; the specs need a payment that succeeds.
+# Only web keeps a host port, so the run does not collide with a development stack or `pnpm db:up`.
+services:
+  api:
+    environment:
+      PAYMENT_FAILURE_RATE: '0'
+  postgres:
+    ports: !reset []
+  redis:
+    ports: !reset []
+  keycloak:
+    ports: !reset []

@@ -67,6 +67,7 @@ The full table is in [AGENTS.md](AGENTS.md#5-commands). The two that matter most
 
 - `pnpm check` runs every static gate; the pre-commit hook and CI run the same command.
 - `pnpm test` runs the unit tests offline; the pre-push hook runs it.
+- `pnpm e2e` runs the browser tests against the whole stack (see below); CI runs it as the `e2e` job.
 
 ## Tests
 
@@ -79,6 +80,16 @@ The full table is in [AGENTS.md](AGENTS.md#5-commands). The two that matter most
   IDs, so no cleanup is needed.
 - Route tests start the NestJS module in the test process and call it over the loopback address.
 - Web tests run through the Angular builder (`pnpm --filter @app/web test`).
+- End-to-end tests are Playwright specs in `apps/web/e2e`, named `*.e2e.ts` so the unit-test runners
+  never pick them up. `pnpm e2e` needs Docker, port 8080 and the Chromium of Playwright
+  (`pnpm --filter @app/web exec playwright install chromium --only-shell`, once). It builds the
+  Compose stack under its own project name (`ticketmaster-klon-e2e`, so your development volume is
+  untouched), with `docker-compose.e2e.yml` on top: the payment never fails (`PAYMENT_FAILURE_RATE`
+  `0`; by default it fails one time in ten) and only web keeps a host port. It runs the specs, prints
+  the last log lines of the stack when they fail, and removes the stack and its volume. The demo
+  login allows five per minute and address and a run uses four, so wait a minute before running
+  the specs again against a stack that is still up (`pnpm e2e` itself starts a fresh one). The HTML
+  report of a run is written to `playwright-report` in `apps/web`.
 
 ## Commits
 

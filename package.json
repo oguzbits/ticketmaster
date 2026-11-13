@@ -30,6 +30,7 @@
     "test:db": "pnpm --filter @app/shared build && vitest run --project db",
     "db:up": "docker compose up -d --wait postgres redis",
     "db:down": "docker compose down",
+    "e2e": "node scripts/e2e.mjs",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -65,7 +66,8 @@
       },
       "apps/web": {
         "entry": [
-          "src/testing/setup.ts"
+          "src/testing/setup.ts",
+          "e2e/*.e2e.ts"
         ],
         "ignoreDependencies": [
           "jsdom"

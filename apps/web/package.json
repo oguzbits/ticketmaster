@@ -6,7 +6,8 @@
     "dev": "ng serve",
     "build": "ng build",
     "test": "ng test --no-watch",
-    "typecheck": "ngc -p tsconfig.app.json --noEmit && ngc -p tsconfig.spec.json --noEmit"
+    "e2e": "playwright test --config e2e/playwright.config.ts",
+    "typecheck": "ngc -p tsconfig.app.json --noEmit && ngc -p tsconfig.spec.json --noEmit && tsc -p e2e/tsconfig.json"
   },
   "dependencies": {
     "@angular/common": "^22.2.5",
@@ -22,6 +23,7 @@
     "@angular/build": "^22.2.6",
     "@angular/cli": "^22.2.6",
     "@angular/compiler-cli": "^22.2.5",
+    "@playwright/test": "^1.65.0",
     "@tailwindcss/postcss": "^4.3.5",
     "jsdom": "^31.0.0",
     "postcss": "^8.5.32",
