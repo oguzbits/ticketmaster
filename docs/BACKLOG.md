@@ -133,6 +133,9 @@ follows, then phase 2. Still open from earlier notes:
 
 ## Open points
 
+- **A payment key stays claimed on a `HELD` booking that is never retried.** The expiry job spares
+  such a booking for `PAYMENT_GRACE_SECONDS` (120) past its hold and expires it after that; the
+  key is not released earlier, and a customer who abandons the payment keeps the seat until then.
 - **No refund when a charge succeeds after the booking left `HELD`.** The payment runs outside
   the transaction, so a cancel or an expiry can land while the provider answers. The apply step
   then answers 409, stores nothing and logs the booking ID; the money is not returned. Needs a

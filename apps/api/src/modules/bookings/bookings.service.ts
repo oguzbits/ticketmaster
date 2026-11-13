@@ -7,7 +7,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { and, count, eq, inArray, lte, sql } from 'drizzle-orm';
+import { and, count, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 
 import { CLOCK, type Clock } from '../../core/clock.js';
 import { type Database, DB, type Tx } from '../../infrastructure/database/database.module.js';
@@ -27,6 +27,7 @@ import { publishSeatChange } from './adapters/publish-seat-change.js';
 import { SeatReservations } from './adapters/seat-reservations.js';
 import { BOOKING_PORTS, type BookingPorts } from './domain/booking-ports.js';
 import { type BookingState, SYSTEM_ACTOR_ID } from './domain/booking-state-machine.js';
+import { PAYMENT_GRACE_SECONDS } from './domain/payment-provider.js';
 import { HOLD_OUTCOME, type HoldInput, type HoldResult } from './domain/seat-reservation.js';
 import { ACTIVE_BOOKING_STATUSES } from './domain/seat-status.js';
 
@@ -248,6 +249,7 @@ export class BookingsService {
   /** Expires every HELD booking whose hold has passed; returns how many. Safe to run in parallel. */
   async expireHolds(now: Date): Promise<number> {
     let expired = 0;
+    const graceStart = new Date(now.getTime() - PAYMENT_GRACE_SECONDS * 1000);
     for (;;) {
       const batch = await this.db.transaction(async (tx) => {
         // SKIP LOCKED: a booking another runner or a payment holds is left to them.
@@ -260,7 +262,14 @@ export class BookingsService {
             seatId: bookings.seatId,
           })
           .from(bookings)
-          .where(and(eq(bookings.status, BOOKING_STATUS.HELD), lte(bookings.holdExpiresAt, now)))
+          .where(
+            and(
+              eq(bookings.status, BOOKING_STATUS.HELD),
+              lte(bookings.holdExpiresAt, now),
+              // A claimed payment may still finish: it keeps its hold through the grace period.
+              or(isNull(bookings.paymentIdempotencyKey), lte(bookings.holdExpiresAt, graceStart))
+            )
+          )
           .limit(EXPIRY_BATCH_SIZE)
           .for('update', { skipLocked: true });
         const released: { id: string; status: BookingStatus; eventId: string; seatId: string }[] =

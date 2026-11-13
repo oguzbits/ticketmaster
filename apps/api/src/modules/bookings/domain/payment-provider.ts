@@ -8,3 +8,9 @@ export interface PaymentProvider {
 }
 
 export const PAYMENT_PROVIDER = Symbol('PAYMENT_PROVIDER');
+
+/**
+ * A HELD booking with a claimed payment key is spared by the expiry job until its hold is this far
+ * past: a charge that started in time may still finish. After that it expires like any hold.
+ */
+export const PAYMENT_GRACE_SECONDS = 120;
