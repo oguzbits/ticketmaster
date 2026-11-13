@@ -14,7 +14,8 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { and, count, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, lt, notExists, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 
 import { CLOCK, type Clock } from '../../core/clock.js';
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
@@ -30,6 +31,8 @@ import {
 export const SIMULATION_RUN_TIMEOUT_MS = 600_000;
 /** Runs that may be active at once; every run keeps the worker's database pool busy. */
 export const MAX_ACTIVE_RUNS = 2;
+/** How long a finished run, its sandbox event and its bookings are kept. */
+export const SIMULATION_RETENTION_SECONDS = 3600;
 /** Finished runs the comparison lists. */
 export const MAX_LISTED_RUNS = 20;
 
@@ -254,5 +257,42 @@ export class SimulationsService {
       )
       .returning({ id: simulationRuns.id });
     return rows.map(({ id }) => id);
+  }
+
+  /**
+   * The retention job's step: deletes the sandbox events of up to `limit` runs that ended more than
+   * SIMULATION_RETENTION_SECONDS before `now`. Seats, bookings, their transitions and
+   * the run go with the event (foreign keys cascade). An event with a run that is still active is
+   * never chosen, whatever the other runs say. Returns the number of events deleted.
+   */
+  async deleteFinished(now: Date, limit: number): Promise<number> {
+    const cutoff = new Date(now.getTime() - SIMULATION_RETENTION_SECONDS * 1000);
+    const active = alias(simulationRuns, 'active_runs');
+    const due = this.db
+      .select({ eventId: simulationRuns.eventId })
+      .from(simulationRuns)
+      .where(
+        and(
+          lt(simulationRuns.finishedAt, cutoff),
+          // Also excludes the row itself while it is active, so only FINISHED and FAILED runs qualify.
+          notExists(
+            this.db
+              .select({ one: sql`1` })
+              .from(active)
+              .where(
+                and(
+                  eq(active.eventId, simulationRuns.eventId),
+                  inArray(active.status, ACTIVE_STATUSES)
+                )
+              )
+          )
+        )
+      )
+      .limit(limit);
+    const deleted = await this.db
+      .delete(events)
+      .where(inArray(events.id, due))
+      .returning({ id: events.id });
+    return deleted.length;
   }
 }

@@ -13,6 +13,7 @@ import { DemoCleanupJob } from './demo-cleanup.job.js';
 import { HoldExpiryJob } from './hold-expiry.job.js';
 import { SimulationConsumer } from './simulation.consumer.js';
 import { SimulationReaperJob } from './simulation-reaper.job.js';
+import { SimulationRetentionJob } from './simulation-retention.job.js';
 
 @Module({
   imports: [
@@ -26,6 +27,12 @@ import { SimulationReaperJob } from './simulation-reaper.job.js';
     DemoModule,
     SimulationsModule,
   ],
-  providers: [HoldExpiryJob, DemoCleanupJob, SimulationReaperJob, SimulationConsumer],
+  providers: [
+    HoldExpiryJob,
+    DemoCleanupJob,
+    SimulationReaperJob,
+    SimulationRetentionJob,
+    SimulationConsumer,
+  ],
 })
 export class WorkerModule {}

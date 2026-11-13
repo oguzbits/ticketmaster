@@ -26,7 +26,7 @@ Ports of the local stack (`docker-compose.yml`):
 
 `docker compose up` also starts two processes without a host port: `migrate`, a one-shot service
 that applies the migrations and the seed with the API image and exits, and `worker`, the scheduled
-jobs (hold expiry every two seconds, the simulation reaper every 30 seconds) and the consumer of the rush simulator runs. `api` and `worker` start only after `migrate` has completed.
+jobs (hold expiry every two seconds, the simulation reaper every 30 seconds, the simulation retention every minute) and the consumer of the rush simulator runs. `api` and `worker` start only after `migrate` has completed.
 
 The credentials in the Compose file are for these local containers only.
 

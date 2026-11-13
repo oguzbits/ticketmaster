@@ -162,15 +162,19 @@ follows, then phase 2. Still open from earlier notes:
   seed (this also resets the Keycloak realm, which lives in the same Postgres).
 - **The worker has no healthcheck and no restart policy** in the Compose stack (phase 5, with the
   container hardening).
-- **Finished runs of a real (non-demo) admin are never cleaned**, and neither are their up to 2000
-  `HELD` bookings per run; `GET /api/bookings` of that admin lists them. The cleanup of a demo admin
-  cascades into its runs.
 - **The simulation stream caps are per process** (50 open streams, counted in memory), like the
   seat-stream caps.
-- **A simulation run leaves a sandbox event of up to 500 seats and up to 2000 `HELD` bookings**, and
-  every demo visitor is an admin. The growth per client address is bounded only by the rate limit
-  (5 starts per minute) and the global cap of 2 active runs. The events of a real admin show in
-  `GET /api/events` and are never cleaned.
+- **Simulation data is kept for one hour.** The worker's retention job deletes the sandbox event of
+  every run that ended more than `SIMULATION_RETENTION_SECONDS` ago (seats, bookings, transitions
+  and the run go with it), so the comparison table lists the runs of the last hour only. Within
+  that hour the event shows in the admin's `GET /api/events` and up to 2000 bookings per run in
+  `GET /api/bookings`. The job removes at most 100 events a minute; the starts are bounded by the
+  rate limit (5 per minute per address) and the cap of 2 active runs. The cleanup of a demo admin
+  deletes its runs together with its events (accepted: the runs go with the visitor).
+- **The reaper fails a run after the run timeout (10 minutes) only.** Until then a run of a dead
+  worker counts as active and blocks a slot of the cap, and its progress key keeps the last
+  `RUNNING` state. The reaped run's final progress has empty metrics. Every worker start leaves a
+  consumer name in the consumer group of the stream; they are not removed.
 - **The `naive` double-booking check on the real Compose stack is not automated.** It was done by
   hand during slice D (worker pool 20, concurrency 40; 500 buyers on 100 seats gave 17, 20 and 13
   double bookings, and 0 for the other strategies). The end-to-end run only starts a `pessimistic`

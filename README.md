@@ -96,7 +96,7 @@ REST routes under `/api`; contracts are Zod schemas in `packages/shared`. The fu
 | `GET /api/organizer/events`        | organizer | own events with sold and held counts                      |
 | `PATCH /api/events/:id/strategy`   | admin     | switch the booking strategy                               |
 | `POST /api/simulations`            | admin     | start a simulator run (answers 429 above two active runs) |
-| `GET /api/simulations`             | admin     | the latest finished runs with their metrics               |
+| `GET /api/simulations`             | admin     | the finished runs of the last hour with their metrics     |
 | `GET /api/simulations/:id`         | public    | one run with its status and metrics                       |
 | `GET /api/simulations/:id/stream`  | public    | server-sent events: the live progress of a run            |
 
