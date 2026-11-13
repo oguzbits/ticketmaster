@@ -33,9 +33,18 @@ export const SIMULATION_RUN_TIMEOUT_MS = 600_000;
 export const MAX_ACTIVE_RUNS = 2;
 /** How long a finished run, its sandbox event and its bookings are kept. */
 export const SIMULATION_RETENTION_SECONDS = 3600;
+/** Approximate cap of the command stream (`MAXLEN ~`): acknowledged commands do not pile up. */
+export const SIMULATION_STREAM_MAX_LENGTH = 1000;
 /** Finished runs the comparison lists. */
 export const MAX_LISTED_RUNS = 20;
 
+const STREAM_CAP = {
+  TRIM: {
+    strategy: 'MAXLEN',
+    strategyModifier: '~',
+    threshold: SIMULATION_STREAM_MAX_LENGTH,
+  },
+} as const;
 const ACTIVE_STATUSES = [SIMULATION_STATUS.QUEUED, SIMULATION_STATUS.RUNNING];
 const SANDBOX_SECTION = 'SIM';
 const SEATS_PER_ROW = 20;
@@ -47,7 +56,12 @@ const START_LOCK_KEY = 'simulation-start';
 /** The Redis commands `start` needs; a spec passes a failing one. */
 export interface QueueWriter {
   set(key: string, value: string, options: { EX: number }): Promise<string | null>;
-  xAdd(key: string, id: string, message: Record<string, string>): Promise<string>;
+  xAdd(
+    key: string,
+    id: string,
+    message: Record<string, string>,
+    options: { TRIM: { strategy: 'MAXLEN'; strategyModifier: '~'; threshold: number } }
+  ): Promise<string>;
 }
 
 export interface ClaimedRun {
@@ -145,7 +159,7 @@ export class SimulationsService {
       await this.queue.set(simulationProgressKey(run.id), JSON.stringify(queued), {
         EX: SIMULATION_PROGRESS_TTL_SECONDS,
       });
-      await this.queue.xAdd(this.streamKey, '*', { runId: run.id });
+      await this.queue.xAdd(this.streamKey, '*', { runId: run.id }, STREAM_CAP);
     } catch (error) {
       // The queue error is the one to report; a failing cleanup must not hide it.
       await this.discard(run.eventId).catch((cause: Error) =>

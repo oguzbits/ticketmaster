@@ -19,6 +19,7 @@ import { SimulationStreamService } from './simulation-stream.service.js';
 import {
   MAX_ACTIVE_RUNS,
   SIMULATION_RUN_TIMEOUT_MS,
+  SIMULATION_STREAM_MAX_LENGTH,
   SimulationsService,
 } from './simulations.service.js';
 import { clearSimulationRuns, lockSimulationRuns } from './testing/exclusive-runs.js';
@@ -145,6 +146,37 @@ describe('SimulationsService.start', () => {
     await expect(lagging.start(REQUEST, randomUUID())).rejects.toMatchObject({
       status: HttpStatus.TOO_MANY_REQUESTS,
     });
+  });
+
+  it('caps the stream approximately and still queues the command', async () => {
+    // A real Redis takes the command: a malformed option would be an error here.
+    const options: unknown[] = [];
+    const recording = new SimulationsService(
+      db,
+      {
+        set: (key, value, setOptions) => redis.set(key, value, setOptions),
+        xAdd: (key, id, message, xAddOptions) => {
+          options.push(xAddOptions);
+          return redis.xAdd(key, id, message, xAddOptions);
+        },
+      },
+      { now: () => NOW }
+    );
+    recording.streamKey = streamKey;
+
+    const run = await recording.start(REQUEST, randomUUID());
+
+    expect(options).toEqual([
+      {
+        TRIM: {
+          strategy: 'MAXLEN',
+          strategyModifier: '~',
+          threshold: SIMULATION_STREAM_MAX_LENGTH,
+        },
+      },
+    ]);
+    const entries = await redis.xRange(streamKey, '-', '+');
+    expect(entries?.filter(({ message }) => message.runId === run.id)).toHaveLength(1);
   });
 
   it('writes the QUEUED progress key with an expiry, so a stream needs no database read', async () => {
