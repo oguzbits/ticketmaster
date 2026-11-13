@@ -1,5 +1,5 @@
 import { type Role, type TokenResponse } from '@app/shared';
-import { UnauthorizedException } from '@nestjs/common';
+import { Logger, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { z } from 'zod';
 
 import type { Clock } from '../../../core/clock.js';
@@ -22,6 +22,8 @@ const GRANT = {
 const ADMIN_API_SCOPE = 'kc-admin-api';
 /** The admin token is renewed this long before Keycloak would refuse it. */
 const ADMIN_TOKEN_MARGIN_MS = 10_000;
+/** Longest wait for one Keycloak answer; a login or refresh must not hang on a stuck Keycloak. */
+export const KEYCLOAK_TIMEOUT_MS = 5000;
 const HTTP = { NOT_FOUND: 404, BAD_REQUEST: 400, UNAUTHORIZED: 401 } as const;
 
 const TokenSchema = z.object({
@@ -37,11 +39,13 @@ const RolesSchema = z.array(z.object({ id: z.string(), name: z.string() }));
 
 /** Keycloak over HTTP: admin calls through the service account of the confidential client. */
 export class KeycloakAdminClient implements KeycloakAdmin {
+  private readonly logger = new Logger(KeycloakAdminClient.name);
   private adminToken: { value: string; expiresAt: number } | null = null;
 
   constructor(
     private readonly config: KeycloakAdminConfig,
-    private readonly clock: Clock
+    private readonly clock: Clock,
+    private readonly timeoutMs: number = KEYCLOAK_TIMEOUT_MS
   ) {}
 
   async createUser(input: NewDemoUser): Promise<string> {
@@ -109,9 +113,22 @@ export class KeycloakAdminClient implements KeycloakAdmin {
     };
   }
 
+  /** Every call to Keycloak goes through here: a call that outlasts the timeout answers 503. */
+  private async send(url: string, init: RequestInit): Promise<Response> {
+    try {
+      return await fetch(url, { ...init, signal: AbortSignal.timeout(this.timeoutMs) });
+    } catch (error) {
+      if (!(error instanceof DOMException) || error.name !== 'TimeoutError') throw error;
+      this.logger.error(
+        `Keycloak did not answer ${init.method} ${url} within ${this.timeoutMs} ms`
+      );
+      throw new ServiceUnavailableException();
+    }
+  }
+
   private tokenRequest(form: Record<string, string>): Promise<Response> {
     const { baseUrl, realm } = this.config;
-    return fetch(`${baseUrl}/realms/${realm}/protocol/openid-connect/token`, {
+    return this.send(`${baseUrl}/realms/${realm}/protocol/openid-connect/token`, {
       method: 'POST',
       body: new URLSearchParams(form),
     });
@@ -143,7 +160,7 @@ export class KeycloakAdminClient implements KeycloakAdmin {
     tolerated: readonly number[] = []
   ): Promise<Response> {
     const { baseUrl, realm } = this.config;
-    const response = await fetch(`${baseUrl}/admin/realms/${realm}${path}`, {
+    const response = await this.send(`${baseUrl}/admin/realms/${realm}${path}`, {
       method,
       headers: {
         authorization: `Bearer ${await this.getAdminToken()}`,

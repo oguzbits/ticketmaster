@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { ROLE } from '@app/shared';
-import { UnauthorizedException } from '@nestjs/common';
+import { ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { type DefaultBodyType, http, HttpResponse } from 'msw';
 import { beforeEach, describe, expect, it } from 'vitest';
 
@@ -17,6 +17,7 @@ const CLIENT = { clientId: 'api-demo', clientSecret: 'spec-secret' };
 const ADMIN_TOKEN_SECONDS = 60;
 const START = new Date('2030-01-01T12:00:00Z');
 const NO_CONTENT = 204;
+const SHORT_TIMEOUT_MS = 50;
 
 const USER: NewDemoUser = {
   username: 'demo-1',
@@ -41,7 +42,8 @@ describe('KeycloakAdminClient', () => {
     adminTokens = [];
     client = new KeycloakAdminClient(
       { baseUrl: BASE, realm: REALM, ...CLIENT },
-      { now: () => now }
+      { now: () => now },
+      SHORT_TIMEOUT_MS
     );
     server.use(
       http.post(TOKEN_URL, async ({ request }) => {
@@ -247,6 +249,31 @@ describe('KeycloakAdminClient', () => {
 
       expect(failure).toBeInstanceOf(Error);
       expect(failure).not.toBeInstanceOf(UnauthorizedException);
+    });
+  });
+
+  describe('a Keycloak that does not answer', () => {
+    const never = () => new Promise<never>(() => undefined);
+
+    it('makes the password grant and the refresh answer 503', async () => {
+      server.use(http.post(TOKEN_URL, never));
+
+      await expect(client.passwordGrant(USER.username, USER.password)).rejects.toBeInstanceOf(
+        ServiceUnavailableException
+      );
+      await expect(client.refresh('any')).rejects.toBeInstanceOf(ServiceUnavailableException);
+    });
+
+    it('makes an admin call fail instead of succeed, whether the admin API or its token hangs', async () => {
+      server.use(http.delete(`${USERS_URL}/u1`, never));
+      await expect(client.deleteUser('u1')).rejects.toBeInstanceOf(ServiceUnavailableException);
+
+      now = new Date(START.getTime() + 2 * ADMIN_TOKEN_SECONDS * 1000); // the cached token is stale
+      server.use(
+        http.post(TOKEN_URL, never),
+        http.delete(`${USERS_URL}/u2`, () => new HttpResponse(null, { status: NO_CONTENT }))
+      );
+      await expect(client.deleteUser('u2')).rejects.toBeInstanceOf(ServiceUnavailableException);
     });
   });
 });
