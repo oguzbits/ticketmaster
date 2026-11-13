@@ -6,7 +6,7 @@ import { CLOCK, type Clock } from '../../core/clock.js';
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
 import { KeycloakAdminClient } from './adapters/keycloak-admin.client.js';
 import { DemoController } from './demo.controller.js';
-import { DemoService } from './demo.service.js';
+import { DemoService, MAX_DEMO_USERS } from './demo.service.js';
 import { KEYCLOAK_ADMIN, type KeycloakAdmin } from './domain/demo-user.js';
 
 @Module({
@@ -29,7 +29,10 @@ import { KEYCLOAK_ADMIN, type KeycloakAdmin } from './domain/demo-user.js';
     {
       provide: DemoService,
       useFactory: (db: Database, keycloak: KeycloakAdmin, clock: Clock, env: Env) =>
-        new DemoService(db, keycloak, clock, env.DEMO_USER_TTL_SECONDS),
+        new DemoService(db, keycloak, clock, {
+          userTtlSeconds: env.DEMO_USER_TTL_SECONDS,
+          maxUsers: MAX_DEMO_USERS,
+        }),
       inject: [DB, KEYCLOAK_ADMIN, CLOCK, APP_CONFIG],
     },
   ],

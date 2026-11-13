@@ -1,5 +1,5 @@
 import { BOOKING_STATUS, BOOKING_STRATEGY, ROLE, TRANSITION_REASON } from '@app/shared';
-import { Logger } from '@nestjs/common';
+import { Logger, ServiceUnavailableException } from '@nestjs/common';
 import { count, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -13,7 +13,7 @@ import {
 import { HALL, layoutSeats, SEED, seed } from '../../infrastructure/database/seed.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { SPEC_NOW } from '../../testing/time.js';
-import { DemoService } from './demo.service.js';
+import { DemoService, MAX_DEMO_USERS } from './demo.service.js';
 import { FAKE_TOKENS, FakeKeycloakAdmin } from './testing/fake-keycloak-admin.js';
 
 const TTL_SECONDS = 3600;
@@ -28,7 +28,10 @@ describe('DemoService', () => {
   const { db } = database;
   const keycloak = new FakeKeycloakAdmin();
   let now = SPEC_NOW;
-  const service = new DemoService(db, keycloak, { now: () => now }, TTL_SECONDS);
+  const clock = { now: () => now };
+  const serviceWithCap = (maxUsers: number) =>
+    new DemoService(db, keycloak, clock, { userTtlSeconds: TTL_SECONDS, maxUsers });
+  const service = serviceWithCap(MAX_DEMO_USERS);
 
   beforeAll(() => seed(db));
   beforeEach(() => {
@@ -106,6 +109,33 @@ describe('DemoService', () => {
           .where(eq(seats.eventId, row.id));
         expect(seatCount?.total).toBe(layoutSeats(HALL).length);
       }
+    });
+
+    // The table is shared with the other specs, which only add rows: a cap read from it stays
+    // reached, while one row more than it is free unless another spec logs in at that very moment.
+    describe('with the number of demo users at the cap', () => {
+      const countUsers = async () =>
+        (await db.select({ total: count() }).from(demoUsers))[0]?.total ?? 0;
+
+      it('answers 503 and creates nothing in Keycloak', async () => {
+        const reached = await countUsers();
+        const before = keycloak.created.length;
+
+        await expect(serviceWithCap(reached).login(ROLE.CUSTOMER)).rejects.toBeInstanceOf(
+          ServiceUnavailableException
+        );
+
+        expect(keycloak.created).toHaveLength(before);
+        expect(await countUsers()).toBeGreaterThanOrEqual(reached);
+      });
+
+      it('lets the last free place in', async () => {
+        const reached = await countUsers();
+
+        await expect(serviceWithCap(reached + 1).login(ROLE.CUSTOMER)).resolves.toEqual(
+          FAKE_TOKENS
+        );
+      });
     });
 
     it('deletes the Keycloak user again and keeps nothing when the grant fails', async () => {

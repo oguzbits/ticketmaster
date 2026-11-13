@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto';
 
 import { BOOKING_STRATEGY, type Role, type TokenResponse } from '@app/shared';
-import { Injectable, Logger } from '@nestjs/common';
-import { eq, lte } from 'drizzle-orm';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { count, eq, lte } from 'drizzle-orm';
 
 import type { Clock } from '../../core/clock.js';
 import type { Database } from '../../infrastructure/database/database.module.js';
@@ -10,6 +10,8 @@ import { bookings, demoUsers, events, seats } from '../../infrastructure/databas
 import { HALL, layoutSeats, SEED, STARTS_AT } from '../../infrastructure/database/seed.js';
 import { demoIdentity, type KeycloakAdmin } from './domain/demo-user.js';
 
+/** Every demo login makes a Keycloak user and four events, so the number of live ones is capped. */
+export const MAX_DEMO_USERS = 200;
 const SUFFIX_BYTES = 6;
 const PASSWORD_BYTES = 24;
 
@@ -21,10 +23,14 @@ export class DemoService {
     private readonly db: Database,
     private readonly keycloak: KeycloakAdmin,
     private readonly clock: Clock,
-    private readonly userTtlSeconds: number
+    private readonly limits: { userTtlSeconds: number; maxUsers: number }
   ) {}
 
   async login(role: Role): Promise<TokenResponse> {
+    const [live] = await this.db.select({ total: count() }).from(demoUsers);
+    if ((live?.total ?? 0) >= this.limits.maxUsers) {
+      throw new ServiceUnavailableException('The demo is full, try again later');
+    }
     const password = randomBytes(PASSWORD_BYTES).toString('base64url');
     const identity = demoIdentity(randomBytes(SUFFIX_BYTES).toString('hex'));
     const userId = await this.keycloak.createUser({ ...identity, password, role });
@@ -76,7 +82,7 @@ export class DemoService {
 
   /** The user's row, and one private event per strategy on the hall's layout. */
   private storeUser(userId: string, role: Role): Promise<void> {
-    const expiresAt = new Date(this.clock.now().getTime() + this.userTtlSeconds * 1000);
+    const expiresAt = new Date(this.clock.now().getTime() + this.limits.userTtlSeconds * 1000);
     return this.db.transaction(async (tx) => {
       await tx.insert(demoUsers).values({ userId, role, expiresAt });
       const created = await tx
