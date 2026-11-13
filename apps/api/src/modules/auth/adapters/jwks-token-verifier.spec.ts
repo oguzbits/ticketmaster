@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
 import { ROLE } from '@app/shared';
-import { UnauthorizedException } from '@nestjs/common';
+import { Logger, UnauthorizedException } from '@nestjs/common';
 import { type CryptoKey, exportJWK, generateKeyPair, importJWK, type JWK, SignJWT } from 'jose';
 import { http, HttpResponse } from 'msw';
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { server } from '../../../testing/mock-server.js';
 import { JwksTokenVerifier } from './jwks-token-verifier.js';
@@ -144,5 +144,40 @@ describe('JwksTokenVerifier', () => {
 
   it('rejects a string that is not a token', async () => {
     await expect(verifier.verify('not-a-token')).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  describe('logging', () => {
+    const debug = vi.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined);
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    afterEach(() => {
+      debug.mockClear();
+      warn.mockClear();
+    });
+
+    it('logs a rejected token at debug, by error name only', async () => {
+      const token = await sign(claims(), { expiresAt: Math.floor(Date.now() / 1000) - 60 });
+
+      await expect(verifier.verify(token)).rejects.toBeInstanceOf(UnauthorizedException);
+
+      expect(debug).toHaveBeenCalledWith(expect.stringContaining('JWTExpired'));
+      expect(debug).toHaveBeenCalledWith(expect.not.stringContaining(token));
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['an HTTP error', () => HttpResponse.json({}, { status: 500 })],
+      ['a network error', () => HttpResponse.error()],
+    ])('logs an unreachable key set (%s) at warn', async (_name, respond) => {
+      // A fresh verifier: the shared one has the key cached already.
+      const unreachable = new JwksTokenVerifier(ISSUER, new URL(`${ISSUER}/unreachable`));
+      server.use(http.get(`${ISSUER}/unreachable`, respond));
+      const token = await sign(claims());
+
+      await expect(unreachable.verify(token)).rejects.toBeInstanceOf(UnauthorizedException);
+
+      expect(warn).toHaveBeenCalledOnce();
+      expect(warn).toHaveBeenCalledWith(expect.not.stringContaining(token));
+      expect(debug).not.toHaveBeenCalled();
+    });
   });
 });
