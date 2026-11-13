@@ -1,4 +1,5 @@
 export {
+  AccessTokenClaimsSchema,
   type DemoLoginRequest,
   DemoLoginRequestSchema,
   type RefreshRequest,

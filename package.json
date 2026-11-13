@@ -64,6 +64,9 @@
         ]
       },
       "apps/web": {
+        "entry": [
+          "src/testing/setup.ts"
+        ],
         "ignoreDependencies": [
           "jsdom"
         ]

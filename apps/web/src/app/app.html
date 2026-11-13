@@ -1,5 +1,14 @@
 <div class="mx-auto flex min-h-dvh max-w-3xl flex-col gap-6 p-6">
-  <a routerLink="/" class="self-start text-xl font-semibold">ticketmaster-klon</a>
+  <header class="flex flex-wrap items-center justify-between gap-3">
+    <a routerLink="/" class="text-xl font-semibold">ticketmaster-klon</a>
+    <nav class="flex items-center gap-4" aria-label="Main">
+      <a routerLink="/events" class="underline">Events</a>
+      @if (store.role(); as role) {
+        <span class="text-text-muted">Signed in as {{ role }}</span>
+        <button type="button" class="btn" (click)="auth.logout()">Log out</button>
+      }
+    </nav>
+  </header>
 
   <main class="flex flex-1 flex-col gap-4">
     <router-outlet />

@@ -1,0 +1,28 @@
+<h1 class="text-2xl font-semibold">Try it as</h1>
+<p class="text-text-muted">One click, no registration. Each demo user gets events of their own.</p>
+
+<ul class="flex flex-col gap-3">
+  @for (role of roles; track role) {
+    <li>
+      <button
+        type="button"
+        class="btn w-full text-left disabled:cursor-not-allowed disabled:opacity-60"
+        [disabled]="pendingRole() !== null"
+        (click)="login(role)"
+      >
+        <span class="block text-lg capitalize">{{ role }}</span>
+        <span class="block text-sm font-normal">{{ hint[role] }}</span>
+      </button>
+    </li>
+  }
+</ul>
+
+@if (pendingRole(); as pending) {
+  <p role="status">Signing in as {{ pending }}…</p>
+}
+@if (failedRole(); as failed) {
+  <p role="alert" class="text-danger">{{ errorText() }}</p>
+  <button type="button" class="btn self-start" (click)="login(failed)">Try again</button>
+}
+
+<a routerLink="/events" class="self-start underline">Browse events without login</a>

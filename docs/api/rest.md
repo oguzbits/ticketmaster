@@ -129,6 +129,7 @@ in the table above when it is implemented. Authentication is described in
 | `RoleSchema` (`ROLE`)                                                                   | Realm roles: `customer`, `organizer`, `admin`                                                             |
 | `DemoLoginRequestSchema`, `RefreshRequestSchema`                                        | `{ role }` for the demo login, `{ refreshToken }` for the token refresh                                   |
 | `TokenResponseSchema`                                                                   | `{ accessToken, refreshToken, expiresIn }`                                                                |
+| `AccessTokenClaimsSchema`                                                               | `realm_access.roles` of an access token; the web app reads it to show the role, never to decide           |
 | `HoldRequestSchema`, `IdempotencyKeySchema`                                             | `{ eventId, seatId }`; the `Idempotency-Key` header value (a UUID)                                        |
 | `BookingSchema`, `BookingListResponseSchema`                                            | A booking with its seat position and stored transitions (`fromStatus`, `toStatus`, `reason`, `at`)        |
 | `VenueSchema`, `CreateEventRequestSchema`, `SetStrategyRequestSchema`                   | Venue templates with `seatCount`; create an event; switch the strategy                                    |
