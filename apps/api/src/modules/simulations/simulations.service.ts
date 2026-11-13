@@ -80,7 +80,8 @@ export class SimulationsService {
   /**
    * One transaction under an advisory lock: the cap check, a fresh sandbox event of the admin with
    * `seats` generated seats and the QUEUED run. The command goes onto the stream after the commit,
-   * so the worker never reads a run it cannot see; when that fails the run is marked FAILED.
+   * so the worker never reads a run it cannot see; when that fails the sandbox event is deleted
+   * (its seats and the run cascade), so a failed start leaves nothing behind.
    */
   async start(input: StartSimulationRequest, adminId: string): Promise<SimulationRun> {
     const run = await this.db.transaction(async (tx) => {
@@ -127,13 +128,18 @@ export class SimulationsService {
     try {
       await this.queue.xAdd(this.streamKey, '*', { runId: run.id });
     } catch (error) {
-      // The queue error is the one to report; a failing `fail` must not hide it.
-      await this.fail(run.id).catch((cause: Error) =>
-        this.logger.error(`run ${run.id} not marked FAILED: ${cause.name}`)
+      // The queue error is the one to report; a failing cleanup must not hide it.
+      await this.discard(run.eventId).catch((cause: Error) =>
+        this.logger.error(`event ${run.eventId} of run ${run.id} not deleted: ${cause.name}`)
       );
       throw error;
     }
     return run;
+  }
+
+  /** Deletes a sandbox event; its seats, bookings and run go with it (foreign keys cascade). */
+  async discard(eventId: string): Promise<void> {
+    await this.db.delete(events).where(eq(events.id, eventId));
   }
 
   /** Counts the active runs that started within the timeout up to now; refuses with 429 at the cap. */

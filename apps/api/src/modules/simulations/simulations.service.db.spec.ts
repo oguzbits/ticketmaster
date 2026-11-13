@@ -138,7 +138,7 @@ describe('SimulationsService.start', () => {
     });
   });
 
-  it('marks the run FAILED and rethrows when the queue entry cannot be written', async () => {
+  it('removes the sandbox event (seats and run cascade) and rethrows when the queue write fails', async () => {
     const adminId = randomUUID();
     const failing = new SimulationsService(
       db,
@@ -150,21 +150,18 @@ describe('SimulationsService.start', () => {
 
     await expect(failing.start(REQUEST, adminId)).rejects.toThrow('redis down');
 
-    const runs = await db
-      .select()
-      .from(simulationRuns)
-      .where(eq(simulationRuns.startedBy, adminId));
-    expect(runs.map(({ status }) => status)).toEqual([SIMULATION_STATUS.FAILED]);
+    const { events: leftEvents, runs } = await footprint(adminId);
+    expect([leftEvents.length, runs.length]).toEqual([0, 0]);
   });
 
-  it('rethrows the queue error, not the one of a failing fail(), and logs the second', async () => {
-    class FailsToFail extends SimulationsService {
-      override fail(): Promise<void> {
+  it('rethrows the queue error, not the one of a failing cleanup, and logs the second', async () => {
+    class FailsToDiscard extends SimulationsService {
+      override discard(): Promise<void> {
         return Promise.reject(new Error('database down'));
       }
     }
     const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
-    const service = new FailsToFail(
+    const service = new FailsToDiscard(
       db,
       { xAdd: () => Promise.reject(new Error('redis down')) },
       {

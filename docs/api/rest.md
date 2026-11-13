@@ -175,7 +175,8 @@ cap. The count comes from the rows, not from a counter: the window frees the slo
 worker died. Otherwise the transaction creates the event (owner and `sandbox_user_id` are the admin
 from the token, so it never shows in the public event list), its seats in one `generate_series`
 statement and the run. After the commit the command `{ runId }` goes onto the Redis stream
-`simulations`; when that fails the run is marked `FAILED` and the error is returned.
+`simulations`; when that fails the sandbox event is deleted (its seats and the run cascade) and the
+error is returned, so a failed start leaves nothing behind.
 
 The progress stream polls the key `simulation:<runId>:progress` every 250 ms (the worker writes it
 with a one-hour expiry) and sends a message only when the value changed; it needs no subscriber
