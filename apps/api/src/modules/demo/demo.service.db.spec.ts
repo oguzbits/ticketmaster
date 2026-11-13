@@ -13,11 +13,12 @@ import {
 import { HALL, layoutSeats, SEED, seed } from '../../infrastructure/database/seed.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { SPEC_NOW } from '../../testing/time.js';
-import { DemoService, MAX_DEMO_USERS } from './demo.service.js';
+import { ACCESS_TOKEN_GRACE_SECONDS, DemoService, MAX_DEMO_USERS } from './demo.service.js';
 import { FAKE_TOKENS, FakeKeycloakAdmin } from './testing/fake-keycloak-admin.js';
 
 const TTL_SECONDS = 3600;
 const HOUR_MS = TTL_SECONDS * 1000;
+const GRACE_MS = ACCESS_TOKEN_GRACE_SECONDS * 1000;
 // Every cleanup test lives in its own early year: deleteExpired works on the whole table, and no
 // other user (the login tests use SPEC_NOW, other specs the real clock) is due by then.
 const era = (year: number): Date => new Date(`${year}-01-01T00:00:00Z`);
@@ -193,7 +194,7 @@ describe('DemoService', () => {
       const start = era(2003);
       const expired = await loginWithBooking(start);
       const active = await loginWithBooking(new Date(start.getTime() + HOUR_MS / 2));
-      const due = new Date(start.getTime() + HOUR_MS + 1);
+      const due = new Date(start.getTime() + HOUR_MS + GRACE_MS);
 
       await expect(service.deleteExpired(due)).resolves.toBe(1);
 
@@ -207,6 +208,18 @@ describe('DemoService', () => {
       expect(await bookingRows(active.bookingId)).toHaveLength(1);
     });
 
+    it('waits until the access token of the user has expired too: cleaned at expiry plus grace, not a second before', async () => {
+      const { userId } = await loginWithBooking(era(2001));
+      const cutoff = new Date(era(2001).getTime() + HOUR_MS + GRACE_MS);
+
+      await expect(service.deleteExpired(new Date(cutoff.getTime() - 1000))).resolves.toBe(0);
+      expect(await demoUserRows(userId)).toHaveLength(1);
+      expect(keycloak.deleted).not.toContain(userId);
+
+      await expect(service.deleteExpired(cutoff)).resolves.toBe(1);
+      expect(await demoUserRows(userId)).toEqual([]);
+    });
+
     it('removes the transitions of the bookings with them', async () => {
       const { userId, bookingId } = await loginWithBooking(era(2004));
       await db.insert(bookingTransitions).values({
@@ -215,7 +228,7 @@ describe('DemoService', () => {
         reason: TRANSITION_REASON.CONFIRMED,
       });
 
-      await service.deleteExpired(new Date(era(2004).getTime() + HOUR_MS + 1));
+      await service.deleteExpired(new Date(era(2004).getTime() + HOUR_MS + GRACE_MS));
 
       const [left] = await db
         .select({ total: count() })
@@ -229,7 +242,7 @@ describe('DemoService', () => {
       const start = era(2005);
       const stuck = await loginWithBooking(start);
       const fine = await loginWithBooking(start);
-      const due = new Date(start.getTime() + HOUR_MS + 1);
+      const due = new Date(start.getTime() + HOUR_MS + GRACE_MS);
       keycloak.failDelete.add(stuck.userId);
 
       try {

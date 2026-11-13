@@ -29,8 +29,10 @@ Chosen: option 1, with a global default-deny guard and token refresh through the
 
 - `POST /api/demo-login` creates a Keycloak user with a random password and the requested realm
   role, stores it in `demo_users` with an expiry, seeds sandbox events for it and returns the tokens
-  of a password grant on the confidential client `api-demo`. A worker job deletes expired demo users
-  in Keycloak and their data. The grant is deprecated in OAuth 2.1; it is accepted here because only
+  of a password grant on the confidential client `api-demo`. A worker job deletes demo users in
+  Keycloak and their data once they have expired and their last access token has too (the guard is
+  stateless, so a deleted user's token would still book seats; grace `ACCESS_TOKEN_GRACE_SECONDS`
+  = `accessTokenLifespan` of the realm file, 300 s). The grant is deprecated in OAuth 2.1; it is accepted here because only
   throw-away demo users use it, the client secret stays on the server and the route is rate limited.
 - `POST /api/auth/refresh` exchanges a refresh token on the same client, so the browser only talks
   to the API.

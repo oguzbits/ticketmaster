@@ -31,7 +31,9 @@ The demo login creates a Keycloak user with a random name and password and the r
 stores it in `demo_users` with an expiry (`DEMO_USER_TTL_SECONDS`), gives it four private sandbox
 events (one per booking strategy, on the hall's seats) and answers with the tokens of a password
 grant on the server-only client `api-demo`; if a step fails, the Keycloak user is deleted again.
-The worker deletes expired demo users in Keycloak, then their bookings, sandbox events and row (see
+The worker deletes demo users in Keycloak once they have expired and their last access token has
+expired too (`ACCESS_TOKEN_GRACE_SECONDS`, 300 s, the `accessTokenLifespan` of the realm: the guard is
+stateless, so a deleted user's token would still book seats), then their bookings, sandbox events and row (see
 [data model](../data-model.md)), once a minute. The refresh route lets the browser renew its tokens
 without talking to Keycloak. Details and the Keycloak facts behind them:
 [ADR 0003](../adr/0003-authentication-and-demo-login.md).

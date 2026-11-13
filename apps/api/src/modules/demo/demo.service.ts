@@ -12,6 +12,12 @@ import { demoIdentity, type KeycloakAdmin } from './domain/demo-user.js';
 
 /** Every demo login makes a Keycloak user and four events, so the number of live ones is capped. */
 export const MAX_DEMO_USERS = 200;
+/**
+ * The guard is stateless: an access token stays valid for its whole lifetime after its user is
+ * deleted (`accessTokenLifespan` of the realm file). Cleanup waits that long past `expires_at`, so a
+ * deleted user cannot create bookings that no `demo_users` row would clean up.
+ */
+export const ACCESS_TOKEN_GRACE_SECONDS = 300;
 const SUFFIX_BYTES = 6;
 const PASSWORD_BYTES = 24;
 
@@ -57,14 +63,15 @@ export class DemoService {
   }
 
   /**
-   * Cleans up every demo user whose time has passed and returns how many it cleaned. A user whose
+   * Cleans up every demo user whose time, plus the grace of its access token, has passed and
+   * returns how many it cleaned. A user whose
    * Keycloak call fails keeps its row, so the next run tries again; the others are cleaned anyway.
    */
   async deleteExpired(now: Date): Promise<number> {
     const due = await this.db
       .select({ userId: demoUsers.userId })
       .from(demoUsers)
-      .where(lte(demoUsers.expiresAt, now));
+      .where(lte(demoUsers.expiresAt, new Date(now.getTime() - ACCESS_TOKEN_GRACE_SECONDS * 1000)));
     const failures: Error[] = [];
     for (const { userId } of due) {
       try {

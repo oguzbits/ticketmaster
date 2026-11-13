@@ -2,6 +2,7 @@
   "realm": "ticketmaster",
   "enabled": true,
   "registrationAllowed": false,
+  "accessTokenLifespan": 300,
   "roles": {
     "realm": [
       { "name": "customer", "description": "Books seats" },
