@@ -10,6 +10,8 @@ import { APP_CONFIG, ConfigModule, loadEnv } from './config/config.module.js';
 import { DatabaseModule, DB } from './infrastructure/database/database.module.js';
 import { REDIS, RedisModule } from './infrastructure/redis/redis.module.js';
 import { HealthModule } from './modules/health/index.js';
+import { MESSAGE_QUEUE, OutboxService } from './modules/outbox/index.js';
+import { FakeMessageQueue } from './modules/outbox/testing/index.js';
 
 @Controller('ping')
 class PingController {
@@ -49,6 +51,10 @@ async function createApp(corsOrigin?: string): Promise<INestApplication> {
     .useValue({ execute: () => Promise.resolve([]) })
     .overrideProvider(REDIS)
     .useValue({ ping: () => Promise.resolve('PONG'), quit: () => Promise.resolve() })
+    .overrideProvider(MESSAGE_QUEUE)
+    .useValue(new FakeMessageQueue())
+    .overrideProvider(OutboxService)
+    .useValue({ oldestUnpublishedAgeSeconds: () => Promise.resolve(null) })
     .compile();
   const app = configureApp(moduleRef.createNestApplication<NestExpressApplication>());
   await app.init();

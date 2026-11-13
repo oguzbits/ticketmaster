@@ -50,7 +50,12 @@ export {
   type Seat,
   SeatSchema,
 } from './events.js';
-export { HEALTH_STATUS, type HealthResponse, HealthResponseSchema } from './health.js';
+export {
+  HEALTH_STATUS,
+  type HealthResponse,
+  HealthResponseSchema,
+  OUTBOX_SIGNAL,
+} from './health.js';
 export {
   type CreateEventRequest,
   CreateEventRequestSchema,

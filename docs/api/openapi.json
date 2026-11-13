@@ -1713,6 +1713,22 @@
               "UP",
               "DOWN"
             ]
+          },
+          "signals": {
+            "type": "object",
+            "properties": {
+              "outbox": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "stuck"
+                ]
+              }
+            },
+            "required": [
+              "outbox"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [

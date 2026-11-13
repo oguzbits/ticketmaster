@@ -7,6 +7,9 @@ import { type Database, DB, type Tx } from '../../infrastructure/database/databa
 import { outboxMessages } from '../../infrastructure/database/schema.js';
 import { MESSAGE_QUEUE, type MessageQueue } from './domain/message-queue.js';
 
+/** The oldest unpublished row may be this old before the ready probe reports the outbox as stuck. */
+export const OUTBOX_STUCK_SECONDS = 300;
+
 @Injectable()
 export class OutboxService {
   constructor(
