@@ -6,24 +6,28 @@ import {
   type BookingStatus,
   EventDetailSchema,
   EventListResponseSchema,
+  ROLE,
   SEAT_STATUS,
 } from '@app/shared';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
-import { LoggerModule } from 'nestjs-pino';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { AppModule } from '../../app.module.js';
 import { configureApp } from '../../app.setup.js';
-import { ConfigModule } from '../../config/config.module.js';
-import { DatabaseModule } from '../../infrastructure/database/database.module.js';
 import { bookings } from '../../infrastructure/database/schema.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
+import { fakeTokenVerifier, randomClientAddress } from '../../testing/http.js';
 import { SPEC_NOW } from '../../testing/time.js';
-import { EventsModule } from './events.module.js';
+import { TOKEN_VERIFIER } from '../auth/index.js';
 
 const STRATEGY = BOOKING_STRATEGY.PESSIMISTIC;
+const SANDBOX_OWNER = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
+const OTHER_USER = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
+const OWNER_TOKEN = 'sandbox-owner';
+const OTHER_TOKEN = 'other-user';
 
 describe('events endpoints', () => {
   const database = openTestDatabase();
@@ -32,13 +36,11 @@ describe('events endpoints', () => {
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [
-        LoggerModule.forRoot({ pinoHttp: { level: 'silent' } }),
-        ConfigModule,
-        DatabaseModule,
-        EventsModule,
-      ],
-    }).compile();
+      imports: [AppModule],
+    })
+      .overrideProvider(TOKEN_VERIFIER)
+      .useValue(fakeTokenVerifier({ [OWNER_TOKEN]: SANDBOX_OWNER, [OTHER_TOKEN]: OTHER_USER }))
+      .compile();
     app = configureApp(moduleRef.createNestApplication<NestExpressApplication>());
     await app.init();
   });
@@ -47,8 +49,15 @@ describe('events endpoints', () => {
     await database.close();
   });
 
-  async function listedIds(): Promise<string[]> {
-    const response = await request(app.getHttpServer()).get('/api/events').expect(200);
+  const get = (path: string, token?: string) => {
+    const call = request(app.getHttpServer())
+      .get(path)
+      .set('X-Forwarded-For', randomClientAddress());
+    return token === undefined ? call : call.set('Authorization', `Bearer ${token}`);
+  };
+
+  async function listedIds(token?: string): Promise<string[]> {
+    const response = await get('/api/events', token).expect(200);
     return EventListResponseSchema.parse(response.body).map((event) => event.id);
   }
 
@@ -68,7 +77,7 @@ describe('events endpoints', () => {
 
   it('lists events by start time', async () => {
     await createTestEvent(db, { strategy: STRATEGY, seats: 1 });
-    const response = await request(app.getHttpServer()).get('/api/events').expect(200);
+    const response = await get('/api/events').expect(200);
 
     const times = EventListResponseSchema.parse(response.body).map((event) =>
       Date.parse(event.startsAt)
@@ -96,7 +105,7 @@ describe('events endpoints', () => {
     await book(reheld, BOOKING_STATUS.EXPIRED);
     await book(reheld, BOOKING_STATUS.HELD);
 
-    const response = await request(app.getHttpServer()).get(`/api/events/${eventId}`).expect(200);
+    const response = await get(`/api/events/${eventId}`).expect(200);
 
     const detail = EventDetailSchema.parse(response.body);
     const statusOf = (seatId: string | undefined) =>
@@ -117,14 +126,29 @@ describe('events endpoints', () => {
       sandboxUserId: randomUUID(),
     });
 
-    await request(app.getHttpServer()).get(`/api/events/${eventId}`).expect(404);
+    await get(`/api/events/${eventId}`).expect(404);
+  });
+
+  it('the sandbox user sees their own sandbox event in list and detail, nobody else does', async () => {
+    const { eventId } = await createTestEvent(db, {
+      strategy: STRATEGY,
+      seats: 1,
+      sandboxUserId: SANDBOX_OWNER.id,
+    });
+
+    expect(await listedIds(OWNER_TOKEN)).toContain(eventId);
+    await get(`/api/events/${eventId}`, OWNER_TOKEN).expect(200);
+    expect(await listedIds(OTHER_TOKEN)).not.toContain(eventId);
+    await get(`/api/events/${eventId}`, OTHER_TOKEN).expect(404);
+    expect(await listedIds()).not.toContain(eventId);
+    await get(`/api/events/${eventId}`).expect(404);
   });
 
   it('detail of an unknown event is 404', async () => {
-    await request(app.getHttpServer()).get(`/api/events/${randomUUID()}`).expect(404);
+    await get(`/api/events/${randomUUID()}`).expect(404);
   });
 
   it('a non-UUID id is 400', async () => {
-    await request(app.getHttpServer()).get('/api/events/not-a-uuid').expect(400);
+    await get('/api/events/not-a-uuid').expect(400);
   });
 });

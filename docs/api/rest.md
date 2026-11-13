@@ -3,16 +3,18 @@
 Contracts are the Zod schemas in `packages/shared`. Every route except the two probes sits under
 the `/api` prefix (Caddy forwards `/api/*` and `/health/*` to the API).
 
-| Method and path       | Role   | Answer                                                                                                                                                         |
-| --------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /health/live`    | public | 200 `{ status: "UP" }`: the process serves requests                                                                                                            |
-| `GET /health/ready`   | public | 200 `{ status: "UP" }` when Postgres (`select 1`) and Redis (`PING`) answer, 503 `{ status: "DOWN" }` otherwise                                                |
-| `GET /api/events`     | public | 200 `EventSummary[]` (`id`, `name`, `startsAt`, `venueName`, `strategy`): public events only, ordered by `startsAt`                                            |
-| `GET /api/events/:id` | public | 200 `EventDetail` (summary plus `seats`: `id`, `section`, `row`, `number`, `priceCents`, `status`), 400 for a non-UUID id, 404 for an unknown or sandbox event |
+| Method and path       | Role   | Answer                                                                                                                                                                              |
+| --------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health/live`    | public | 200 `{ status: "UP" }`: the process serves requests                                                                                                                                 |
+| `GET /health/ready`   | public | 200 `{ status: "UP" }` when Postgres (`select 1`) and Redis (`PING`) answer, 503 `{ status: "DOWN" }` otherwise                                                                     |
+| `GET /api/events`     | public | 200 `EventSummary[]` (`id`, `name`, `startsAt`, `venueName`, `strategy`): public events plus the caller's own sandbox events, ordered by `startsAt`                                 |
+| `GET /api/events/:id` | public | 200 `EventDetail` (summary plus `seats`: `id`, `section`, `row`, `number`, `priceCents`, `status`), 400 for a non-UUID id, 404 for an unknown event or another user's sandbox event |
 
 A seat's `status` is derived in one query from its active booking (`HELD`, `PAID` or `CONFIRMED`
-occupy the seat) and is `AVAILABLE` when there is none; it is never stored. Sandbox events (private
-to a demo user) appear in neither route.
+occupy the seat) and is `AVAILABLE` when there is none; it is never stored. A sandbox event is
+private to its demo user: both routes show it only to a caller whose verified token carries that
+user's `sub` (the events routes are public, but a token that is sent is read), and for anyone else
+it does not exist.
 
 Every response carries no personal data; requests are logged with the `x-request-id` of the caller
 (or a generated one) and the `authorization` and `cookie` headers redacted.

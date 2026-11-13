@@ -29,14 +29,22 @@ export class BookingsService {
     @Inject(PAYMENT_PROVIDER) private readonly payments: PaymentProvider
   ) {}
 
-  /** Holds the seat under the strategy of its event; NotFound when the seat is not in the event. */
+  /**
+   * Holds the seat under the strategy of its event; NotFound when the seat is not in the event or
+   * the event is the sandbox of another user.
+   */
   async hold(input: HoldInput): Promise<HoldResult> {
     const [event] = await this.db
-      .select({ strategy: events.strategy })
+      .select({ strategy: events.strategy, sandboxUserId: events.sandboxUserId })
       .from(seats)
       .innerJoin(events, eq(events.id, seats.eventId))
       .where(and(eq(seats.id, input.seatId), eq(seats.eventId, input.eventId)));
-    if (event === undefined) throw new NotFoundException('Seat not found in this event');
+    if (
+      event === undefined ||
+      (event.sandboxUserId !== null && event.sandboxUserId !== input.userId)
+    ) {
+      throw new NotFoundException('Seat not found in this event');
+    }
     return this.reservations.hold(event.strategy, input);
   }
 

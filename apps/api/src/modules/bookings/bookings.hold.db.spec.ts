@@ -112,4 +112,26 @@ describe.each(Object.values(BOOKING_STRATEGY))('hold under %s', (strategy) => {
       .where(eq(bookings.seatId, other.seatId));
     expect(row?.n).toBe(0);
   });
+
+  it('holds a seat of a sandbox event for its owner only; for anyone else the event is NotFound', async () => {
+    const owner = randomUUID();
+    const { eventId, seatIds } = await createTestEvent(db, {
+      strategy,
+      seats: 1,
+      sandboxUserId: owner,
+    });
+    const seatId = seatIds[0] ?? '';
+
+    await expect(service.hold({ eventId, seatId, userId: randomUUID() })).rejects.toBeInstanceOf(
+      NotFoundException
+    );
+    const [untouched] = await db
+      .select({ n: count() })
+      .from(bookings)
+      .where(eq(bookings.seatId, seatId));
+    expect(untouched?.n).toBe(0);
+
+    const held = await service.hold({ eventId, seatId, userId: owner });
+    expect(held.outcome).toBe(HOLD_OUTCOME.PLACED);
+  });
 });

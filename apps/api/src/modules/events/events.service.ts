@@ -1,16 +1,23 @@
 import type { EventDetail, EventSummary } from '@app/shared';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, or, type SQL, sql } from 'drizzle-orm';
 
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
 import { bookings, events, seats, venues } from '../../infrastructure/database/schema.js';
 import { ACTIVE_BOOKING_STATUSES, seatStatusOf } from '../bookings/index.js';
 
+/** Public events, plus the sandbox events of the caller. */
+function visibleTo(userId: string | null): SQL | undefined {
+  return userId === null
+    ? isNull(events.sandboxUserId)
+    : or(isNull(events.sandboxUserId), eq(events.sandboxUserId, userId));
+}
+
 @Injectable()
 export class EventsService {
   constructor(@Inject(DB) private readonly db: Database) {}
 
-  async list(): Promise<EventSummary[]> {
+  async list(userId: string | null): Promise<EventSummary[]> {
     const rows = await this.db
       .select({
         id: events.id,
@@ -21,13 +28,13 @@ export class EventsService {
       })
       .from(events)
       .innerJoin(venues, eq(venues.id, events.venueId))
-      .where(isNull(events.sandboxUserId))
+      .where(visibleTo(userId))
       .orderBy(asc(events.startsAt));
     return rows.map((row) => ({ ...row, startsAt: row.startsAt.toISOString() }));
   }
 
-  /** A sandbox event is private to its demo user, so it does not exist here. */
-  async detail(id: string): Promise<EventDetail> {
+  /** A sandbox event is private to its demo user, so for anyone else it does not exist. */
+  async detail(id: string, userId: string | null): Promise<EventDetail> {
     const [event] = await this.db
       .select({
         id: events.id,
@@ -38,7 +45,7 @@ export class EventsService {
       })
       .from(events)
       .innerJoin(venues, eq(venues.id, events.venueId))
-      .where(and(eq(events.id, id), isNull(events.sandboxUserId)));
+      .where(and(eq(events.id, id), visibleTo(userId)));
     if (event === undefined) throw new NotFoundException('Event not found');
 
     // One row per seat: the NAIVE comparison strategy can hold several active bookings of a seat,
