@@ -321,5 +321,5 @@ strongest model.
 | 4                              | 734 s      | 156.3k          |                                                                        |
 | 5                              | 804 s      | 95.6k           | e2e spec, docs, phase 1 check                                          |
 | Final review (strongest model) | 350 s      | 97.9k           | approved; web 429 message, destroy-bound subscription, backlog entries |
-| Follow-up fixes                | n/a        | n/a             |                                                                        |
-| **Sum**                        | **6589 s** | **918.2k**      | agent time; follow-up fixes not included                               |
+| Follow-up fixes                | 337 s      | 88.9k           |                                                                        |
+| **Sum**                        | **6926 s** | **1007.1k**     | agent time, partly parallel                                            |
