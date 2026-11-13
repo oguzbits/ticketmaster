@@ -174,6 +174,16 @@ follows, then phase 2. Still open from earlier notes:
   seat-stream caps.
 - **The simulation stream polls the database four times a second** for a `QUEUED` run that has no
   progress key yet.
+- **A simulation run leaves a sandbox event of up to 500 seats and up to 2000 `HELD` bookings**, and
+  every demo visitor is an admin. The growth per client address is bounded only by the rate limit
+  (5 starts per minute) and the global cap of 2 active runs. The events of a real admin show in
+  `GET /api/events` and are never cleaned.
+- **When the queue write fails, the run is `FAILED` but its event and seats stay** as orphans; the
+  start transaction has committed by then and nothing removes them.
+- **The `naive` double-booking check on the real Compose stack is not automated.** It was done by
+  hand during slice D (worker pool 20, concurrency 40; 500 buyers on 100 seats gave 17, 20 and 13
+  double bookings, and 0 for the other strategies). The end-to-end run only starts a `pessimistic`
+  run.
 
 ## Deliberately left out
 
