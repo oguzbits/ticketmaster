@@ -7,10 +7,12 @@ import { type Database, DB } from '../../infrastructure/database/database.module
 import { REDIS, type Redis } from '../../infrastructure/redis/redis.module.js';
 import { FakePaymentProvider } from './adapters/fake-payment.provider.js';
 import { SeatReservations } from './adapters/seat-reservations.js';
+import { BookingsController } from './bookings.controller.js';
 import { BookingsService } from './bookings.service.js';
 import { PAYMENT_PROVIDER } from './domain/payment-provider.js';
 
 @Module({
+  controllers: [BookingsController],
   providers: [
     BookingsService,
     {

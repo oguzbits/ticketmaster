@@ -22,6 +22,10 @@ export const BookingSchema = z.object({
   transitions: z.array(BookingTransitionSchema),
 });
 
+/** Header of the payment request; the same key again returns the first answer without a second charge. */
+export const IDEMPOTENCY_KEY_HEADER = 'idempotency-key';
+export const IdempotencyKeySchema = z.string().min(1).max(128);
+
 export const BookingListResponseSchema = z.array(BookingSchema);
 
 /** One seat changed its derived status; published after the booking transaction commits. */

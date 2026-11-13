@@ -31,6 +31,8 @@ export {
   BookingTransitionSchema,
   type HoldRequest,
   HoldRequestSchema,
+  IDEMPOTENCY_KEY_HEADER,
+  IdempotencyKeySchema,
   SEAT_STREAM_EVENT,
   type SeatChange,
   SeatChangeSchema,

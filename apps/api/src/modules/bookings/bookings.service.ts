@@ -1,10 +1,15 @@
-import { BOOKING_STATUS, TRANSITION_REASON } from '@app/shared';
+import { type Booking, BOOKING_STATUS, TRANSITION_REASON } from '@app/shared';
 import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, count, eq, inArray, lte, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, lte, type SQL, sql } from 'drizzle-orm';
 
 import { CLOCK, type Clock } from '../../core/clock.js';
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
-import { bookings, events, seats } from '../../infrastructure/database/schema.js';
+import {
+  bookings,
+  bookingTransitions,
+  events,
+  seats,
+} from '../../infrastructure/database/schema.js';
 import {
   claimPaymentKey,
   planTransition,
@@ -46,6 +51,18 @@ export class BookingsService {
       throw new NotFoundException('Seat not found in this event');
     }
     return this.reservations.hold(event.strategy, input);
+  }
+
+  /** The caller's bookings with their stored transitions, newest booking first. */
+  listOwn(userId: string): Promise<Booking[]> {
+    return this.loadOwn(userId);
+  }
+
+  /** One booking of the caller; NotFound when it does not exist or belongs to someone else. */
+  async getOwn(bookingId: string, userId: string): Promise<Booking> {
+    const [booking] = await this.loadOwn(userId, eq(bookings.id, bookingId));
+    if (booking === undefined) throw new NotFoundException('Booking not found');
+    return booking;
   }
 
   /** Σ (active bookings per seat − 1) over the seats of the event. */
@@ -144,6 +161,50 @@ export class BookingsService {
       expired += batch;
       if (batch < EXPIRY_BATCH_SIZE) return expired;
     }
+  }
+
+  private async loadOwn(userId: string, extra?: SQL): Promise<Booking[]> {
+    const rows = await this.db
+      .select({
+        id: bookings.id,
+        eventId: bookings.eventId,
+        seatId: bookings.seatId,
+        status: bookings.status,
+        holdExpiresAt: bookings.holdExpiresAt,
+        section: seats.section,
+        row: seats.row,
+        number: seats.number,
+      })
+      .from(bookings)
+      .innerJoin(seats, eq(seats.id, bookings.seatId))
+      .where(and(eq(bookings.userId, userId), extra))
+      .orderBy(desc(bookings.createdAt));
+    if (rows.length === 0) return [];
+    // The steps of one payment share a timestamp; the status enum order (HELD < PAID < CONFIRMED)
+    // keeps them newest first.
+    const stored = await this.db
+      .select()
+      .from(bookingTransitions)
+      .where(
+        inArray(
+          bookingTransitions.bookingId,
+          rows.map(({ id }) => id)
+        )
+      )
+      .orderBy(desc(bookingTransitions.at), desc(bookingTransitions.toStatus));
+    return rows.map(({ section, row, number, holdExpiresAt, ...booking }) => ({
+      ...booking,
+      holdExpiresAt: holdExpiresAt.toISOString(),
+      seat: { section, row, number },
+      transitions: stored
+        .filter(({ bookingId }) => bookingId === booking.id)
+        .map(({ fromStatus, toStatus, reason, at }) => ({
+          fromStatus,
+          toStatus,
+          reason,
+          at: at.toISOString(),
+        })),
+    }));
   }
 
   /** Locks the booking row for the transaction; unknown is NotFound, someone else's is Forbidden. */

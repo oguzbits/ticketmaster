@@ -1,11 +1,11 @@
 import { BadRequestException, type PipeTransform } from '@nestjs/common';
 import type { z } from 'zod';
 
-/** Parses a route parameter with a Zod schema; the 400 names the failing paths, never the value. */
-export class ZodPipe<S extends z.ZodType> implements PipeTransform<string, z.output<S>> {
+/** Parses a parameter, header or body with a Zod schema; the 400 names the failing paths, never the value. */
+export class ZodPipe<S extends z.ZodType> implements PipeTransform<z.input<S>, z.output<S>> {
   constructor(private readonly schema: S) {}
 
-  transform(value: string): z.output<S> {
+  transform(value: z.input<S>): z.output<S> {
     const result = this.schema.safeParse(value);
     if (!result.success) {
       throw new BadRequestException({

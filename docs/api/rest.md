@@ -3,18 +3,27 @@
 Contracts are the Zod schemas in `packages/shared`. Every route except the two probes sits under
 the `/api` prefix (Caddy forwards `/api/*` and `/health/*` to the API).
 
-| Method and path       | Role   | Answer                                                                                                                                                                              |
-| --------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /health/live`    | public | 200 `{ status: "UP" }`: the process serves requests                                                                                                                                 |
-| `GET /health/ready`   | public | 200 `{ status: "UP" }` when Postgres (`select 1`) and Redis (`PING`) answer, 503 `{ status: "DOWN" }` otherwise                                                                     |
-| `GET /api/events`     | public | 200 `EventSummary[]` (`id`, `name`, `startsAt`, `venueName`, `strategy`): public events plus the caller's own sandbox events, ordered by `startsAt`                                 |
-| `GET /api/events/:id` | public | 200 `EventDetail` (summary plus `seats`: `id`, `section`, `row`, `number`, `priceCents`, `status`), 400 for a non-UUID id, 404 for an unknown event or another user's sandbox event |
+| Method and path                  | Role     | Answer                                                                                                                                                                                                                             |
+| -------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health/live`               | public   | 200 `{ status: "UP" }`: the process serves requests                                                                                                                                                                                |
+| `GET /health/ready`              | public   | 200 `{ status: "UP" }` when Postgres (`select 1`) and Redis (`PING`) answer, 503 `{ status: "DOWN" }` otherwise                                                                                                                    |
+| `GET /api/events`                | public   | 200 `EventSummary[]` (`id`, `name`, `startsAt`, `venueName`, `strategy`): public events plus the caller's own sandbox events, ordered by `startsAt`                                                                                |
+| `GET /api/events/:id`            | public   | 200 `EventDetail` (summary plus `seats`: `id`, `section`, `row`, `number`, `priceCents`, `status`), 400 for a non-UUID id, 404 for an unknown event or another user's sandbox event                                                |
+| `POST /api/bookings`             | customer | 201 `Booking` for a `HoldRequest` (`eventId`, `seatId`); 409 when the seat is taken, 404 when the seat is not in the event or the event is another user's sandbox, 400 for a malformed body                                        |
+| `POST /api/bookings/:id/payment` | customer | 200 `Booking` (`CONFIRMED`, or `CANCELLED` when the payment fails); header `Idempotency-Key` (1 to 128 characters) is required, else 400; 403 for another user's booking, 409 for an expired hold or a booking that cannot be paid |
+| `POST /api/bookings/:id/cancel`  | customer | 200 `Booking` (`CANCELLED`) from `HELD` or `CONFIRMED`; 403 for another user's booking, 409 from any other status                                                                                                                  |
+| `GET /api/bookings`              | customer | 200 `Booking[]`: the caller's own bookings, newest first, each with its stored transitions newest first                                                                                                                            |
 
 A seat's `status` is derived in one query from its active booking (`HELD`, `PAID` or `CONFIRMED`
 occupy the seat) and is `AVAILABLE` when there is none; it is never stored. A sandbox event is
 private to its demo user: both routes show it only to a caller whose verified token carries that
 user's `sub` (the events routes are public, but a token that is sent is read), and for anyone else
 it does not exist.
+
+Booking routes take the user from the verified token only; no route reads a user ID from the body,
+query or path, and a booking of another user answers 403 without changing. The payment key is unique
+over all bookings: the same key on the same booking returns the stored result without a second
+charge, a key another booking already used answers 409.
 
 Every response carries no personal data; requests are logged with the `x-request-id` of the caller
 (or a generated one) and the `authorization` and `cookie` headers redacted.
@@ -67,7 +76,7 @@ in the table above when it is implemented. Authentication is described in
 | `RoleSchema` (`ROLE`)                                                 | Realm roles: `customer`, `organizer`, `admin`                                                      |
 | `DemoLoginRequestSchema`, `RefreshRequestSchema`                      | `{ role }` for the demo login, `{ refreshToken }` for the token refresh                            |
 | `TokenResponseSchema`                                                 | `{ accessToken, refreshToken, expiresIn }`                                                         |
-| `HoldRequestSchema`                                                   | `{ eventId, seatId }`                                                                              |
+| `HoldRequestSchema`, `IdempotencyKeySchema`                           | `{ eventId, seatId }`; the `Idempotency-Key` header value (1 to 128 characters)                    |
 | `BookingSchema`, `BookingListResponseSchema`                          | A booking with its seat position and stored transitions (`fromStatus`, `toStatus`, `reason`, `at`) |
 | `VenueSchema`, `CreateEventRequestSchema`, `SetStrategyRequestSchema` | Venue templates with `seatCount`; create an event; switch the strategy                             |
 | `OrganizerEventSchema`                                                | An event summary with `seatCount`, `soldCount`, `heldCount` and `utilization` (0..1)               |
