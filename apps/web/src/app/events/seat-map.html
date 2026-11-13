@@ -29,6 +29,26 @@
       </p>
     }
 
+    @switch (live()) {
+      @case ('reconnecting') {
+        <p role="status" class="text-sm text-text-muted">
+          Live updates paused. Reconnecting; the seats shown may be out of date.
+        </p>
+      }
+      @case ('busy') {
+        <p role="status" class="text-sm text-text-muted">
+          The server is busy. Live updates resume shortly; the seats shown may be out of date.
+        </p>
+      }
+      @case ('stopped') {
+        <p role="alert" class="text-danger">
+          Live updates stopped. The seats shown may be out of date.
+        </p>
+        <button type="button" class="btn self-start" (click)="refreshSeats()">Refresh seats</button>
+      }
+    }
+    <p class="sr-only" aria-live="polite">{{ announcement() }}</p>
+
     @if (bookings.notice(); as notice) {
       <p [attr.role]="notice.error ? 'alert' : 'status'" [class.text-danger]="notice.error">
         {{ notice.text }}

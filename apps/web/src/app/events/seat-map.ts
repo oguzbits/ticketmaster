@@ -1,13 +1,19 @@
 import { CurrencyPipe, DatePipe } from '@angular/common';
 import { HttpErrorResponse, HttpStatusCode } from '@angular/common/http';
 import { Component, computed, inject, input, linkedSignal, signal } from '@angular/core';
-import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { rxResource, takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
-import { BOOKING_STATUS, ROLE, type Seat, SEAT_STATUS } from '@app/shared';
+import { BOOKING_STATUS, ROLE, type Seat, SEAT_STATUS, SEAT_STREAM_EVENT } from '@app/shared';
+import { EMPTY, switchMap } from 'rxjs';
 
 import { SessionStore } from '../auth/session.store';
 import { BOOKING_ACTION, BookingsStore } from '../bookings/bookings.store';
 import { EventsService } from './events.service';
+import {
+  SEAT_STREAM_STATE,
+  type SeatStreamMessage,
+  SeatStreamService,
+} from './seat-stream.service';
 
 interface SeatRow {
   row: number;
@@ -30,6 +36,7 @@ export class SeatMap {
   readonly id = input.required<string>();
 
   private readonly eventsService = inject(EventsService);
+  private readonly stream = inject(SeatStreamService);
   private readonly session = inject(SessionStore);
   protected readonly bookings = inject(BookingsStore);
 
@@ -75,7 +82,24 @@ export class SeatMap {
     return sections;
   });
 
+  /** Where the live connection stands, for the notice above the map. */
+  protected readonly live = signal<'connecting' | 'live' | 'reconnecting' | 'busy' | 'stopped'>(
+    'connecting'
+  );
+  /** The last change in words, for a polite live region (the focus stays where it is). */
+  protected readonly announcement = signal('');
+
   constructor() {
+    // The stream starts once the detail is loaded, so its snapshot is newer than the detail.
+    toObservable(computed(() => (this.event.hasValue() ? this.id() : null)))
+      .pipe(
+        switchMap((id) => (id === null ? EMPTY : this.stream.changes(id))),
+        takeUntilDestroyed()
+      )
+      .subscribe({
+        next: (message) => this.apply(message),
+        error: () => this.live.set('stopped'),
+      });
     this.bookings.settled.pipe(takeUntilDestroyed()).subscribe(() => this.refreshSeats());
   }
 
@@ -85,6 +109,30 @@ export class SeatMap {
 
   protected choose(seat: Seat): void {
     if (this.canChoose(seat)) this.bookings.hold(this.id(), seat.id);
+  }
+
+  private apply(message: SeatStreamMessage): void {
+    switch (message.type) {
+      case SEAT_STREAM_EVENT.SNAPSHOT:
+        this.live.set('live');
+        this.seats.set(message.snapshot.seats);
+        break;
+      case SEAT_STREAM_EVENT.CHANGE: {
+        const { seatId, status } = message.change;
+        const seat = this.seats().find((candidate) => candidate.id === seatId);
+        if (!seat) break;
+        this.seats.update((seats) =>
+          seats.map((candidate) => (candidate === seat ? { ...candidate, status } : candidate))
+        );
+        this.announcement.set(
+          `Section ${seat.section}, row ${seat.row}, seat ${seat.number} is now ${status.toLowerCase()}`
+        );
+        break;
+      }
+      case SEAT_STREAM_STATE.RECONNECTING:
+        this.live.set(message.busy ? 'busy' : 'reconnecting');
+        break;
+    }
   }
 
   protected readonly refreshFailed = signal(false);

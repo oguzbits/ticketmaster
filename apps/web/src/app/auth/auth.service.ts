@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Router } from '@angular/router';
 import { type Role, TokenResponseSchema } from '@app/shared';
-import { finalize, map, type Observable, share, tap, throwError } from 'rxjs';
+import { catchError, finalize, map, type Observable, of, share, tap, throwError } from 'rxjs';
 
 import { SessionStore } from './session.store';
 
@@ -40,6 +40,23 @@ export class AuthService {
         share()
       );
     return this.inFlightRefresh;
+  }
+
+  /**
+   * The token to repeat a request with after the server answered 401 to `rejectedToken`. A newer
+   * token means another call already refreshed (the refresh token is single-use, so spending it a
+   * second time would end the session); otherwise the tokens are renewed. A failed refresh ends
+   * the session.
+   */
+  renewAfterUnauthorized(rejectedToken: string): Observable<string> {
+    const current = this.store.accessToken();
+    if (current !== null && current !== rejectedToken) return of(current);
+    return this.refresh().pipe(
+      catchError((error) => {
+        void this.logout();
+        return throwError(() => error);
+      })
+    );
   }
 
   logout(): Promise<boolean> {

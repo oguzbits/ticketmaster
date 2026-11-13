@@ -11,12 +11,19 @@ import {
   ROLE,
   type Role,
   SEAT_STATUS,
+  SEAT_STREAM_EVENT,
 } from '@app/shared';
+import { Subject } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { tokensFor } from '../../testing/tokens';
 import { SessionStore } from '../auth/session.store';
 import { SeatMap } from './seat-map';
+import {
+  SEAT_STREAM_STATE,
+  type SeatStreamMessage,
+  SeatStreamService,
+} from './seat-stream.service';
 
 const EVENT_ID = '00000000-0000-4000-8000-0000000000a2';
 const EVENT_URL = `/api/events/${EVENT_ID}`;
@@ -53,10 +60,24 @@ const BOOKING: Booking = {
 const HOLD_SECONDS = 120;
 const OPEN_SEAT = 'Section B, row 1, seat 1, available';
 
+/** The seat stream as the view sees it: messages are pushed by the test, nothing goes to the network. */
+class FakeSeatStream {
+  readonly messages = new Subject<SeatStreamMessage>();
+  changes() {
+    return this.messages;
+  }
+}
+
 function render(role: Role | null = ROLE.CUSTOMER) {
+  const stream = new FakeSeatStream();
   TestBed.configureTestingModule({
     imports: [SeatMap],
-    providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+    providers: [
+      provideHttpClient(),
+      provideHttpClientTesting(),
+      provideRouter([]),
+      { provide: SeatStreamService, useValue: stream },
+    ],
   });
   if (role) TestBed.inject(SessionStore).set(tokensFor(role));
   const fixture = TestBed.createComponent(SeatMap);
@@ -87,7 +108,7 @@ function render(role: Role | null = ROLE.CUSTOMER) {
         seats: DETAIL.seats.map((seat) => (seat.id === SEAT_ID(3) ? { ...seat, status } : seat)),
       })
     );
-  return { element, http, answer, press, loaded, refreshed };
+  return { element, http, answer, press, loaded, refreshed, stream, fixture };
 }
 type DetailStatus = (typeof SEAT_STATUS)[keyof typeof SEAT_STATUS];
 
@@ -323,5 +344,71 @@ describe('SeatMap', () => {
         expect(element.textContent).toMatch(role === null ? /Log in as a customer/ : /read-only/);
       }
     );
+  });
+
+  describe('live updates', () => {
+    const HELD_SEAT = 'Section B, row 1, seat 1, held';
+    const change = (status: DetailStatus) => ({
+      type: SEAT_STREAM_EVENT.CHANGE,
+      change: { eventId: EVENT_ID, seatId: SEAT_ID(3), status, at: '2027-01-01T00:00:00.000Z' },
+    });
+
+    it('listens only once the seat map is loaded and stops when the page is left', async () => {
+      const { stream, loaded, fixture } = render();
+      expect(stream.messages.observed).toBe(false);
+
+      await loaded();
+      expect(stream.messages.observed).toBe(true);
+
+      fixture.destroy();
+      expect(stream.messages.observed).toBe(false);
+    });
+
+    it('marks a seat taken without a reload and announces it politely', async () => {
+      const { element, stream, loaded } = render();
+      await loaded();
+
+      stream.messages.next(change(SEAT_STATUS.HELD));
+      TestBed.tick();
+
+      expect(element.querySelector(`[aria-label="${HELD_SEAT}"]`)).not.toBeNull();
+      expect(element.querySelector('[aria-live=polite]')?.textContent).toContain(
+        'Section B, row 1, seat 1 is now held'
+      );
+    });
+
+    it('lets a snapshot after a reconnect replace what the view knew', async () => {
+      const { element, stream, loaded } = render();
+      await loaded();
+      stream.messages.next(change(SEAT_STATUS.HELD));
+      stream.messages.next({ type: SEAT_STREAM_STATE.RECONNECTING, busy: false });
+      TestBed.tick();
+      expect(element.textContent).toContain('Reconnecting');
+
+      stream.messages.next({
+        type: SEAT_STREAM_EVENT.SNAPSHOT,
+        snapshot: { seats: DETAIL.seats.map((seat) => ({ ...seat, status: SEAT_STATUS.SOLD })) },
+      });
+      TestBed.tick();
+
+      const names = [...element.querySelectorAll('button')].map((b) =>
+        b.getAttribute('aria-label')
+      );
+      expect(names.every((name) => name?.endsWith('sold'))).toBe(true);
+      expect(element.textContent).not.toContain('Reconnecting');
+    });
+
+    it('says when the server is busy, and when live updates have stopped', async () => {
+      const { element, stream, loaded } = render();
+      await loaded();
+
+      stream.messages.next({ type: SEAT_STREAM_STATE.RECONNECTING, busy: true });
+      TestBed.tick();
+      expect(element.textContent).toContain('busy');
+
+      stream.messages.error(new Error('contract'));
+      TestBed.tick();
+      expect(element.querySelector('[role=alert]')?.textContent).toContain('Live updates stopped');
+    });
   });
 });

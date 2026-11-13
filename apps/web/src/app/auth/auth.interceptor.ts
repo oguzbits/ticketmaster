@@ -1,6 +1,6 @@
 import { HttpErrorResponse, type HttpInterceptorFn, HttpStatusCode } from '@angular/common/http';
 import { inject } from '@angular/core';
-import { catchError, of, switchMap, throwError } from 'rxjs';
+import { catchError, switchMap, throwError } from 'rxjs';
 
 import { AuthService, DEMO_LOGIN_URL, REFRESH_URL } from './auth.service';
 import { SessionStore } from './session.store';
@@ -28,19 +28,7 @@ export const authInterceptor: HttpInterceptorFn = (request, next) => {
       // Without a token there is nothing to renew.
       if (!unauthorized || sentWith === null) return throwError(() => error);
 
-      // A newer token means another call already refreshed; spending the single-use refresh token
-      // a second time would end the session.
-      const current = store.accessToken();
-      const token$ =
-        current !== null && current !== sentWith
-          ? of(current)
-          : auth.refresh().pipe(
-              catchError((refreshError) => {
-                void auth.logout();
-                return throwError(() => refreshError);
-              })
-            );
-      return token$.pipe(switchMap((token) => send(token)));
+      return auth.renewAfterUnauthorized(sentWith).pipe(switchMap((token) => send(token)));
     })
   );
 };
