@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
+import { Logger } from '@nestjs/common';
+
 import type { Database } from '../../../infrastructure/database/database.module.js';
 import type { Redis } from '../../../infrastructure/redis/redis.module.js';
 import {
@@ -15,8 +17,16 @@ const LOCK_TTL_MS = 5000;
 // Deletes the lock only if it still carries our token, so a slow holder cannot free someone else's lock.
 const RELEASE_SCRIPT = `if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end`;
 
+/** Frees the lock only while it still carries `token`; returns whether it was deleted. */
+export async function releaseLock(redis: Redis, key: string, token: string): Promise<boolean> {
+  const deleted = await redis.eval(RELEASE_SCRIPT, { keys: [key], arguments: [token] });
+  return deleted === 1;
+}
+
 /** A short-lived Redis lock per seat; whoever does not get it sees the seat as taken. */
 export class RedisLockReservation implements SeatReservation {
+  private readonly logger = new Logger(RedisLockReservation.name);
+
   constructor(
     private readonly db: Database,
     private readonly redis: Redis
@@ -37,7 +47,10 @@ export class RedisLockReservation implements SeatReservation {
           : insertHold(tx, input, input.now, input.ttlSeconds)
       );
     } finally {
-      await this.redis.eval(RELEASE_SCRIPT, { keys: [key], arguments: [token] });
+      // A failed release must not replace a committed hold; the lock expires by itself after its TTL.
+      await releaseLock(this.redis, key, token).catch((error: Error) =>
+        this.logger.error(`lock release failed for seat ${input.seatId}: ${error.message}`)
+      );
     }
   }
 }

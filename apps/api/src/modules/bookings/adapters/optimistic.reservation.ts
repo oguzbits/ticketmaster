@@ -10,28 +10,16 @@ import {
 } from '../domain/seat-reservation.js';
 import { insertHold, isSeatTaken } from './insert-hold.js';
 
-const MAX_ATTEMPTS = 3;
-
 /**
  * Reads `seats.version`, then claims the seat by bumping it `where version = $read`. The bump comes
- * before the insert: a lost race shows up as zero rows and retries the attempt, instead of as a
- * unique violation after the insert. A seat still contended after the last attempt counts as taken.
+ * before the insert: a lost race shows up as zero rows instead of as a unique violation after the
+ * insert. The version only changes together with a committed hold, so zero rows means the seat is
+ * taken and no retry is needed.
  */
 export class OptimisticReservation implements SeatReservation {
   constructor(private readonly db: Database) {}
 
-  async hold(input: HoldInput & { now: Date; ttlSeconds: number }): Promise<HoldResult> {
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-      const result = await this.attempt(input);
-      if (result !== null) return result;
-    }
-    return { outcome: HOLD_OUTCOME.SEAT_TAKEN };
-  }
-
-  /** `null` means the version moved underneath this attempt. */
-  private attempt(
-    input: HoldInput & { now: Date; ttlSeconds: number }
-  ): Promise<HoldResult | null> {
+  hold(input: HoldInput & { now: Date; ttlSeconds: number }): Promise<HoldResult> {
     return this.db.transaction(async (tx) => {
       const [seat] = await tx
         .select({ version: seats.version })
@@ -44,7 +32,7 @@ export class OptimisticReservation implements SeatReservation {
         .set({ version: seat.version + 1 })
         .where(and(eq(seats.id, input.seatId), eq(seats.version, seat.version)))
         .returning({ id: seats.id });
-      if (bumped.length === 0) return null;
+      if (bumped.length === 0) return { outcome: HOLD_OUTCOME.SEAT_TAKEN };
       return insertHold(tx, input, input.now, input.ttlSeconds);
     });
   }

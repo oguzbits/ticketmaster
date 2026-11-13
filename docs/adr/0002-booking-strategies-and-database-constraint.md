@@ -30,10 +30,12 @@ truth) and the database refuses what a strategy let through.
   double bookings.
 - `PESSIMISTIC`: locks the seat row (`FOR UPDATE`) in the transaction; competing holds queue.
 - `OPTIMISTIC`: reads `seats.version` and claims the seat with `UPDATE … WHERE version = $read`
-  before inserting, up to three attempts. Claiming first turns a lost race into zero updated rows
-  (retry) instead of a unique violation after the insert.
+  before inserting. Claiming first turns a lost race into zero updated rows instead of a unique
+  violation after the insert. The version only changes together with a committed hold, so zero
+  rows means the seat is taken (no retry).
 - `REDIS_LOCK`: `SET lock:seat:<id> <token> NX PX 5000`, check and insert, release with a
-  compare-and-delete script. A lock that is not acquired reports the seat as taken.
+  compare-and-delete script. A lock that is not acquired reports the seat as taken. A lock that
+  expires in the middle of the transaction is caught by the unique index (`CONSTRAINT_VIOLATION`).
 - `bookings_active_seat_uidx` is a partial unique index on `seat_id` for active bookings (HELD,
   PAID, CONFIRMED) whose strategy is not `NAIVE`. The strategy is copied onto the booking row so the
   index can exclude the comparison mode. A violation is reported as `CONSTRAINT_VIOLATION`, which
