@@ -33,6 +33,7 @@ import { PAYMENT_PROVIDER } from './domain/payment-provider.js';
 const ALICE = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
 const BOB = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
 const ORGANIZER = { id: randomUUID(), roles: [ROLE.ORGANIZER] };
+const ADMIN = { id: randomUUID(), roles: [ROLE.ADMIN] };
 // Customers that only the list test uses, so the other tests' bookings do not show up in it.
 const DORA = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
 const ELI = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
@@ -46,6 +47,7 @@ const TOKENS = {
   frida: FRIDA,
   newcomer: NEWCOMER,
   organizer: ORGANIZER,
+  admin: ADMIN,
 };
 type Caller = keyof typeof TOKENS;
 
@@ -147,9 +149,10 @@ describe('booking endpoints', () => {
       ['post', `/bookings/${someId}/payment`],
       ['post', `/bookings/${someId}/cancel`],
       ['get', '/bookings'],
-    ] as const)('%s %s: no token is 401, an organizer is 403', async (method, path) => {
+    ] as const)('%s %s: no token is 401, an organizer or an admin is 403', async (method, path) => {
       await call(method, path).expect(401);
       await call(method, path, 'organizer').expect(403);
+      await call(method, path, 'admin').expect(403);
     });
   });
 
