@@ -90,7 +90,7 @@ function render() {
     http.expectOne(RUNS_URL).flush(runs);
     await settle();
   };
-  return { element, http, settle, field, set, submit, startButton, ready };
+  return { fixture, element, http, settle, field, set, submit, startButton, ready };
 }
 
 describe('SimulatorPage', () => {
@@ -168,6 +168,18 @@ describe('SimulatorPage', () => {
     expect(alert).toContain('Too many starts');
     expect(alert).not.toContain('Two runs are active');
     expect(startButton().disabled).toBe(false);
+  });
+
+  it('cancels the pending start when the page is destroyed', async () => {
+    const { fixture, http, settle, submit, ready } = render();
+    await ready();
+
+    submit();
+    await settle();
+    const request = http.expectOne(RUNS_URL);
+    fixture.destroy();
+
+    expect(request.cancelled).toBe(true);
   });
 
   it('shows a generic message for another failed start', async () => {

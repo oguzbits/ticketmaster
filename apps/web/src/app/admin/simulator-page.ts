@@ -81,6 +81,7 @@ export class SimulatorPage {
     // The form's native validation keeps the values within the limits; the service parses them too.
     this.service
       .start({ buyers: this.buyers(), seats: this.seats(), strategy: this.strategy() })
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (run) => {
           this.starting.set(false);
