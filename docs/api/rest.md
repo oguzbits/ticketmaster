@@ -204,7 +204,8 @@ still `QUEUED` or `RUNNING` although it started more than `SIMULATION_RUN_TIMEOU
 `FAILED` with its end time, and its progress key is set to `FAILED` with empty metrics, so open
 streams end; the cut is the exact complement of the cap's window. A queue entry that was delivered
 to a worker and not acknowledged for that long is acknowledged. A run that is still going after the
-timeout is failed too; if its worker then stores a result, the run is `FINISHED` after all.
+timeout is failed too; if its worker then stores a result, the worker drops it (logging the run ID),
+so the run stays `FAILED`, as the open streams showed.
 
 The worker's retention job (every minute, up to 100 events per tick) deletes the sandbox event of
 every run that is `FINISHED` or `FAILED` for more than `SIMULATION_RETENTION_SECONDS` (one hour):

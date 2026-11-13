@@ -176,7 +176,8 @@ follows, then phase 2. Still open from earlier notes:
 - **The reaper fails a run after the run timeout (10 minutes) only.** Until then a run of a dead
   worker counts as active and blocks a slot of the cap, and its progress key keeps the last
   `RUNNING` state. The reaped run's final progress has empty metrics. Every worker start leaves a
-  consumer name in the consumer group of the stream; they are not removed.
+  consumer name in the consumer group of the stream; they are not removed. A worker that is slower
+  than the timeout loses its run: the result it stores late is dropped and the run stays `FAILED`.
 
 ## Deliberately left out
 

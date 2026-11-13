@@ -146,6 +146,7 @@ export class SimulationConsumer implements OnModuleInit, OnModuleDestroy {
   private async execute(runId: string, run: ClaimedRun): Promise<void> {
     let last: SimulationMetrics = EMPTY_METRICS;
     let metrics: SimulationMetrics;
+    let stored: boolean;
     try {
       metrics = await this.runner.run({
         runId,
@@ -161,10 +162,14 @@ export class SimulationConsumer implements OnModuleInit, OnModuleDestroy {
           );
         },
       });
-      await this.simulations.finish(runId, metrics);
+      stored = await this.simulations.finish(runId, metrics);
     } catch (error) {
       this.logger.error(`run ${runId} failed: ${error instanceof Error ? error.name : 'unknown'}`);
       await this.markFailed(runId, last);
+      return;
+    }
+    if (!stored) {
+      this.logger.warn(`run ${runId} was failed before its result arrived; the result is dropped`);
       return;
     }
     // The row says FINISHED: a Redis that fails now must not turn the run into FAILED.

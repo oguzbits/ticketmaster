@@ -18,6 +18,7 @@ import {
   simulationRuns,
 } from '../../infrastructure/database/schema.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
+import { EMPTY_METRICS } from './simulation-progress.js';
 import {
   SIMULATION_RETENTION_SECONDS,
   SIMULATION_RUN_TIMEOUT_MS,
@@ -79,6 +80,31 @@ describe('SimulationsService sweeps', () => {
     if (row === undefined) throw new Error('run insert returned no row');
     return row.id;
   }
+
+  describe('finish', () => {
+    const METRICS = { ...EMPTY_METRICS, buyersDone: 1 };
+
+    it('stores the result of a RUNNING run and reports the change', async () => {
+      const running = await seedRun(SIMULATION_STATUS.RUNNING, 1000);
+
+      expect(await service.finish(running, METRICS)).toBe(true);
+
+      expect(await service.find(running)).toMatchObject({
+        status: SIMULATION_STATUS.FINISHED,
+        metrics: METRICS,
+        finishedAt: NOW.toISOString(),
+      });
+    });
+
+    it('leaves a run the reaper already failed FAILED and reports no change', async () => {
+      const failed = await seedRun(SIMULATION_STATUS.FAILED, 1000, 500);
+      const before = await service.find(failed);
+
+      expect(await service.finish(failed, METRICS)).toBe(false);
+
+      expect(await service.find(failed)).toEqual(before);
+    });
+  });
 
   describe('failStale', () => {
     const STALE = SIMULATION_RUN_TIMEOUT_MS + 1;

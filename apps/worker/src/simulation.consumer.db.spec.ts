@@ -179,7 +179,7 @@ describe('SimulationConsumer', () => {
   it('stores a run as FAILED when its result cannot be stored', async () => {
     vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     class CannotFinish extends SimulationsService {
-      override finish(): Promise<void> {
+      override finish(): Promise<boolean> {
         return Promise.reject(new Error('database down'));
       }
     }
@@ -190,6 +190,28 @@ describe('SimulationConsumer', () => {
 
     await untilStatus(run, SIMULATION_STATUS.FAILED);
     await untilAcknowledged();
+  });
+
+  it('keeps a run the reaper failed meanwhile FAILED: logs the run, writes no FINISHED progress', async () => {
+    const warned = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const run = await simulations.start(REQUEST, randomUUID());
+    let reaped: Promise<void> | undefined;
+    // The reaper's verdict arrives while the buyers are still booking.
+    await startedConsumer(
+      runnerOver((input) => {
+        reaped ??= simulations.fail(run.id);
+        return bookings.hold(input);
+      })
+    );
+
+    const warnings = () => warned.mock.calls.map(([message]) => String(message));
+    await expect.poll(() => warnings().some((message) => message.includes(run.id))).toBe(true);
+    // The command is acknowledged after the run is handled: from here on nothing is still written.
+    await untilAcknowledged();
+
+    await reaped;
+    expect(await statusOf(run)).toBe(SIMULATION_STATUS.FAILED);
+    expect((await progressOf(run))?.status).not.toBe(SIMULATION_STATUS.FINISHED);
   });
 
   it('keeps a finished run FINISHED when its final progress cannot be written', async () => {

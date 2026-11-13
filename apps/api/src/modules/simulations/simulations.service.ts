@@ -220,15 +220,23 @@ export class SimulationsService {
     };
   }
 
-  async finish(runId: string, metrics: SimulationMetrics): Promise<void> {
-    await this.db
+  /**
+   * Stores the result of a RUNNING run. False when the row did not change: the reaper already
+   * failed the run, and the row keeps that verdict (it is what the stream showed).
+   */
+  async finish(runId: string, metrics: SimulationMetrics): Promise<boolean> {
+    const rows = await this.db
       .update(simulationRuns)
       .set({
         status: SIMULATION_STATUS.FINISHED,
         metrics,
         finishedAt: this.clock.now(),
       })
-      .where(eq(simulationRuns.id, runId));
+      .where(
+        and(eq(simulationRuns.id, runId), eq(simulationRuns.status, SIMULATION_STATUS.RUNNING))
+      )
+      .returning({ id: simulationRuns.id });
+    return rows.length > 0;
   }
 
   /** Only an active run can fail; a run that finished keeps its result. */
