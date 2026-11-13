@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
 import { BOOKING_STRATEGY, SIMULATION_STATUS, type SimulationStatus } from '@app/shared';
-import { HttpStatus } from '@nestjs/common';
+import { HttpStatus, Logger } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { events, simulationRuns } from '../../infrastructure/database/schema.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
@@ -155,5 +155,26 @@ describe('SimulationsService.start', () => {
       .from(simulationRuns)
       .where(eq(simulationRuns.startedBy, adminId));
     expect(runs.map(({ status }) => status)).toEqual([SIMULATION_STATUS.FAILED]);
+  });
+
+  it('rethrows the queue error, not the one of a failing fail(), and logs the second', async () => {
+    class FailsToFail extends SimulationsService {
+      override fail(): Promise<void> {
+        return Promise.reject(new Error('database down'));
+      }
+    }
+    const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const service = new FailsToFail(
+      db,
+      { xAdd: () => Promise.reject(new Error('redis down')) },
+      {
+        now: () => NOW,
+      }
+    );
+
+    await expect(service.start(REQUEST, randomUUID())).rejects.toThrow('redis down');
+
+    expect(logged).toHaveBeenCalledTimes(1);
+    logged.mockRestore();
   });
 });

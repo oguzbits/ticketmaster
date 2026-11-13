@@ -5,7 +5,14 @@ import {
   type SimulationRun,
   type StartSimulationRequest,
 } from '@app/shared';
-import { HttpException, HttpStatus, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { and, count, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 
 import { CLOCK, type Clock } from '../../core/clock.js';
@@ -62,6 +69,7 @@ function toRun(row: RunRow): SimulationRun {
 export class SimulationsService {
   // Public so a spec can use a stream of its own.
   streamKey: string = SIMULATION_STREAM_KEY;
+  private readonly logger = new Logger(SimulationsService.name);
 
   constructor(
     @Inject(DB) private readonly db: Database,
@@ -119,7 +127,10 @@ export class SimulationsService {
     try {
       await this.queue.xAdd(this.streamKey, '*', { runId: run.id });
     } catch (error) {
-      await this.fail(run.id);
+      // The queue error is the one to report; a failing `fail` must not hide it.
+      await this.fail(run.id).catch((cause: Error) =>
+        this.logger.error(`run ${run.id} not marked FAILED: ${cause.name}`)
+      );
       throw error;
     }
     return run;
