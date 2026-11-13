@@ -5,7 +5,11 @@ import { and, count, eq, inArray, lte, sql } from 'drizzle-orm';
 import { CLOCK, type Clock } from '../../core/clock.js';
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
 import { bookings, events, seats } from '../../infrastructure/database/schema.js';
-import { planTransition, storeTransition } from './adapters/booking-transitions.js';
+import {
+  claimPaymentKey,
+  planTransition,
+  storeTransition,
+} from './adapters/booking-transitions.js';
 import type { Tx } from './adapters/insert-hold.js';
 import { SeatReservations } from './adapters/seat-reservations.js';
 import { type BookingState, SYSTEM_ACTOR_ID } from './domain/booking-state-machine.js';
@@ -72,6 +76,7 @@ export class BookingsService {
       const now = this.clock.now();
       // Refused before the charge: another key on a settled booking, or a hold that ran out.
       const paid = planTransition(booking, TRANSITION_REASON.PAYMENT_SUCCEEDED, input.userId, now);
+      await claimPaymentKey(tx, booking.id, input.idempotencyKey);
       // shortcut: the fake charge runs inside the database transaction; a real provider call moves
       // out of it with the outbox in phase 2.
       const { succeeded } = await this.payments.charge({
@@ -81,9 +86,9 @@ export class BookingsService {
       });
       if (!succeeded) {
         const failed = planTransition(booking, TRANSITION_REASON.PAYMENT_FAILED, input.userId, now);
-        return storeTransition(tx, failed, input.idempotencyKey);
+        return storeTransition(tx, failed);
       }
-      const stored = await storeTransition(tx, paid, input.idempotencyKey);
+      const stored = await storeTransition(tx, paid);
       return storeTransition(
         tx,
         planTransition(stored, TRANSITION_REASON.CONFIRMED, input.userId, now)

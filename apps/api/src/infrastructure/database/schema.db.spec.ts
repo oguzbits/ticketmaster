@@ -10,6 +10,7 @@ import { count, inArray } from 'drizzle-orm';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
+import { SPEC_NOW } from '../../testing/time.js';
 import type { Database } from './database.module.js';
 import { bookings, events, seats, venues, venueSeats } from './schema.js';
 import { SEED, seed } from './seed.js';
@@ -47,7 +48,7 @@ describe('booking schema', () => {
       userId: randomUUID(),
       strategy,
       status,
-      holdExpiresAt: new Date(Date.now() + HOLD_MS),
+      holdExpiresAt: new Date(SPEC_NOW.getTime() + HOLD_MS),
     });
   }
 

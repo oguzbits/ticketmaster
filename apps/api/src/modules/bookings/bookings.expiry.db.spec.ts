@@ -10,14 +10,13 @@ import { bookings, bookingTransitions } from '../../infrastructure/database/sche
 import type { Redis } from '../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
+import { EXPIRY_SPEC_START } from '../../testing/time.js';
 import type { BookingsService } from './bookings.service.js';
 import { SYSTEM_ACTOR_ID } from './domain/booking-state-machine.js';
 import { HOLD_OUTCOME } from './domain/seat-reservation.js';
 import { createBookingsService } from './testing/create-bookings-service.js';
 
-// A time of its own: expireHolds works on the whole table, so other test files' holds (2026 and
-// later) never fall due in these tests.
-const START = new Date('2000-01-01T12:00:00.000Z');
+const START = EXPIRY_SPEC_START;
 const LOCK_WAIT_MS = 1500;
 
 describe('expireHolds', () => {
@@ -61,7 +60,7 @@ describe('expireHolds', () => {
 
   it('expires only holds whose time has passed and stores HOLD_EXPIRED', async () => {
     const [due] = await holds(1, START);
-    const [later] = await holds(1, new Date(START.getTime() + 5 * 60 * 1000));
+    const [later] = await holds(1, new Date(START.getTime() + ttlMs / 2));
     if (due === undefined || later === undefined) throw new Error('missing hold');
 
     const expired = await service.expireHolds(new Date(START.getTime() + ttlMs));

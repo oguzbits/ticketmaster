@@ -11,11 +11,12 @@ import { bookings, bookingTransitions } from '../../infrastructure/database/sche
 import type { Redis } from '../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
+import { SPEC_NOW } from '../../testing/time.js';
 import type { BookingsService } from './bookings.service.js';
 import { HOLD_OUTCOME } from './domain/seat-reservation.js';
 import { createBookingsService } from './testing/create-bookings-service.js';
 
-const NOW = new Date('2026-01-01T12:00:00.000Z');
+const NOW = SPEC_NOW;
 const clock: Clock = { now: () => NOW };
 
 describe.each(Object.values(BOOKING_STRATEGY))('hold under %s', (strategy) => {

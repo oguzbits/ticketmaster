@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Redis } from '../../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../../testing/database.js';
 import { openTestRedis } from '../../../testing/redis.js';
+import { SPEC_NOW } from '../../../testing/time.js';
 import { HOLD_OUTCOME } from '../domain/seat-reservation.js';
 import { RedisLockReservation, releaseLock } from './redis-lock.reservation.js';
 
@@ -50,7 +51,7 @@ describe('releaseLock', () => {
         eventId,
         seatId,
         userId: randomUUID(),
-        now: new Date(),
+        now: SPEC_NOW,
         ttlSeconds: 600,
       });
 

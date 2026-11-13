@@ -12,6 +12,7 @@ import { bookings } from '../../infrastructure/database/schema.js';
 import type { Redis } from '../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
+import { SPEC_NOW } from '../../testing/time.js';
 import type { BookingsService } from './bookings.service.js';
 import { createBookingsService } from './testing/create-bookings-service.js';
 
@@ -25,7 +26,7 @@ describe('countDoubleBookings', () => {
 
   beforeAll(async () => {
     redis = await openTestRedis();
-    service = createBookingsService(db, redis, { now: () => new Date() });
+    service = createBookingsService(db, redis, { now: () => SPEC_NOW });
   });
   afterAll(async () => {
     await redis.quit();
@@ -46,7 +47,7 @@ describe('countDoubleBookings', () => {
         userId: randomUUID(),
         strategy,
         status,
-        holdExpiresAt: new Date(Date.now() + HOLD_MS),
+        holdExpiresAt: new Date(SPEC_NOW.getTime() + HOLD_MS),
       }))
     );
     return service.countDoubleBookings(eventId);

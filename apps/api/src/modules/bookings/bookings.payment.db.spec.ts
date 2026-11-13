@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 
-import { BOOKING_STATUS, BOOKING_STRATEGY } from '@app/shared';
+import { BOOKING_STATUS, BOOKING_STRATEGY, TRANSITION_REASON } from '@app/shared';
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { loadEnv } from '../../config/config.module.js';
@@ -10,13 +11,15 @@ import { bookings, bookingTransitions } from '../../infrastructure/database/sche
 import type { Redis } from '../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
+import { SPEC_NOW } from '../../testing/time.js';
 import type { BookingsService } from './bookings.service.js';
 import type { PaymentProvider } from './domain/payment-provider.js';
 import { HOLD_OUTCOME } from './domain/seat-reservation.js';
 import { createBookingsService } from './testing/create-bookings-service.js';
 
-const NOW = new Date('2026-01-01T12:00:00.000Z');
+const NOW = SPEC_NOW;
 const SEAT_PRICE_CENTS = 1000;
+const PARALLEL_CHARGE_MS = 200;
 // The key column is unique over the whole table, so every run needs fresh keys.
 const RUN_ID = randomUUID();
 const key = (name: string): string => `${RUN_ID}-${name}`;
@@ -24,8 +27,10 @@ const key = (name: string): string => `${RUN_ID}-${name}`;
 class RecordingProvider implements PaymentProvider {
   readonly calls: Parameters<PaymentProvider['charge']>[0][] = [];
   succeed = true;
+  chargeDelayMs = 0;
   async charge(input: Parameters<PaymentProvider['charge']>[0]): Promise<{ succeeded: boolean }> {
     this.calls.push(input);
+    await delay(this.chargeDelayMs);
     return { succeeded: this.succeed };
   }
 }
@@ -57,6 +62,7 @@ describe('payment and cancel', () => {
     now = NOW;
     provider.calls.length = 0;
     provider.succeed = true;
+    provider.chargeDelayMs = 0;
     const { eventId, seatIds } = await createTestEvent(db, {
       strategy: BOOKING_STRATEGY.PESSIMISTIC,
       seats: 1,
@@ -102,9 +108,52 @@ describe('payment and cancel', () => {
     const view = await service.pay({ bookingId, userId, idempotencyKey: key('2') });
 
     expect(view.status).toBe(BOOKING_STATUS.CANCELLED);
-    expect(await transitionsOf(bookingId)).toContain(
-      `${BOOKING_STATUS.HELD}>${BOOKING_STATUS.CANCELLED}`
+    const [record] = await db
+      .select()
+      .from(bookingTransitions)
+      .where(
+        and(
+          eq(bookingTransitions.bookingId, bookingId),
+          eq(bookingTransitions.toStatus, BOOKING_STATUS.CANCELLED)
+        )
+      );
+    expect(record).toMatchObject({
+      fromStatus: BOOKING_STATUS.HELD,
+      reason: TRANSITION_REASON.PAYMENT_FAILED,
+      actorId: userId,
+    });
+  });
+
+  it('a key another booking already used is a conflict and is not charged', async () => {
+    const first = await heldBooking();
+    await service.pay({ ...first, idempotencyKey: key('shared') });
+    const second = await heldBooking();
+
+    await expect(service.pay({ ...second, idempotencyKey: key('shared') })).rejects.toBeInstanceOf(
+      ConflictException
     );
+    expect(provider.calls).toHaveLength(0);
+    const [row] = await db.select().from(bookings).where(eq(bookings.id, second.bookingId));
+    expect(row?.status).toBe(BOOKING_STATUS.HELD);
+  });
+
+  it('two parallel payments with one key charge once and confirm once', async () => {
+    const { bookingId, userId } = await heldBooking();
+    const idempotencyKey = key('parallel');
+    // A slow charge keeps the first payment open, so the second one overlaps with it.
+    provider.chargeDelayMs = PARALLEL_CHARGE_MS;
+
+    const views = await Promise.all([
+      service.pay({ bookingId, userId, idempotencyKey }),
+      service.pay({ bookingId, userId, idempotencyKey }),
+    ]);
+
+    expect(views.map((view) => view.status)).toEqual([
+      BOOKING_STATUS.CONFIRMED,
+      BOOKING_STATUS.CONFIRMED,
+    ]);
+    expect(provider.calls).toHaveLength(1);
+    expect(await transitionsOf(bookingId)).toHaveLength(3);
   });
 
   it('the same key after a failed charge returns CANCELLED and does not charge again', async () => {

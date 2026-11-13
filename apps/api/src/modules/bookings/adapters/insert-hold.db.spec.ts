@@ -4,10 +4,11 @@ import { BOOKING_STRATEGY } from '@app/shared';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { createTestEvent, openTestDatabase } from '../../../testing/database.js';
+import { SPEC_NOW } from '../../../testing/time.js';
 import { HOLD_OUTCOME } from '../domain/seat-reservation.js';
 import { insertHold } from './insert-hold.js';
 
-const NOW = new Date('2026-01-01T12:00:00.000Z');
+const NOW = SPEC_NOW;
 const TTL_SECONDS = 600;
 
 describe('insertHold', () => {

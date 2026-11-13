@@ -7,12 +7,13 @@ import type { Clock } from '../../core/clock.js';
 import type { Redis } from '../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
+import { SPEC_NOW } from '../../testing/time.js';
 import type { BookingsService } from './bookings.service.js';
 import { HOLD_OUTCOME } from './domain/seat-reservation.js';
 import { createBookingsService } from './testing/create-bookings-service.js';
 
 const PARALLEL_HOLDS = 50;
-const clock: Clock = { now: () => new Date() };
+const clock: Clock = { now: () => SPEC_NOW };
 
 describe.each(Object.values(BOOKING_STRATEGY))('%s: parallel holds of one seat', (strategy) => {
   const database = openTestDatabase();
