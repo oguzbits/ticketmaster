@@ -13,13 +13,19 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@app/api": "workspace:*",
     "@nestjs/common": "^12.4.2",
     "@nestjs/core": "^12.4.2",
+    "@nestjs/schedule": "^12.0.3",
+    "nestjs-pino": "^5.3.1",
+    "pino": "^10.4.0",
+    "pino-http": "^11.0.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
   },
   "devDependencies": {
     "@nestjs/cli": "^12.0.12",
-    "@nestjs/schematics": "^12.0.13"
+    "@nestjs/schematics": "^12.0.13",
+    "@nestjs/testing": "^12.4.2"
   }
 }

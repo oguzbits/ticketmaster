@@ -59,6 +59,20 @@ services:
       retries: 40
       start_period: 20s
 
+  # One-shot: applies the migrations and the seed, then exits. api and worker wait for it.
+  migrate:
+    build:
+      context: .
+      target: api
+    command: ['node', 'dist/infrastructure/database/migrate.js']
+    environment:
+      DATABASE_URL: postgres://app:app@postgres:5432/app
+      # Not used here, but the shared env schema requires it in production.
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
     build:
       context: .
@@ -68,8 +82,21 @@ services:
       DATABASE_URL: postgres://app:app@postgres:5432/app
       REDIS_URL: redis://redis:6379
     depends_on:
-      postgres:
+      migrate:
+        condition: service_completed_successfully
+      redis:
         condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      target: worker
+    environment:
+      DATABASE_URL: postgres://app:app@postgres:5432/app
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
 

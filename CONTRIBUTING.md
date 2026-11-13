@@ -24,6 +24,10 @@ Ports of the local stack (`docker-compose.yml`):
 | postgres | 54330     | databases `app` and `keycloak`, user `app`        |
 | redis    | 63790     |                                                   |
 
+`docker compose up` also starts two processes without a host port: `migrate`, a one-shot service
+that applies the migrations and the seed with the API image and exits, and `worker`, the scheduled
+jobs (hold expiry every two seconds). `api` and `worker` start only after `migrate` has completed.
+
 The credentials in the Compose file are for these local containers only.
 
 Outside production the API falls back to the local containers: `DATABASE_URL`

@@ -7,11 +7,33 @@
     "dist",
     "drizzle"
   ],
+  "exports": {
+    "./bookings": {
+      "types": "./dist/modules/bookings/index.d.ts",
+      "default": "./dist/modules/bookings/index.js"
+    },
+    "./config": {
+      "types": "./dist/config/config.module.d.ts",
+      "default": "./dist/config/config.module.js"
+    },
+    "./database": {
+      "types": "./dist/infrastructure/database/database.module.d.ts",
+      "default": "./dist/infrastructure/database/database.module.js"
+    },
+    "./redis": {
+      "types": "./dist/infrastructure/redis/redis.module.d.ts",
+      "default": "./dist/infrastructure/redis/redis.module.js"
+    },
+    "./clock": {
+      "types": "./dist/infrastructure/clock/index.d.ts",
+      "default": "./dist/infrastructure/clock/index.js"
+    }
+  },
   "scripts": {
     "dev": "nest start --watch --exec \"node --env-file-if-exists=.env\"",
     "build": "nest build",
     "start": "node --env-file-if-exists=.env dist/main.js",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "nest build && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@app/shared": "workspace:*",

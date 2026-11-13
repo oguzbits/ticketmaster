@@ -126,6 +126,10 @@ jobs:
           curl -fsS http://127.0.0.1:8080/ | grep -q '<app-root>'
           curl -fsS http://127.0.0.1:8080/health/live | grep -q '"status":"UP"'
           curl -fsS http://127.0.0.1:8080/health/ready | grep -q '"status":"UP"'
+      - name: The worker is running and the migration completed
+        run: |
+          docker compose ps --status running --services | grep -qx worker
+          docker compose ps --all --status exited --services | grep -qx migrate
       - name: Logs
         if: failure()
         run: docker compose logs --no-color --tail 100

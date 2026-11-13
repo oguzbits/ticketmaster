@@ -23,7 +23,7 @@
     "audit:magic": "node scripts/audit/audit-magic-strings.mjs",
     "audit:docs": "node scripts/audit/audit-docs.mjs && pnpm docs:generate --check",
     "docs:generate": "node scripts/docs/generate.mjs",
-    "test": "pnpm --filter @app/shared build && vitest run && pnpm --filter @app/web test",
+    "test": "pnpm --filter @app/shared build && pnpm --filter @app/api build && vitest run && pnpm --filter @app/web test",
     "test:watch": "vitest",
     "db:generate": "pnpm --filter @app/shared build && pnpm --filter @app/api exec drizzle-kit generate",
     "db:migrate": "pnpm --filter @app/shared build && pnpm --filter @app/api build && node apps/api/dist/infrastructure/database/migrate.js",
