@@ -63,7 +63,7 @@
     @if (booking) {
       <section
         aria-label="Your booking"
-        class="flex flex-col gap-2 rounded border border-edge bg-surface-raised p-4"
+        class="sticky top-0 z-10 flex flex-col gap-2 rounded border border-edge bg-surface-raised p-4"
       >
         <h2 class="text-lg font-medium">
           Section {{ booking.seat.section }}, row {{ booking.seat.row }}, seat
