@@ -1,6 +1,7 @@
 import { BOOKING_STATUS, BOOKING_STRATEGY, ROLE, TRANSITION_REASON } from '@app/shared';
+import { Logger } from '@nestjs/common';
 import { count, eq } from 'drizzle-orm';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   bookings,
@@ -121,6 +122,31 @@ describe('DemoService', () => {
       expect(keycloak.deleted).toContain(failed);
       expect(await demoUserRows(failed)).toEqual([]);
       expect(await sandboxEvents(failed)).toEqual([]);
+    });
+
+    it('rethrows the grant error with the failed cleanup attached, and logs the cleanup', async () => {
+      keycloak.failGrant = true;
+      keycloak.failDeleteOfNewUsers = true;
+      const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      const before = keycloak.created.length;
+
+      try {
+        const error = await service.login(ROLE.CUSTOMER).then(
+          () => undefined,
+          (rejected: Error) => rejected
+        );
+
+        expect(error?.message).toBe('grant refused');
+        expect(error?.cause).toEqual(new Error('Keycloak is down'));
+        expect(logged).toHaveBeenCalledWith(
+          expect.stringContaining(keycloak.created[before]?.id ?? '')
+        );
+      } finally {
+        keycloak.failGrant = false;
+        keycloak.failDeleteOfNewUsers = false;
+        keycloak.failDelete.clear();
+        logged.mockRestore();
+      }
     });
   });
 

@@ -34,7 +34,14 @@ export class DemoService {
       await this.storeUser(userId, role);
       return tokens;
     } catch (error) {
-      await this.keycloak.deleteUser(userId);
+      try {
+        await this.keycloak.deleteUser(userId);
+      } catch (cleanupError) {
+        // The login error is the one the caller needs (it may carry an HTTP status); the failed
+        // cleanup travels with it as `cause` when that is free, and is always logged.
+        this.logger.error(`could not remove demo user ${userId} after a failed login`);
+        if (error instanceof Error) error.cause ??= cleanupError;
+      }
       throw error;
     }
   }

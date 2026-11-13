@@ -18,10 +18,13 @@ export class FakeKeycloakAdmin implements KeycloakAdmin {
   failGrant = false;
   /** IDs whose deletion fails. */
   readonly failDelete = new Set<string>();
+  /** Makes the deletion of every user created from now on fail. */
+  failDeleteOfNewUsers = false;
 
   createUser(input: NewDemoUser): Promise<string> {
     const id = randomUUID();
     this.created.push({ ...input, id });
+    if (this.failDeleteOfNewUsers) this.failDelete.add(id);
     return Promise.resolve(id);
   }
 
