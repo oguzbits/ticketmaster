@@ -1,0 +1,1 @@
+CREATE INDEX "bookings_event_status_idx" ON "bookings" USING btree ("event_id","status");

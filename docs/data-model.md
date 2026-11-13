@@ -112,4 +112,5 @@ the booking and the index excludes `NAIVE`. A booking keeps the strategy it was 
 an admin later switches the event.
 
 `bookings(status, hold_expires_at)` serves the expiry job, which looks for HELD bookings whose hold
-has passed.
+has passed. `bookings(event_id, status)` serves the per-event counts: the organizer's sold and held
+seats and the double-booking count.

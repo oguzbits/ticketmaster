@@ -108,6 +108,8 @@ export const bookings = pgTable(
       ),
     // Serves the expiry job: HELD bookings whose hold has passed.
     index('bookings_status_hold_expires_idx').on(t.status, t.holdExpiresAt),
+    // Serves the sold and held counts per event and the double-booking count.
+    index('bookings_event_status_idx').on(t.eventId, t.status),
   ]
 );
 
