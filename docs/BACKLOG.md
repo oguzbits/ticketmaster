@@ -81,8 +81,6 @@ Phase 1 (core) was accepted by the owner.
 - **`@angular/router` was added** for the event list and the seat map routes.
 - **`CORS_ORIGIN` is done** (slice B). Web and API share an origin behind Caddy and the dev proxy,
   so the variable stays unset there.
-- **The payment charge runs inside the database transaction** until the outbox replaces it
-  (phase 2).
 
 Slice B:
 
@@ -135,6 +133,10 @@ follows, then phase 2. Still open from earlier notes:
 
 ## Open points
 
+- **No refund when a charge succeeds after the booking left `HELD`.** The payment runs outside
+  the transaction, so a cancel or an expiry can land while the provider answers. The apply step
+  then answers 409, stores nothing and logs the booking ID; the money is not returned. Needs a
+  refund call on the provider port and a stored reason.
 - **Initial web bundle is about 790 kB**, over the 500 kB warning budget. Zod makes up a large part of it.
   Measure, then decide (lazy routes, `zod/mini`).
 - **A running hold is not restored after a reload.** The seat map keeps the customer's hold in the

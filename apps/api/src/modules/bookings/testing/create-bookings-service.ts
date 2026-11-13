@@ -10,7 +10,7 @@ import type { PaymentProvider } from '../domain/payment-provider.js';
 import type { SeatChangePublisher } from '../domain/seat-change.js';
 
 /** Specs that never pay get a provider that always succeeds. */
-const ALWAYS_SUCCEEDS = new FakePaymentProvider(0, () => 1);
+const ALWAYS_SUCCEEDS = new FakePaymentProvider(0);
 
 export function createBookingsService(
   db: Database,

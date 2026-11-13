@@ -1,9 +1,16 @@
 import { type Booking, BOOKING_STATUS, type BookingStatus, TRANSITION_REASON } from '@app/shared';
-import { ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { and, count, desc, eq, inArray, lte, type SQL, sql } from 'drizzle-orm';
+import {
+  ConflictException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { and, count, eq, inArray, lte, sql } from 'drizzle-orm';
 
 import { CLOCK, type Clock } from '../../core/clock.js';
-import { type Database, DB } from '../../infrastructure/database/database.module.js';
+import { type Database, DB, type Tx } from '../../infrastructure/database/database.module.js';
 import {
   bookings,
   bookingTransitions,
@@ -15,7 +22,7 @@ import {
   planTransition,
   storeTransition,
 } from './adapters/booking-transitions.js';
-import type { Tx } from './adapters/insert-hold.js';
+import { loadOwnBookings } from './adapters/load-own-bookings.js';
 import { publishSeatChange } from './adapters/publish-seat-change.js';
 import { SeatReservations } from './adapters/seat-reservations.js';
 import { BOOKING_PORTS, type BookingPorts } from './domain/booking-ports.js';
@@ -23,12 +30,19 @@ import { type BookingState, SYSTEM_ACTOR_ID } from './domain/booking-state-machi
 import { HOLD_OUTCOME, type HoldInput, type HoldResult } from './domain/seat-reservation.js';
 import { ACTIVE_BOOKING_STATUSES } from './domain/seat-status.js';
 
+type SeatRef = { eventId: string; seatId: string };
+
 /** Bookings the expiry job locks and expires per transaction. */
 const EXPIRY_BATCH_SIZE = 500;
 
 @Injectable()
 export class BookingsService {
   private readonly logger = new Logger(BookingsService.name);
+  /** Payments past their claim, by idempotency key (see `pay`). */
+  private readonly flights = new Map<
+    string,
+    Promise<{ state: BookingState; seat: SeatRef | null }>
+  >();
 
   constructor(
     @Inject(DB) private readonly db: Database,
@@ -62,12 +76,12 @@ export class BookingsService {
 
   /** The caller's bookings with their stored transitions, newest booking first. */
   listOwn(userId: string): Promise<Booking[]> {
-    return this.loadOwn(userId);
+    return loadOwnBookings(this.db, userId);
   }
 
   /** One booking of the caller; NotFound when it does not exist or belongs to someone else. */
   async getOwn(bookingId: string, userId: string): Promise<Booking> {
-    const [booking] = await this.loadOwn(userId, eq(bookings.id, bookingId));
+    const [booking] = await loadOwnBookings(this.db, userId, eq(bookings.id, bookingId));
     if (booking === undefined) throw new NotFoundException('Booking not found');
     return booking;
   }
@@ -91,45 +105,129 @@ export class BookingsService {
 
   /**
    * Charges the held booking once per idempotency key: the same key again returns the stored
-   * result (CONFIRMED or CANCELLED) without a second charge.
+   * result (CONFIRMED or CANCELLED) without a second charge. Three steps, so that no database
+   * transaction (and no row lock) stays open while the provider answers:
+   * 1. claim: lock the booking, refuse what cannot be paid, store the key (commit);
+   * 2. charge: call the provider with the key, outside any transaction;
+   * 3. apply: lock the booking again, re-read its status and store the result.
+   * A crash after step 1 or 2 leaves the key claimed on a HELD booking: the retry with the same key
+   * repeats the charge (the provider answers a repeated key alike) and applies the result.
    */
   async pay(input: {
     bookingId: string;
     userId: string;
     idempotencyKey: string;
   }): Promise<BookingState> {
-    const { state, seat } = await this.db.transaction(async (tx) => {
+    const claim = await this.claimPayment(input);
+    if (claim.settled !== null) return claim.settled;
+    // Single flight per process: parallel requests with one key (the claim is theirs, the
+    // ownership was checked above) share one charge and one apply.
+    // shortcut: across instances each one may call the provider (it answers a repeated key alike)
+    // and the re-read in the apply step lets the first win; a distributed lock if a provider needs it.
+    const running = this.flights.get(input.idempotencyKey);
+    if (running !== undefined) return (await running).state;
+    const flight = this.chargeAndApply(input, claim).finally(() => {
+      this.flights.delete(input.idempotencyKey);
+    });
+    this.flights.set(input.idempotencyKey, flight);
+    const { state, seat } = await flight;
+    if (seat !== null) await this.announce(state.id, seat);
+    return state;
+  }
+
+  /** Step 1: either the stored result of a settled payment, or the claim to charge. */
+  private claimPayment(input: {
+    bookingId: string;
+    userId: string;
+    idempotencyKey: string;
+  }): Promise<
+    { settled: BookingState } | { settled: null; amountCents: number; seat: SeatRef; now: Date }
+  > {
+    return this.db.transaction(async (tx) => {
       const { booking, paymentIdempotencyKey, priceCents, seat } = await this.lockOwnBooking(
         tx,
         input.bookingId,
         input.userId
       );
-      // The same key again: the stored result, nothing changes, nothing to announce.
-      if (paymentIdempotencyKey === input.idempotencyKey) return { state: booking, seat: null };
+      const sameKey = paymentIdempotencyKey === input.idempotencyKey;
+      // The same key on a booking that left HELD: the stored result, nothing to charge or announce.
+      if (sameKey && booking.status !== BOOKING_STATUS.HELD) return { settled: booking };
       const now = this.clock.now();
       // Refused before the charge: another key on a settled booking, or a hold that ran out.
-      const paid = planTransition(booking, TRANSITION_REASON.PAYMENT_SUCCEEDED, input.userId, now);
-      await claimPaymentKey(tx, booking.id, input.idempotencyKey);
-      // shortcut: the fake charge runs inside the database transaction; a real provider call moves
-      // out of it with the outbox in phase 2.
-      const { succeeded } = await this.ports.payments.charge({
-        bookingId: booking.id,
-        amountCents: priceCents,
-        idempotencyKey: input.idempotencyKey,
-      });
-      if (!succeeded) {
-        const failed = planTransition(booking, TRANSITION_REASON.PAYMENT_FAILED, input.userId, now);
-        return { state: await storeTransition(tx, failed), seat };
+      planTransition(booking, TRANSITION_REASON.PAYMENT_SUCCEEDED, input.userId, now);
+      if (!sameKey) {
+        // Another key is already being charged for this booking.
+        if (paymentIdempotencyKey !== null) {
+          throw new ConflictException('Another payment of this booking is in progress');
+        }
+        await claimPaymentKey(tx, booking.id, input.idempotencyKey);
       }
+      return { settled: null, amountCents: priceCents, seat, now };
+    });
+  }
+
+  /** Steps 2 and 3. */
+  private async chargeAndApply(
+    input: { bookingId: string; userId: string; idempotencyKey: string },
+    claim: { amountCents: number; seat: SeatRef; now: Date }
+  ): Promise<{ state: BookingState; seat: SeatRef | null }> {
+    const { succeeded } = await this.ports.payments.charge({
+      bookingId: input.bookingId,
+      amountCents: claim.amountCents,
+      idempotencyKey: input.idempotencyKey,
+    });
+    return this.db.transaction(async (tx) => {
+      // Locked and read again: the booking may have changed while the provider was working.
+      const { booking } = await this.lockOwnBooking(tx, input.bookingId, input.userId);
+      if (booking.status !== BOOKING_STATUS.HELD) {
+        // A parallel request of this key applied the result first: its answer stands.
+        if (await this.paymentApplied(tx, booking.id)) return { state: booking, seat: null };
+        // No refund in this phase (backlog): the charge went through, the booking did not.
+        this.logger.warn(
+          `payment of booking ${booking.id} finished while the booking was ${booking.status}; not applied`
+        );
+        throw new ConflictException(`Booking is ${booking.status}, the payment was not applied`);
+      }
+      // Planned at the time of the claim: a hold that was valid then may finish inside the grace.
+      if (!succeeded) {
+        const failed = planTransition(
+          booking,
+          TRANSITION_REASON.PAYMENT_FAILED,
+          input.userId,
+          claim.now
+        );
+        return { state: await storeTransition(tx, failed), seat: claim.seat };
+      }
+      const paid = planTransition(
+        booking,
+        TRANSITION_REASON.PAYMENT_SUCCEEDED,
+        input.userId,
+        claim.now
+      );
       const stored = await storeTransition(tx, paid);
       const confirmed = await storeTransition(
         tx,
-        planTransition(stored, TRANSITION_REASON.CONFIRMED, input.userId, now)
+        planTransition(stored, TRANSITION_REASON.CONFIRMED, input.userId, claim.now)
       );
-      return { state: confirmed, seat };
+      return { state: confirmed, seat: claim.seat };
     });
-    if (seat !== null) await this.announce(state.id, seat);
-    return state;
+  }
+
+  private async paymentApplied(tx: Tx, bookingId: string): Promise<boolean> {
+    const [applied] = await tx
+      .select({ id: bookingTransitions.id })
+      .from(bookingTransitions)
+      .where(
+        and(
+          eq(bookingTransitions.bookingId, bookingId),
+          inArray(bookingTransitions.reason, [
+            TRANSITION_REASON.PAYMENT_SUCCEEDED,
+            TRANSITION_REASON.PAYMENT_FAILED,
+          ])
+        )
+      )
+      .limit(1);
+    return applied !== undefined;
   }
 
   async cancel(input: { bookingId: string; userId: string }): Promise<BookingState> {
@@ -183,50 +281,6 @@ export class BookingsService {
       expired += batch.length;
       if (batch.length < EXPIRY_BATCH_SIZE) return expired;
     }
-  }
-
-  private async loadOwn(userId: string, extra?: SQL): Promise<Booking[]> {
-    const rows = await this.db
-      .select({
-        id: bookings.id,
-        eventId: bookings.eventId,
-        seatId: bookings.seatId,
-        status: bookings.status,
-        holdExpiresAt: bookings.holdExpiresAt,
-        section: seats.section,
-        row: seats.row,
-        number: seats.number,
-      })
-      .from(bookings)
-      .innerJoin(seats, eq(seats.id, bookings.seatId))
-      .where(and(eq(bookings.userId, userId), extra))
-      .orderBy(desc(bookings.createdAt));
-    if (rows.length === 0) return [];
-    // The steps of one payment share a timestamp; the status enum order (HELD < PAID < CONFIRMED)
-    // keeps them newest first.
-    const stored = await this.db
-      .select()
-      .from(bookingTransitions)
-      .where(
-        inArray(
-          bookingTransitions.bookingId,
-          rows.map(({ id }) => id)
-        )
-      )
-      .orderBy(desc(bookingTransitions.at), desc(bookingTransitions.toStatus));
-    return rows.map(({ section, row, number, holdExpiresAt, ...booking }) => ({
-      ...booking,
-      holdExpiresAt: holdExpiresAt.toISOString(),
-      seat: { section, row, number },
-      transitions: stored
-        .filter(({ bookingId }) => bookingId === booking.id)
-        .map(({ fromStatus, toStatus, reason, at }) => ({
-          fromStatus,
-          toStatus,
-          reason,
-          at: at.toISOString(),
-        })),
-    }));
   }
 
   /** Locks the booking row for the transaction; unknown is NotFound, someone else's is Forbidden. */

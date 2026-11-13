@@ -3,6 +3,7 @@ import { ConflictException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
+import type { Tx } from '../../../infrastructure/database/database.module.js';
 import { bookings, bookingTransitions } from '../../../infrastructure/database/schema.js';
 import {
   type BookingState,
@@ -10,7 +11,6 @@ import {
   transition,
   type TransitionResult,
 } from '../domain/booking-state-machine.js';
-import type { Tx } from './insert-hold.js';
 
 const PAYMENT_KEY_CONSTRAINT = 'bookings_payment_idempotency_key_unique';
 // Drizzle wraps the postgres.js server error; the fields sit on `cause`.

@@ -26,8 +26,7 @@ import { SEAT_CHANGE_PUBLISHER, type SeatChangePublisher } from './domain/seat-c
     },
     {
       provide: PAYMENT_PROVIDER,
-      // Math.random belongs here, in the adapter wiring: the domain stays deterministic.
-      useFactory: (env: Env) => new FakePaymentProvider(env.PAYMENT_FAILURE_RATE, Math.random),
+      useFactory: (env: Env) => new FakePaymentProvider(env.PAYMENT_FAILURE_RATE),
       inject: [APP_CONFIG],
     },
     {

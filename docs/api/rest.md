@@ -129,6 +129,16 @@ bookings of all users, so a predictable key (`1`, an order number) of one user w
 user's payment fail with 409 and reveal that the key exists. A random UUID cannot be guessed, which
 is why any other format answers 400.
 
+The charge runs in three steps, none of which holds a database lock while the provider answers:
+the request locks the booking, refuses what cannot be paid and stores the key (committed); the
+provider is called with the key; the request locks the booking again and stores the result
+(`PAID` then `CONFIRMED`, or `CANCELLED`). A request that dies after the first step leaves the key
+claimed on a `HELD` booking. Repeating the request with the same key repeats the charge, which the
+provider answers alike for the same key, and finishes the booking. Another key on a booking whose
+key is claimed, and a payment that finishes after the booking left `HELD` (cancelled or expired
+meanwhile), answer 409; the second case stores nothing. The provider is not refunded in that case
+(see the backlog).
+
 ## Dictionaries
 
 `packages/shared` holds the values every contract uses, each as an `as const` dictionary with a Zod

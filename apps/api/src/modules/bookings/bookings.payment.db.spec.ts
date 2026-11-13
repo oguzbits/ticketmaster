@@ -28,9 +28,18 @@ class RecordingProvider implements PaymentProvider {
   readonly calls: Parameters<PaymentProvider['charge']>[0][] = [];
   succeed = true;
   chargeDelayMs = 0;
+  /** Runs inside the charge, while the provider is "talking to the network". */
+  duringCharge: (input: Parameters<PaymentProvider['charge']>[0]) => Promise<void> = async () => {};
+  /** The next charge throws instead of answering (the provider is down, the process dies). */
+  failNext = false;
   async charge(input: Parameters<PaymentProvider['charge']>[0]): Promise<{ succeeded: boolean }> {
     this.calls.push(input);
+    await this.duringCharge(input);
     await delay(this.chargeDelayMs);
+    if (this.failNext) {
+      this.failNext = false;
+      throw new Error('provider down');
+    }
     return { succeeded: this.succeed };
   }
 }
@@ -63,6 +72,8 @@ describe('payment and cancel', () => {
     provider.calls.length = 0;
     provider.succeed = true;
     provider.chargeDelayMs = 0;
+    provider.failNext = false;
+    provider.duringCharge = async () => {};
     const { eventId, seatIds } = await createTestEvent(db, {
       strategy: BOOKING_STRATEGY.PESSIMISTIC,
       seats: 1,
@@ -137,23 +148,124 @@ describe('payment and cancel', () => {
     expect(row?.status).toBe(BOOKING_STATUS.HELD);
   });
 
-  it('two parallel payments with one key charge once and confirm once', async () => {
+  async function rowOf(bookingId: string) {
+    const [row] = await db.select().from(bookings).where(eq(bookings.id, bookingId));
+    if (row === undefined) throw new Error('booking row is missing');
+    return row;
+  }
+
+  it('the charge runs with the key committed and the booking row unlocked', async () => {
     const { bookingId, userId } = await heldBooking();
-    const idempotencyKey = key('parallel');
-    // A slow charge keeps the first payment open, so the second one overlaps with it.
+    const idempotencyKey = key('outside');
+    const seen: { claimedKey: string | null; lockError: string | null }[] = [];
+    provider.duringCharge = async () => {
+      const claimedKey = (await rowOf(bookingId)).paymentIdempotencyKey;
+      // NOWAIT fails at once when another transaction holds the row: the claim transaction is over.
+      let lockError: string | null = null;
+      try {
+        await db.transaction((tx) =>
+          tx
+            .select({ id: bookings.id })
+            .from(bookings)
+            .where(eq(bookings.id, bookingId))
+            .for('update', { noWait: true })
+        );
+      } catch (error) {
+        lockError = error instanceof Error ? error.message : 'unknown';
+      }
+      seen.push({ claimedKey, lockError });
+    };
+
+    await service.pay({ bookingId, userId, idempotencyKey });
+
+    expect(seen).toEqual([{ claimedKey: idempotencyKey, lockError: null }]);
+  });
+
+  it('a charge that throws leaves the key claimed; the retry with the same key charges again and confirms', async () => {
+    const { bookingId, userId } = await heldBooking();
+    const idempotencyKey = key('crash-charge');
+    provider.failNext = true;
+
+    await expect(service.pay({ bookingId, userId, idempotencyKey })).rejects.toThrow(
+      'provider down'
+    );
+    const afterCrash = await rowOf(bookingId);
+    const retried = await service.pay({ bookingId, userId, idempotencyKey });
+
+    expect(afterCrash).toMatchObject({
+      status: BOOKING_STATUS.HELD,
+      paymentIdempotencyKey: idempotencyKey,
+    });
+    expect(retried.status).toBe(BOOKING_STATUS.CONFIRMED);
+    expect(provider.calls).toHaveLength(2);
+    expect(await transitionsOf(bookingId)).toHaveLength(3);
+  });
+
+  it('ten parallel payments with one key charge once and all answer CONFIRMED', async () => {
+    const { bookingId, userId } = await heldBooking();
+    const idempotencyKey = key('ten');
     provider.chargeDelayMs = PARALLEL_CHARGE_MS;
+
+    const views = await Promise.all(
+      Array.from({ length: 10 }, () => service.pay({ bookingId, userId, idempotencyKey }))
+    );
+
+    expect(new Set(views.map((view) => view.status))).toEqual(new Set([BOOKING_STATUS.CONFIRMED]));
+    expect(provider.calls).toHaveLength(1);
+    expect(await transitionsOf(bookingId)).toHaveLength(3);
+  });
+
+  it('two instances paying with one key at once apply the result once and answer alike', async () => {
+    const { bookingId, userId } = await heldBooking();
+    const idempotencyKey = key('instances');
+    provider.chargeDelayMs = PARALLEL_CHARGE_MS;
+    const other = createBookingsService(db, redis, { now: () => now }, provider);
 
     const views = await Promise.all([
       service.pay({ bookingId, userId, idempotencyKey }),
-      service.pay({ bookingId, userId, idempotencyKey }),
+      other.pay({ bookingId, userId, idempotencyKey }),
     ]);
 
+    // Each instance may call the provider; a real one answers a repeated key with the first result.
     expect(views.map((view) => view.status)).toEqual([
       BOOKING_STATUS.CONFIRMED,
       BOOKING_STATUS.CONFIRMED,
     ]);
-    expect(provider.calls).toHaveLength(1);
     expect(await transitionsOf(bookingId)).toHaveLength(3);
+  });
+
+  it('ten parallel payments with different keys on one booking: one wins, the others conflict', async () => {
+    const { bookingId, userId } = await heldBooking();
+    provider.chargeDelayMs = PARALLEL_CHARGE_MS;
+
+    const results = await Promise.allSettled(
+      Array.from({ length: 10 }, (_, i) =>
+        service.pay({ bookingId, userId, idempotencyKey: key(`many-${i}`) })
+      )
+    );
+
+    const won = results.filter((result) => result.status === 'fulfilled');
+    const lost = results.filter((result) => result.status === 'rejected');
+    expect(won).toHaveLength(1);
+    expect(lost.map((result) => result.reason)).toEqual(
+      Array.from({ length: 9 }, () => expect.any(ConflictException))
+    );
+    expect(provider.calls).toHaveLength(1);
+    expect((await rowOf(bookingId)).status).toBe(BOOKING_STATUS.CONFIRMED);
+  });
+
+  it('a booking cancelled during the charge is not paid over: conflict, still CANCELLED', async () => {
+    const { bookingId, userId } = await heldBooking();
+    provider.duringCharge = async () => {
+      await service.cancel({ bookingId, userId });
+    };
+
+    await expect(
+      service.pay({ bookingId, userId, idempotencyKey: key('cancel-during') })
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect((await rowOf(bookingId)).status).toBe(BOOKING_STATUS.CANCELLED);
+    expect(await transitionsOf(bookingId)).toHaveLength(2);
   });
 
   it('the same key after a failed charge returns CANCELLED and does not charge again', async () => {

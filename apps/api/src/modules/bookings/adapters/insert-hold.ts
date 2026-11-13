@@ -3,13 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
-import type { Database } from '../../../infrastructure/database/database.module.js';
+import type { Tx } from '../../../infrastructure/database/database.module.js';
 import { bookings, bookingTransitions, events } from '../../../infrastructure/database/schema.js';
 import { startHold } from '../domain/booking-state-machine.js';
 import { HOLD_OUTCOME, type HoldInput, type HoldResult } from '../domain/seat-reservation.js';
 import { ACTIVE_BOOKING_STATUSES } from '../domain/seat-status.js';
-
-export type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 const ACTIVE_SEAT_INDEX = 'bookings_active_seat_uidx';
 // Drizzle wraps the postgres.js server error; the fields sit on `cause`.
