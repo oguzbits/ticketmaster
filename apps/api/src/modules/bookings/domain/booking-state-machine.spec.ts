@@ -97,6 +97,14 @@ describe('transition', () => {
     ).toThrow(BookingTransitionError);
   });
 
+  it.each([TRANSITION_REASON.PAYMENT_FAILED, TRANSITION_REASON.CANCELLED_BY_USER])(
+    'still allows %s on a HELD booking past holdExpiresAt (the expiry job may not have run)',
+    (reason) => {
+      const result = transition(bookingIn(BOOKING_STATUS.HELD), reason, ACTOR_ID, HOLD_EXPIRES_AT);
+      expect(result.booking.status).toBe(BOOKING_STATUS.CANCELLED);
+    }
+  );
+
   it('refuses HOLD_EXPIRED one millisecond before holdExpiresAt', () => {
     expect(() =>
       transition(
