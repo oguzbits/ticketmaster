@@ -51,7 +51,9 @@ Phase 1, slice D (rush simulator) is complete:
   Redis key, counts the double bookings in SQL and stores the final metrics.
 - The API serves the run and a server-sent progress stream; the web app has the simulator page
   (live counters, comparison table of finished runs) behind the admin role.
-- The runner spec asserts double bookings above zero for `naive` and zero for the other strategies;
+- The runner spec and the worker's consumer spec assert double bookings above zero for `naive` and
+  zero for the other strategies (the consumer spec at the default size, 500 buyers on 100 seats,
+  with the API's pool of 20 connections and the production concurrency);
   `pnpm e2e` runs a small pessimistic run through the browser.
 
 ## Deviations from the plan
@@ -175,10 +177,6 @@ follows, then phase 2. Still open from earlier notes:
   worker counts as active and blocks a slot of the cap, and its progress key keeps the last
   `RUNNING` state. The reaped run's final progress has empty metrics. Every worker start leaves a
   consumer name in the consumer group of the stream; they are not removed.
-- **The `naive` double-booking check on the real Compose stack is not automated.** It was done by
-  hand during slice D (worker pool 20, concurrency 40; 500 buyers on 100 seats gave 17, 20 and 13
-  double bookings, and 0 for the other strategies). The end-to-end run only starts a `pessimistic`
-  run.
 
 ## Deliberately left out
 

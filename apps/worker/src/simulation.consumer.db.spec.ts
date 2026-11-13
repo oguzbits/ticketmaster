@@ -9,6 +9,7 @@ import { simulationProgressKey, SimulationRunner, SimulationsService } from '@ap
 import { clearSimulationRuns, ensureVenue, lockSimulationRuns } from '@app/api/simulations/testing';
 import {
   BOOKING_STRATEGY,
+  type BookingStrategy,
   SIMULATION_CONSUMER_GROUP,
   SIMULATION_STATUS,
   SimulationProgressSchema,
@@ -257,6 +258,49 @@ describe('SimulationConsumer', () => {
 
     await untilStatus(run, SIMULATION_STATUS.FINISHED);
     await untilAcknowledged();
+  });
+
+  // The production setup: the worker module's database pool is the API's size (20), the consumer
+  // uses SIMULATION_CONCURRENCY and the runner is the module's (real random source). With a smaller
+  // pool or lower concurrency the pool queue serializes the buyers and `naive` stops racing.
+  describe('rush at the default size (500 buyers, 100 seats)', () => {
+    const RUSH = { buyers: 500, seats: 100 };
+    const RUSH_TIMEOUT_MS = 60_000;
+
+    async function rush(strategy: BookingStrategy) {
+      await startedConsumer();
+      const run = await simulations.start({ ...RUSH, strategy }, randomUUID());
+      await expect
+        .poll(() => statusOf(run), { timeout: RUSH_TIMEOUT_MS })
+        .toBe(SIMULATION_STATUS.FINISHED);
+      return (await simulations.find(run.id)).metrics;
+    }
+
+    it(
+      'double books under naive',
+      async () => {
+        const metrics = await rush(BOOKING_STRATEGY.NAIVE);
+
+        expect(metrics?.buyersDone).toBe(RUSH.buyers);
+        expect(metrics?.doubleBookings).toBeGreaterThan(0);
+      },
+      RUSH_TIMEOUT_MS
+    );
+
+    it.each([
+      BOOKING_STRATEGY.PESSIMISTIC,
+      BOOKING_STRATEGY.OPTIMISTIC,
+      BOOKING_STRATEGY.REDIS_LOCK,
+    ])(
+      'never double books under %s and violates no constraint',
+      async (strategy) => {
+        const metrics = await rush(strategy);
+
+        expect(metrics?.buyersDone).toBe(RUSH.buyers);
+        expect(metrics).toMatchObject({ doubleBookings: 0, constraintViolations: 0 });
+      },
+      RUSH_TIMEOUT_MS
+    );
   });
 
   it('lets two consumers of the group take two different runs, each delivered once', async () => {
