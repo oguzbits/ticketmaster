@@ -21,8 +21,13 @@
 		reverse_proxy api:3000
 	}
 
+	# The seat stream (text/event-stream) must reach the browser event by event: flush at once, never
+	# hold a response back. `encode` leaves event streams uncompressed by itself (its default matcher
+	# only takes compressible types).
 	handle /api/* {
-		reverse_proxy api:3000
+		reverse_proxy api:3000 {
+			flush_interval -1
+		}
 	}
 
 	handle {

@@ -87,6 +87,8 @@ Every response carries no personal data; requests are logged with the `x-request
   `X-Content-Type-Options`, `Referrer-Policy: no-referrer` and `Permissions-Policy`. The web build
   keeps `inlineCritical` off: the inlined critical CSS comes with an inline script the policy blocks,
   which would leave the stylesheet unapplied.
+- Caddy forwards `/api/*` with `flush_interval -1`, so the seat stream reaches the browser event by
+  event instead of being held back; `encode` does not compress `text/event-stream`.
 - CORS headers appear only when `CORS_ORIGIN` is set, and only for that origin (`GET`, `POST`,
   `PATCH`, `DELETE`; headers `Authorization` and `Content-Type`; no credentials). Behind Caddy web and
   API share an origin and the variable stays unset.
