@@ -35,7 +35,8 @@ export const EnvSchema = z.object({
   PAYMENT_FAILURE_RATE: z.coerce.number().min(0).max(1).default(DEFAULT_PAYMENT_FAILURE_RATE),
   // Unset means no CORS headers at all (web and API share an origin behind Caddy).
   CORS_ORIGIN: z.url().optional(),
-  KEYCLOAK_URL: z.url(),
+  // Built into `${KEYCLOAK_URL}/realms/...`: a trailing slash would give `//realms` and a wrong issuer.
+  KEYCLOAK_URL: z.url().transform((url) => url.replace(/\/+$/, '')),
   KEYCLOAK_REALM: z.string().min(1).default(DEFAULT_KEYCLOAK_REALM),
   KEYCLOAK_DEMO_CLIENT_ID: z.string().min(1).default(DEFAULT_KEYCLOAK_DEMO_CLIENT_ID),
   KEYCLOAK_DEMO_CLIENT_SECRET: z.string().min(1),

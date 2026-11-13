@@ -49,6 +49,15 @@ describe('parseEnv', () => {
     expect(env.KEYCLOAK_DEMO_CLIENT_SECRET).toBe(LOCAL_KEYCLOAK_SECRET);
   });
 
+  it('strips trailing slashes from KEYCLOAK_URL so URLs built from it have no double slash', () => {
+    expect(parseEnv({ KEYCLOAK_URL: 'http://keycloak:8080/' }).KEYCLOAK_URL).toBe(
+      'http://keycloak:8080'
+    );
+    expect(parseEnv({ KEYCLOAK_URL: 'http://keycloak:8080//' }).KEYCLOAK_URL).toBe(
+      'http://keycloak:8080'
+    );
+  });
+
   it('production without KEYCLOAK_DEMO_CLIENT_SECRET throws and names the variable, not a value', () => {
     const raw = { ...PRODUCTION_BASE, KEYCLOAK_URL: 'http://secret-host:8080' };
 
