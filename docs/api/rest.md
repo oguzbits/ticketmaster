@@ -37,9 +37,11 @@ demo user's bookings on public events (`AVAILABLE`). A payment that only repeats
 and a request that is refused with 409 change nothing and publish nothing. A failed publish is logged
 with the booking (or demo user) ID and does not fail the request: the change is stored, and the
 viewer's next snapshot has it. The seats of a demo user's own sandbox events are not published when
-the user is cleaned up: nobody else could see them. Under the comparison strategy `NAIVE`, where a seat
-can have several active bookings, the message carries the status of the booking that changed, so it
-can say `AVAILABLE` while another booking still occupies the seat; the next snapshot corrects it.
+the user is cleaned up: nobody else could see them. The `status` is read from the database when the change is published (the furthest of the seat's
+active bookings, the same rule as the event detail), not taken from the transition that caused it:
+two changes that race cannot leave a stale status behind, and under the comparison strategy `NAIVE`,
+where a seat can have several active bookings, a cancelled booking does not announce `AVAILABLE`
+while another one still occupies the seat.
 
 The stream route subscribes to the channel first and reads the snapshot afterwards, so a change that
 commits in between is sent right after the snapshot instead of being lost; a change older than the

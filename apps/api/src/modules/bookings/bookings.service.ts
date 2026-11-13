@@ -21,7 +21,7 @@ import { SeatReservations } from './adapters/seat-reservations.js';
 import { BOOKING_PORTS, type BookingPorts } from './domain/booking-ports.js';
 import { type BookingState, SYSTEM_ACTOR_ID } from './domain/booking-state-machine.js';
 import { HOLD_OUTCOME, type HoldInput, type HoldResult } from './domain/seat-reservation.js';
-import { ACTIVE_BOOKING_STATUSES, seatStatusOf } from './domain/seat-status.js';
+import { ACTIVE_BOOKING_STATUSES } from './domain/seat-status.js';
 
 /** Bookings the expiry job locks and expires per transaction. */
 const EXPIRY_BATCH_SIZE = 500;
@@ -55,7 +55,7 @@ export class BookingsService {
     }
     const result = await this.reservations.hold(event.strategy, input);
     if (result.outcome === HOLD_OUTCOME.PLACED) {
-      await this.announce(result.bookingId, input, BOOKING_STATUS.HELD);
+      await this.announce(result.bookingId, input);
     }
     return result;
   }
@@ -128,7 +128,7 @@ export class BookingsService {
       );
       return { state: confirmed, seat };
     });
-    if (seat !== null) await this.announce(state.id, seat, state.status);
+    if (seat !== null) await this.announce(state.id, seat);
     return state;
   }
 
@@ -143,7 +143,7 @@ export class BookingsService {
       );
       return { state: await storeTransition(tx, cancelled), seat };
     });
-    await this.announce(state.id, seat, state.status);
+    await this.announce(state.id, seat);
     return state;
   }
 
@@ -179,7 +179,7 @@ export class BookingsService {
         }
         return released;
       });
-      await Promise.all(batch.map((b) => this.announce(b.id, b, b.status)));
+      await Promise.all(batch.map((b) => this.announce(b.id, b)));
       expired += batch.length;
       if (batch.length < EXPIRY_BATCH_SIZE) return expired;
     }
@@ -267,20 +267,10 @@ export class BookingsService {
   }
 
   /** Called after the commit: tells the viewers of the event which status the seat has now. */
-  private announce(
-    bookingId: string,
-    seat: { eventId: string; seatId: string },
-    status: BookingStatus
-  ): Promise<void> {
+  private announce(bookingId: string, seat: { eventId: string; seatId: string }): Promise<void> {
     return publishSeatChange(
-      this.ports.seatChanges,
-      {
-        eventId: seat.eventId,
-        seatId: seat.seatId,
-        status: seatStatusOf(status),
-        at: this.clock.now().toISOString(),
-      },
-      this.logger,
+      { db: this.db, publisher: this.ports.seatChanges, logger: this.logger },
+      { eventId: seat.eventId, seatId: seat.seatId, at: this.clock.now().toISOString() },
       `booking ${bookingId}`
     );
   }

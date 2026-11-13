@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
-import { BOOKING_STRATEGY, type Role, SEAT_STATUS, type TokenResponse } from '@app/shared';
+import { BOOKING_STRATEGY, type Role, type TokenResponse } from '@app/shared';
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { and, count, eq, inArray, isNull, lte } from 'drizzle-orm';
 
@@ -156,9 +156,8 @@ export class DemoService {
     // After the commit, so a viewer who reacts to the message by reading sees the freed seat.
     for (const seat of freed) {
       await publishSeatChange(
-        this.options.seatChanges,
-        { ...seat, status: SEAT_STATUS.AVAILABLE, at: now.toISOString() },
-        this.logger,
+        { db: this.db, publisher: this.options.seatChanges, logger: this.logger },
+        { ...seat, at: now.toISOString() },
         `demo user ${userId}`
       );
     }

@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
 
-import { BOOKING_STRATEGY, SEAT_STATUS, type SeatChange, type SeatStatus } from '@app/shared';
+import {
+  BOOKING_STATUS,
+  BOOKING_STRATEGY,
+  SEAT_STATUS,
+  type SeatChange,
+  type SeatStatus,
+} from '@app/shared';
 import { ConflictException, Logger } from '@nestjs/common';
 import { and, eq, inArray } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -190,6 +196,79 @@ describe('seat changes published after the booking commits', () => {
     ]);
     expect(visibleWhenPublished.at(-1)).toMatchObject({ visible: SEAT_STATUS.AVAILABLE });
     await seat.watch.stop();
+  });
+
+  describe('NAIVE seat with several active bookings', () => {
+    async function twoHolds() {
+      const { eventId, seatIds } = await createTestEvent(db, {
+        strategy: BOOKING_STRATEGY.NAIVE,
+        seats: 1,
+      });
+      const seat = { eventId, seatId: seatIds[0] ?? '' };
+      const watch = await watchSeatChanges(redis, eventId);
+      const [a, b] = [randomUUID(), randomUUID()];
+      const bookingA = await held({ ...seat, userId: a });
+      // NAIVE refuses a second hold only after it read the first; a race leaves two active
+      // bookings, which this row stands for.
+      const [second] = await db
+        .insert(bookings)
+        .values({
+          ...seat,
+          userId: b,
+          strategy: BOOKING_STRATEGY.NAIVE,
+          status: BOOKING_STATUS.HELD,
+          holdExpiresAt: new Date(SPEC_NOW.getTime() + 60_000),
+        })
+        .returning({ id: bookings.id });
+      const bookingB = second?.id ?? '';
+      return { watch, a, b, bookingA, bookingB };
+    }
+
+    it('cancelling one of two holds publishes HELD, the seat is still occupied', async () => {
+      const { watch, a, bookingA } = await twoHolds();
+
+      await service.cancel({ bookingId: bookingA, userId: a });
+      await watch.settle();
+
+      expect(watch.changes.map(({ status }) => status)).toEqual([
+        SEAT_STATUS.HELD,
+        SEAT_STATUS.HELD,
+      ]);
+      await watch.stop();
+    });
+
+    it('cancelling a hold of a seat that another user has bought publishes SOLD', async () => {
+      const { watch, a, b, bookingA, bookingB } = await twoHolds();
+      await service.pay({ bookingId: bookingB, userId: b, idempotencyKey: randomUUID() });
+
+      await service.cancel({ bookingId: bookingA, userId: a });
+      await watch.settle();
+
+      expect(watch.changes.map(({ status }) => status)).toEqual([
+        SEAT_STATUS.HELD,
+        SEAT_STATUS.SOLD,
+        SEAT_STATUS.SOLD,
+      ]);
+      await watch.stop();
+    });
+
+    it('an expiring hold of a seat that is still held publishes HELD, not AVAILABLE', async () => {
+      const { watch, bookingA } = await twoHolds();
+      await db
+        .update(bookings)
+        .set({ holdExpiresAt: new Date(0) })
+        .where(eq(bookings.id, bookingA));
+
+      // Far in the past: no booking of another spec file is due, only this one.
+      expect(await service.expireHolds(new Date(1))).toBe(1);
+      await watch.settle();
+
+      expect(watch.changes.map(({ status }) => status)).toEqual([
+        SEAT_STATUS.HELD,
+        SEAT_STATUS.HELD,
+      ]);
+      await watch.stop();
+    });
   });
 
   it('a publisher that throws neither fails the hold nor stays silent', async () => {

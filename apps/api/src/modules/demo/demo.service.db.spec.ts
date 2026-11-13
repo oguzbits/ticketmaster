@@ -349,6 +349,25 @@ describe('DemoService', () => {
         expect(publishedFor(gone.seatId)).toEqual([]);
       });
 
+      it('publishes the status the seat still has when another booking occupies it (NAIVE)', async () => {
+        const start = era(2009);
+        const leaving = await loginWithBooking(start, BOOKING_STATUS.HELD);
+        await db.insert(bookings).values({
+          eventId: leaving.eventId,
+          seatId: leaving.seatId,
+          userId: randomUUID(),
+          strategy: BOOKING_STRATEGY.NAIVE,
+          status: BOOKING_STATUS.CONFIRMED,
+          holdExpiresAt: start,
+        });
+
+        await service.deleteExpired(dueAfter(start));
+
+        expect(publishedFor(leaving.seatId).map(({ change }) => change.status)).toEqual([
+          SEAT_STATUS.SOLD,
+        ]);
+      });
+
       it('sends nothing for a seat of the user’s own sandbox event, nobody else could see it', async () => {
         const start = era(2008);
         const { userId } = await loginWithBooking(start);
