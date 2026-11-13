@@ -34,7 +34,7 @@ grant on the server-only client `api-demo`; if a step fails, the Keycloak user i
 The worker deletes demo users in Keycloak once they have expired and their last access token has
 expired too (`ACCESS_TOKEN_GRACE_SECONDS`, 300 s, the `accessTokenLifespan` of the realm: the guard is
 stateless, so a deleted user's token would still book seats), then their bookings, sandbox events and row (see
-[data model](../data-model.md)), once a minute. The refresh route lets the browser renew its tokens
+[data model](../data-model.md)), once a minute, at most 100 users per run (`DEMO_CLEANUP_BATCH`, oldest first; a failing user is logged with its ID and error name and retried next run). The refresh route lets the browser renew its tokens
 without talking to Keycloak. Details and the Keycloak facts behind them:
 [ADR 0003](../adr/0003-authentication-and-demo-login.md).
 

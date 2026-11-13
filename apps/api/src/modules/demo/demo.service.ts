@@ -18,6 +18,8 @@ export const MAX_DEMO_USERS = 200;
  * deleted user cannot create bookings that no `demo_users` row would clean up.
  */
 export const ACCESS_TOKEN_GRACE_SECONDS = 300;
+/** Demo users one cleanup run handles, so a long backlog cannot make one run last minutes. */
+export const DEMO_CLEANUP_BATCH = 100;
 const SUFFIX_BYTES = 6;
 const PASSWORD_BYTES = 24;
 
@@ -64,21 +66,24 @@ export class DemoService {
 
   /**
    * Cleans up every demo user whose time, plus the grace of its access token, has passed and
-   * returns how many it cleaned. A user whose
+   * returns how many it cleaned, at most one batch (`DEMO_CLEANUP_BATCH`, oldest first) per call. A user whose
    * Keycloak call fails keeps its row, so the next run tries again; the others are cleaned anyway.
    */
   async deleteExpired(now: Date): Promise<number> {
     const due = await this.db
       .select({ userId: demoUsers.userId })
       .from(demoUsers)
-      .where(lte(demoUsers.expiresAt, new Date(now.getTime() - ACCESS_TOKEN_GRACE_SECONDS * 1000)));
+      .where(lte(demoUsers.expiresAt, new Date(now.getTime() - ACCESS_TOKEN_GRACE_SECONDS * 1000)))
+      .orderBy(demoUsers.expiresAt)
+      .limit(DEMO_CLEANUP_BATCH);
     const failures: Error[] = [];
     for (const { userId } of due) {
       try {
         await this.deleteUser(userId);
       } catch (error) {
-        this.logger.error(`could not clean up demo user ${userId}`);
-        failures.push(error instanceof Error ? error : new Error(String(error)));
+        const failure = error instanceof Error ? error : new Error(String(error));
+        this.logger.error(`could not clean up demo user ${userId}: ${failure.name}`);
+        failures.push(failure);
       }
     }
     if (failures.length > 0) {

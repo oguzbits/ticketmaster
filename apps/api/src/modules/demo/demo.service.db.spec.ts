@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { BOOKING_STATUS, BOOKING_STRATEGY, ROLE, TRANSITION_REASON } from '@app/shared';
 import { Logger, ServiceUnavailableException } from '@nestjs/common';
 import { count, eq } from 'drizzle-orm';
@@ -13,7 +15,12 @@ import {
 import { HALL, layoutSeats, SEED, seed } from '../../infrastructure/database/seed.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { SPEC_NOW } from '../../testing/time.js';
-import { ACCESS_TOKEN_GRACE_SECONDS, DemoService, MAX_DEMO_USERS } from './demo.service.js';
+import {
+  ACCESS_TOKEN_GRACE_SECONDS,
+  DEMO_CLEANUP_BATCH,
+  DemoService,
+  MAX_DEMO_USERS,
+} from './demo.service.js';
 import { FAKE_TOKENS, FakeKeycloakAdmin } from './testing/fake-keycloak-admin.js';
 
 const TTL_SECONDS = 3600;
@@ -245,10 +252,17 @@ describe('DemoService', () => {
       const due = new Date(start.getTime() + HOUR_MS + GRACE_MS);
       keycloak.failDelete.add(stuck.userId);
 
+      const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
       try {
         await expect(service.deleteExpired(due)).rejects.toThrow(AggregateError);
+        // The cause is in the log, not only inside the AggregateError: user ID and error name.
+        expect(logged).toHaveBeenCalledWith(expect.stringContaining(stuck.userId));
+        expect(logged).toHaveBeenCalledWith(expect.stringContaining('Error'));
+        expect(logged).toHaveBeenCalledTimes(1);
       } finally {
         keycloak.failDelete.clear();
+        logged.mockRestore();
       }
 
       expect(await demoUserRows(fine.userId)).toEqual([]);
@@ -258,6 +272,25 @@ describe('DemoService', () => {
 
       await expect(service.deleteExpired(due)).resolves.toBe(1);
       expect(await demoUserRows(stuck.userId)).toEqual([]);
+    });
+
+    it('takes at most one batch per run and drains the rest over the next runs', async () => {
+      const expiresAt = era(2002);
+      const userIds = Array.from({ length: DEMO_CLEANUP_BATCH + 1 }, () => randomUUID());
+      await db
+        .insert(demoUsers)
+        .values(userIds.map((userId) => ({ userId, role: ROLE.CUSTOMER, expiresAt })));
+      const due = new Date(expiresAt.getTime() + GRACE_MS);
+
+      await expect(service.deleteExpired(due)).resolves.toBe(DEMO_CLEANUP_BATCH);
+      const [left] = await db
+        .select({ total: count() })
+        .from(demoUsers)
+        .where(eq(demoUsers.expiresAt, expiresAt));
+      expect(left?.total).toBe(1);
+
+      await expect(service.deleteExpired(due)).resolves.toBe(1);
+      await expect(service.deleteExpired(due)).resolves.toBe(0);
     });
 
     it('does nothing when nobody is due', async () => {
