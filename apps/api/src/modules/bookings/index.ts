@@ -13,5 +13,3 @@ export {
   type SeatReservation,
 } from './domain/seat-reservation.js';
 export { ACTIVE_BOOKING_STATUSES, seatStatusOf } from './domain/seat-status.js';
-// Test support: other modules' specs build a real service without reaching into this module.
-export { createBookingsService } from './testing/create-bookings-service.js';

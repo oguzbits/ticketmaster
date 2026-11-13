@@ -5,6 +5,8 @@ const SERVER_APPS = '^apps/(api|worker)/';
 const DOMAIN = '^apps/(api|worker)/src/(core|modules/[^/]+/domain)/';
 const MODULE = '^apps/(api|worker)/src/modules/([^/]+)/';
 const MODULE_PUBLIC_INTERFACE = '^apps/(api|worker)/src/modules/[^/]+/index\\.ts$';
+// Test support a module offers to the specs of other modules and of the worker.
+const MODULE_TESTING = '^apps/(api|worker)/src/modules/[^/]+/testing/';
 
 module.exports = {
   forbidden: [
@@ -70,7 +72,7 @@ module.exports = {
       from: { path: MODULE },
       to: {
         path: '^apps/(api|worker)/src/modules/[^/]+/',
-        pathNot: ['^apps/$1/src/modules/$2/', MODULE_PUBLIC_INTERFACE],
+        pathNot: ['^apps/$1/src/modules/$2/', MODULE_PUBLIC_INTERFACE, MODULE_TESTING],
       },
     },
     {
@@ -81,8 +83,16 @@ module.exports = {
       from: { path: '^apps/', pathNot: MODULE },
       to: {
         path: '^apps/(api|worker)/src/modules/[^/]+/',
-        pathNot: MODULE_PUBLIC_INTERFACE,
+        pathNot: [MODULE_PUBLIC_INTERFACE, MODULE_TESTING],
       },
+    },
+    {
+      name: 'module-testing-is-for-tests',
+      comment:
+        'The testing folder of a module is test support: only specs and other testing code import it, never production code',
+      severity: 'error',
+      from: { path: '^apps/', pathNot: TEST_FILE },
+      to: { path: MODULE_TESTING },
     },
     {
       name: 'no-circular',

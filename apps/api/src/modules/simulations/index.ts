@@ -12,5 +12,3 @@ export {
 } from './simulation-runner.js';
 export { SimulationsModule } from './simulations.module.js';
 export { type ClaimedRun, SimulationsService } from './simulations.service.js';
-// Test support: the worker's specs start runs without reaching into this module.
-export { ensureVenue } from './testing/ensure-venue.js';

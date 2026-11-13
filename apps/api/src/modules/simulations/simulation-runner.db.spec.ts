@@ -8,7 +8,7 @@ import type { Redis } from '../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
 import { SPEC_NOW } from '../../testing/time.js';
-import { createBookingsService } from '../bookings/index.js';
+import { createBookingsService } from '../bookings/testing/create-bookings-service.js';
 import { SimulationRunner } from './index.js';
 
 const BUYERS = 100;

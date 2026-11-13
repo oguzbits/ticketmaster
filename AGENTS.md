@@ -25,7 +25,8 @@ The system is a modular monolith plus a worker (see
 - **Time comes from an injected `Clock`.** Hold TTL, expiry and the waiting room are testable
   without waiting.
 - **Module boundaries.** A module imports another module only through its `index.ts`. No circular
-  dependencies.
+  dependencies. Test support a module offers to other specs lives in its `testing/` folder: specs
+  import it directly (the worker through `@app/api/<module>/testing`), production code never does.
 - **`apps/worker`** (NestJS standalone application): queue consumers, scheduled jobs and the
   simulator. It reuses the API's modules through their `index.ts`; the API never imports the worker.
 - **`apps/web`** (Angular: standalone components, signals, RxJS for streams, Tailwind): components

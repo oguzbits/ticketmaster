@@ -28,6 +28,10 @@
       "types": "./dist/modules/simulations/index.d.ts",
       "default": "./dist/modules/simulations/index.js"
     },
+    "./simulations/testing": {
+      "types": "./dist/modules/simulations/testing/index.d.ts",
+      "default": "./dist/modules/simulations/testing/index.js"
+    },
     "./redis": {
       "types": "./dist/infrastructure/redis/redis.module.d.ts",
       "default": "./dist/infrastructure/redis/redis.module.js"

@@ -5,12 +5,8 @@ import { BookingsService } from '@app/api/bookings';
 import { CLOCK } from '@app/api/clock';
 import { type Database, DB } from '@app/api/database';
 import { REDIS, type Redis } from '@app/api/redis';
-import {
-  ensureVenue,
-  simulationProgressKey,
-  SimulationRunner,
-  SimulationsService,
-} from '@app/api/simulations';
+import { simulationProgressKey, SimulationRunner, SimulationsService } from '@app/api/simulations';
+import { ensureVenue } from '@app/api/simulations/testing';
 import {
   BOOKING_STRATEGY,
   SIMULATION_CONSUMER_GROUP,
