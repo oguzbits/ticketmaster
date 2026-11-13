@@ -78,7 +78,8 @@ relations are in [docs/data-model.md](docs/data-model.md).
 ## API
 
 REST routes under `/api`; contracts are Zod schemas in `packages/shared`. The full description
-(answers, errors, limits) is in [docs/api/rest.md](docs/api/rest.md).
+(answers, errors, limits) is in [docs/api/rest.md](docs/api/rest.md); the machine-readable
+OpenAPI 3.1 description is [docs/api/openapi.json](docs/api/openapi.json).
 
 | Route                              | Role      | Purpose                                                   |
 | ---------------------------------- | --------- | --------------------------------------------------------- |

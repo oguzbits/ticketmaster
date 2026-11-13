@@ -6,7 +6,7 @@ import { APP_CONFIG } from './config/config.module.js';
 import type { Env } from './config/env.js';
 
 /** Probes stay at the root: the container health check and the proxy call them without /api. */
-const UNPREFIXED_ROUTES = ['health/live', 'health/ready'];
+export const UNPREFIXED_ROUTES = ['health/live', 'health/ready'];
 
 /** One proxy hop sits in front of the API (Caddy), so `req.ip` is the address Caddy saw. */
 const TRUSTED_PROXY_HOPS = 1;

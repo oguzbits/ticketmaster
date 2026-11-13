@@ -136,7 +136,7 @@ scope, cost or data protection, or that are hard to undo.
 | `pnpm build`                     | builds every package                                                                            |
 | `pnpm db:up` / `pnpm db:down`    | Postgres and Redis for tests (Docker)                                                           |
 | `docker compose up --build`      | the whole local stack, web on port 8080                                                         |
-| `pnpm docs:generate`             | rewrites the generated tables in the docs                                                       |
+| `pnpm docs:generate`             | rewrites the generated tables in the docs and `docs/api/openapi.json`                           |
 | `pnpm format`                    | Prettier (staged files are formatted by lint-staged)                                            |
 | `pnpm audit:duplication:details` | lists the duplicates when `pnpm check` reports too many                                         |
 | `pnpm depcruise:graph`           | writes `architecture.mmd`, the module graph                                                     |

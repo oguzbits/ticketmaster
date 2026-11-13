@@ -3,6 +3,16 @@
 Contracts are the Zod schemas in `packages/shared`. Every route except the two probes sits under
 the `/api` prefix (Caddy forwards `/api/*` and `/health/*` to the API).
 
+The same routes are described for tools in [openapi.json](openapi.json) (OpenAPI 3.1): request and
+response schemas come from `packages/shared`, the route table (method, path, roles, status codes) is
+`apps/api/src/openapi/routes.ts`. `pnpm docs:generate` rewrites the file and `pnpm check` fails when
+it is stale. `apps/api/src/openapi/openapi.spec.ts` compares the table with the Nest controllers
+(routes, methods, `@Public` and `@Roles`, success status, the body, the `Idempotency-Key` header and
+the id parameters), so a route that is added, removed or re-protected without the table fails the
+test. Not covered by that comparison: the response schema (a TypeScript return type leaves no trace
+at runtime) and the error statuses, which are written by hand from the services. Server-sent events
+are a `text/event-stream` response whose `x-events` extension names the schema of each event.
+
 | Method and path                    | Role      | Answer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ---------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /health/live`                 | public    | 200 `{ status: "UP" }`: the process serves requests                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
