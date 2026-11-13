@@ -18,6 +18,9 @@ the `/api` prefix (Caddy forwards `/api/*` and `/health/*` to the API).
 | `POST /api/events`                 | organizer | 201 `EventSummary` for a `CreateEventRequest` (`venueId`, `name`, `startsAt`, `strategy`): the event and a copy of the venue's seats with their prices are stored in one transaction; the owner is the caller from the token. A demo user's event is a sandbox event, private to that user. 404 for an unknown venue, 400 for a `startsAt` that is not in the future or a malformed body, 409 once the owner has 20 events (`MAX_EVENTS_PER_OWNER`; a demo user's four sandbox events count), 429 over the `CREATE_EVENT` limit |
 | `GET /api/organizer/events`        | organizer | 200 `OrganizerEvent[]`: only events the caller owns, ordered by `startsAt`; `seatCount`, `soldCount` (seats with a `PAID` or `CONFIRMED` booking), `heldCount` (seats with a `HELD` booking) and `utilization` (`soldCount` / `seatCount`, 0 without seats) come from one SQL statement                                                                                                                                                                                                                                         |
 | `PATCH /api/events/:id/strategy`   | admin     | 200 `EventSummary` for a `SetStrategyRequest` (`strategy`); a demo admin may switch only their own sandbox events, a regular admin only public events: any other event is 404, as is an unknown one; 400 for a non-UUID id or another strategy. Later holds use the new strategy; existing bookings keep the strategy they were made under                                                                                                                                                                                      |
+| `POST /api/simulations`            | admin     | 201 `SimulationRun` (`QUEUED`) for a `StartSimulationRequest` (`strategy`; `buyers` and `seats` default to 500 and 100): a fresh sandbox event of the caller with that many seats, the run row and a command on the stream `simulations`. 400 for a body outside the limits, 429 while two runs are active or over the `SIMULATION` limit                                                                                                                                                                                       |
+| `GET /api/simulations`             | admin     | 200 `SimulationRun[]`: the 20 latest `FINISHED` runs, newest first                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `GET /api/simulations/:id`         | public    | 200 `SimulationRun`, 400 for a non-UUID id, 404 for an unknown run; public because the run ID is a random UUID and the answer holds aggregate numbers only                                                                                                                                                                                                                                                                                                                                                                      |
 | `POST /api/demo-login`             | public    | 200 `TokenResponse` for a `DemoLoginRequest` (`role`: `customer`, `organizer` or `admin`), 400 for another role, 503 while 200 demo users exist (`MAX_DEMO_USERS`, nothing is created then) and also 503 when Keycloak does not answer within 5 s; creates a temporary user, rate limit `DEMO_LOGIN`                                                                                                                                                                                                                            |
 | `POST /api/auth/refresh`           | public    | 200 `TokenResponse` (a new access and refresh token) for a `RefreshRequest` (`refreshToken`), 400 for a malformed body, 401 when Keycloak answers 400 `invalid_grant` (a bad refresh token), 503 when it fails (5xx) or does not answer within 5 s, 500 for any other answer, such as a wrong client secret; rate limit `REFRESH`                                                                                                                                                                                               |
 
@@ -148,7 +151,7 @@ Authentication is described in [ADR 0003](../adr/0003-authentication-and-demo-lo
 ## Simulation contracts
 
 The rush simulator runs virtual buyers against a fresh sandbox event under one booking strategy.
-The schemas are in `packages/shared`; the routes come with the API slice.
+The schemas are in `packages/shared`; the routes are in the table above and described below.
 
 | Schema                                                                          | Purpose                                                                                                                                                        |
 | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -161,3 +164,14 @@ The schemas are in `packages/shared`; the routes come with the API slice.
 `doubleBookings` always comes from the database (active bookings per seat minus one), never from the
 runner's counters. A buyer retries by picking another seat, so `retries` counts attempts beyond a
 buyer's first.
+
+## Simulation runs
+
+`POST /api/simulations` runs in one transaction under a PostgreSQL advisory lock: it counts the runs
+that are `QUEUED` or `RUNNING` and started within the last 10 minutes (`SIMULATION_RUN_TIMEOUT_MS`);
+at two (`MAX_ACTIVE_RUNS`) it answers 429 and writes nothing, so parallel requests cannot beat the
+cap. The count comes from the rows, not from a counter: the window frees the slot of a run whose
+worker died. Otherwise the transaction creates the event (owner and `sandbox_user_id` are the admin
+from the token, so it never shows in the public event list), its seats in one `generate_series`
+statement and the run. After the commit the command `{ runId }` goes onto the Redis stream
+`simulations`; when that fails the run is marked `FAILED` and the error is returned.

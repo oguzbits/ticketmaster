@@ -5,3 +5,5 @@ export {
   SimulationRunner,
   type SimulationRunnerDeps,
 } from './simulation-runner.js';
+export { SimulationsModule } from './simulations.module.js';
+export { SimulationsService } from './simulations.service.js';
