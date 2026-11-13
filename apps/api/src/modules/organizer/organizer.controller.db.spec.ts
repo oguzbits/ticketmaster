@@ -4,6 +4,8 @@ import {
   BOOKING_STATUS,
   BOOKING_STRATEGY,
   type BookingStatus,
+  EventListResponseSchema,
+  EventSummarySchema,
   OrganizerEventListResponseSchema,
   ROLE,
   VenueListResponseSchema,
@@ -11,12 +13,21 @@ import {
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
+import { eq } from 'drizzle-orm';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { AppModule } from '../../app.module.js';
 import { configureApp } from '../../app.setup.js';
-import { bookings, venues, venueSeats } from '../../infrastructure/database/schema.js';
+import { CLOCK } from '../../core/clock.js';
+import {
+  bookings,
+  demoUsers,
+  events,
+  seats,
+  venues,
+  venueSeats,
+} from '../../infrastructure/database/schema.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { fakeTokenVerifier, randomClientAddress } from '../../testing/http.js';
 import { SPEC_NOW } from '../../testing/time.js';
@@ -25,8 +36,13 @@ import { TOKEN_VERIFIER } from '../auth/index.js';
 const ORGANIZER_A = { id: randomUUID(), roles: [ROLE.ORGANIZER] };
 const ORGANIZER_B = { id: randomUUID(), roles: [ROLE.ORGANIZER] };
 const CUSTOMER = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
-const TOKENS = { a: ORGANIZER_A, b: ORGANIZER_B, customer: CUSTOMER };
+const DEMO_ORGANIZER = { id: randomUUID(), roles: [ROLE.ORGANIZER] };
+const TOKENS = { a: ORGANIZER_A, b: ORGANIZER_B, customer: CUSTOMER, demo: DEMO_ORGANIZER };
 type Caller = keyof typeof TOKENS;
+const STRATEGY = BOOKING_STRATEGY.PESSIMISTIC;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DAY_AFTER = new Date(SPEC_NOW.getTime() + DAY_MS).toISOString();
+const DAY_BEFORE = new Date(SPEC_NOW.getTime() - DAY_MS).toISOString();
 
 describe('organizer endpoints', () => {
   const database = openTestDatabase();
@@ -37,6 +53,8 @@ describe('organizer endpoints', () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(TOKEN_VERIFIER)
       .useValue(fakeTokenVerifier(TOKENS))
+      .overrideProvider(CLOCK)
+      .useValue({ now: () => SPEC_NOW })
       .compile();
     app = configureApp(moduleRef.createNestApplication<NestExpressApplication>());
     await app.init();
@@ -53,6 +71,14 @@ describe('organizer endpoints', () => {
     return caller === undefined ? pending : pending.set('Authorization', `Bearer ${caller}`);
   };
 
+  const post = (path: string, body: object, caller?: Caller) => {
+    const pending = request(app.getHttpServer())
+      .post(`/api${path}`)
+      .set('X-Forwarded-For', randomClientAddress())
+      .send(body);
+    return caller === undefined ? pending : pending.set('Authorization', `Bearer ${caller}`);
+  };
+
   describe('access', () => {
     it.each(['/venues', '/organizer/events'])(
       'GET %s: no token is 401, a customer is 403',
@@ -61,6 +87,16 @@ describe('organizer endpoints', () => {
         await get(path, 'customer').expect(403);
       }
     );
+
+    it('POST /events: no token is 401, a customer is 403, and no event is created', async () => {
+      const name = `denied ${randomUUID()}`;
+      const body = { venueId: randomUUID(), name, startsAt: DAY_AFTER, strategy: STRATEGY };
+
+      await post('/events', body).expect(401);
+      await post('/events', body, 'customer').expect(403);
+
+      expect(await db.select().from(events).where(eq(events.name, name))).toEqual([]);
+    });
   });
 
   describe('venues', () => {
@@ -81,6 +117,109 @@ describe('organizer endpoints', () => {
         name: `venue ${venueId}`,
         seatCount: 3,
       });
+    });
+  });
+
+  describe('create event', () => {
+    const PRICED = [
+      { section: 'A', row: 1, number: 1, priceCents: 9000 },
+      { section: 'A', row: 1, number: 2, priceCents: 9000 },
+      { section: 'B', row: 1, number: 1, priceCents: 4000 },
+    ];
+    async function venueWith(
+      template: { section: string; row: number; number: number; priceCents: number | null }[]
+    ) {
+      const venueId = randomUUID();
+      await db.insert(venues).values({ id: venueId, name: `venue ${venueId}` });
+      await db.insert(venueSeats).values(template.map((seat) => ({ venueId, ...seat })));
+      return venueId;
+    }
+    const create = (venueId: string, caller: Caller, extra: object = {}) =>
+      post(
+        '/events',
+        {
+          venueId,
+          name: `Gala ${randomUUID()}`,
+          startsAt: DAY_AFTER,
+          strategy: STRATEGY,
+          ...extra,
+        },
+        caller
+      );
+
+    it('copies every seat of the venue with the price of its section', async () => {
+      const venueId = await venueWith(PRICED);
+
+      const response = await create(venueId, 'a', { name: 'Gala' }).expect(201);
+
+      const created = EventSummarySchema.parse(response.body);
+      expect(created).toMatchObject({ name: 'Gala', startsAt: DAY_AFTER, strategy: STRATEGY });
+      const copied = await db.select().from(seats).where(eq(seats.eventId, created.id));
+      expect(
+        copied
+          .map(({ section, row, number, priceCents }) => ({ section, row, number, priceCents }))
+          .toSorted((x, y) => x.section.localeCompare(y.section) || x.number - y.number)
+      ).toEqual(PRICED);
+    });
+
+    it('owns the event by the caller from the token and publishes it, so a visitor sees it', async () => {
+      const venueId = await venueWith(PRICED);
+
+      const { body } = await create(venueId, 'a').expect(201);
+
+      const [stored] = await db
+        .select()
+        .from(events)
+        .where(eq(events.id, EventSummarySchema.parse(body).id));
+      expect(stored).toMatchObject({ ownerId: ORGANIZER_A.id, sandboxUserId: null });
+      const listed = await request(app.getHttpServer())
+        .get('/api/events')
+        .set('X-Forwarded-For', randomClientAddress())
+        .expect(200);
+      expect(EventListResponseSchema.parse(listed.body).map(({ id }) => id)).toContain(stored?.id);
+    });
+
+    it('keeps an event of a demo user private to that user', async () => {
+      await db
+        .insert(demoUsers)
+        .values({ userId: DEMO_ORGANIZER.id, role: ROLE.ORGANIZER, expiresAt: SPEC_NOW });
+      const venueId = await venueWith(PRICED);
+
+      const { body } = await create(venueId, 'demo').expect(201);
+
+      const { id } = EventSummarySchema.parse(body);
+      const [stored] = await db.select().from(events).where(eq(events.id, id));
+      expect(stored).toMatchObject({
+        ownerId: DEMO_ORGANIZER.id,
+        sandboxUserId: DEMO_ORGANIZER.id,
+      });
+      await request(app.getHttpServer())
+        .get(`/api/events/${id}`)
+        .set('X-Forwarded-For', randomClientAddress())
+        .expect(404);
+    });
+
+    it('answers 404 for an unknown venue and 400 for a start in the past or a bad body', async () => {
+      const venueId = await venueWith(PRICED);
+
+      await create(randomUUID(), 'a').expect(404);
+      await create(venueId, 'a', { startsAt: DAY_BEFORE }).expect(400);
+      await create(venueId, 'a', { startsAt: new Date(SPEC_NOW).toISOString() }).expect(400);
+      await create(venueId, 'a', { name: '  ' }).expect(400);
+      await create(venueId, 'a', { strategy: 'FAST' }).expect(400);
+      await create('not-a-uuid', 'a').expect(400);
+    });
+
+    it('creates the event and its seats in one transaction: a seat without a price leaves nothing behind', async () => {
+      const venueId = await venueWith([
+        ...PRICED,
+        { section: 'C', row: 1, number: 1, priceCents: null },
+      ]);
+      const name = `half ${randomUUID()}`;
+
+      await create(venueId, 'a', { name }).expect(500);
+
+      expect(await db.select().from(events).where(eq(events.name, name))).toEqual([]);
     });
   });
 

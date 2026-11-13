@@ -1,10 +1,19 @@
-import { BOOKING_STATUS, type BookingStatus, type OrganizerEvent, type Venue } from '@app/shared';
-import { Inject, Injectable } from '@nestjs/common';
+import {
+  BOOKING_STATUS,
+  type BookingStatus,
+  type CreateEventRequest,
+  type EventSummary,
+  type OrganizerEvent,
+  type Venue,
+} from '@app/shared';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { asc, count, eq, inArray, sql } from 'drizzle-orm';
 
+import { CLOCK, type Clock } from '../../core/clock.js';
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
 import {
   bookings,
+  demoUsers,
   events,
   seats,
   venues,
@@ -13,7 +22,58 @@ import {
 
 @Injectable()
 export class OrganizerService {
-  constructor(@Inject(DB) private readonly db: Database) {}
+  constructor(
+    @Inject(DB) private readonly db: Database,
+    @Inject(CLOCK) private readonly clock: Clock
+  ) {}
+
+  /**
+   * One transaction: the event and a copy of the venue's seats with their prices. The event of a
+   * demo user is a sandbox event, so a visitor's event stays private to them.
+   */
+  async createEvent(input: CreateEventRequest, ownerId: string): Promise<EventSummary> {
+    const startsAt = new Date(input.startsAt);
+    if (startsAt.getTime() <= this.clock.now().getTime()) {
+      throw new BadRequestException('startsAt must lie in the future');
+    }
+    return this.db.transaction(async (tx) => {
+      const [venue] = await tx
+        .select({ id: venues.id, name: venues.name })
+        .from(venues)
+        .where(eq(venues.id, input.venueId));
+      if (venue === undefined) throw new NotFoundException('Venue not found');
+      const [demoUser] = await tx
+        .select({ userId: demoUsers.userId })
+        .from(demoUsers)
+        .where(eq(demoUsers.userId, ownerId));
+      const [event] = await tx
+        .insert(events)
+        .values({
+          venueId: venue.id,
+          name: input.name,
+          startsAt,
+          strategy: input.strategy,
+          ownerId,
+          sandboxUserId: demoUser === undefined ? null : ownerId,
+        })
+        .returning({ id: events.id });
+      if (event === undefined) throw new Error('event insert returned no row');
+      // One INSERT ... SELECT in the database; drizzle's insert-select wants every column of seats.
+      await tx.execute(sql`
+        insert into ${seats} (event_id, section, row, number, price_cents)
+        select ${event.id}::uuid, section, row, number, price_cents
+        from ${venueSeats}
+        where venue_id = ${venue.id}
+      `);
+      return {
+        id: event.id,
+        name: input.name,
+        startsAt: startsAt.toISOString(),
+        venueName: venue.name,
+        strategy: input.strategy,
+      };
+    });
+  }
 
   listVenues(): Promise<Venue[]> {
     return this.db
