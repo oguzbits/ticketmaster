@@ -12,14 +12,18 @@ import {
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { AppModule } from '../../app.module.js';
 import { configureApp } from '../../app.setup.js';
+import { CLOCK } from '../../core/clock.js';
+import { bookings } from '../../infrastructure/database/schema.js';
 import type { Redis } from '../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { fakeTokenVerifier, randomClientAddress } from '../../testing/http.js';
 import { openTestRedis } from '../../testing/redis.js';
+import { EXPIRY_SPEC_END, SPEC_NOW } from '../../testing/time.js';
 import { TOKEN_VERIFIER } from '../auth/index.js';
 import { seatChannel } from '../bookings/index.js';
 import { MAX_STREAMS_PER_IP, SeatStreamService } from './seat-stream.service.js';
@@ -83,6 +87,8 @@ describe('GET /api/events/:id/seats/stream', () => {
 
   const newApp = async (): Promise<INestApplication> => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(CLOCK)
+      .useValue({ now: () => SPEC_NOW })
       .overrideProvider(TOKEN_VERIFIER)
       .useValue(fakeTokenVerifier(TOKENS))
       .compile();
@@ -141,6 +147,12 @@ describe('GET /api/events/:id/seats/stream', () => {
       body: JSON.stringify({ eventId, seatId: seatIds[0] }),
     });
     expect(hold.status).toBe(201);
+    // The expiry spec expires every hold of the table that is due on its day.
+    const [held] = await db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.seatId, seatIds[0] ?? ''));
+    expect(held?.holdExpiresAt.getTime()).toBeGreaterThan(EXPIRY_SPEC_END.getTime());
 
     await vi.waitFor(() => expect(stream.events).toHaveLength(2));
     const [snapshot, change] = stream.events;

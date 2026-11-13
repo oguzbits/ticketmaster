@@ -8,3 +8,5 @@ export const SPEC_NOW = new Date('2200-01-01T12:00:00.000Z');
  * SPEC_NOW.
  */
 export const EXPIRY_SPEC_START = new Date('2100-01-01T12:00:00.000Z');
+/** End of the expiry spec's day: a hold that falls due later is out of reach of its sweeps. */
+export const EXPIRY_SPEC_END = new Date(EXPIRY_SPEC_START.getTime() + 24 * 60 * 60 * 1000);

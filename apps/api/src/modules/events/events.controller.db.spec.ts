@@ -20,10 +20,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { AppModule } from '../../app.module.js';
 import { configureApp } from '../../app.setup.js';
+import { CLOCK } from '../../core/clock.js';
 import { bookings, demoUsers } from '../../infrastructure/database/schema.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { fakeTokenVerifier, randomClientAddress } from '../../testing/http.js';
-import { SPEC_NOW } from '../../testing/time.js';
+import { EXPIRY_SPEC_END, SPEC_NOW } from '../../testing/time.js';
 import { TOKEN_VERIFIER } from '../auth/index.js';
 
 const STRATEGY = BOOKING_STRATEGY.PESSIMISTIC;
@@ -48,6 +49,8 @@ describe('events endpoints', () => {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     })
+      .overrideProvider(CLOCK)
+      .useValue({ now: () => SPEC_NOW })
       .overrideProvider(TOKEN_VERIFIER)
       .useValue(
         fakeTokenVerifier({
@@ -194,8 +197,9 @@ describe('events endpoints', () => {
         .expect(201);
       return BookingSchema.parse(response.body).id;
     };
-    const strategyOfBooking = async (bookingId: string) =>
-      (await db.select().from(bookings).where(eq(bookings.id, bookingId)))[0]?.strategy;
+    const bookingRow = async (bookingId: string) =>
+      (await db.select().from(bookings).where(eq(bookings.id, bookingId)))[0];
+    const strategyOfBooking = async (bookingId: string) => (await bookingRow(bookingId))?.strategy;
 
     it('is for admins only: no token is 401, a customer and an organizer are 403, nothing changes', async () => {
       const { eventId } = await createTestEvent(db, { strategy: STRATEGY, seats: 1 });
@@ -225,6 +229,10 @@ describe('events endpoints', () => {
         strategy: BOOKING_STRATEGY.NAIVE,
       });
       expect(await strategyOfBooking(before)).toBe(STRATEGY);
+      // The expiry spec expires every hold of the table that is due on its day.
+      expect((await bookingRow(before))?.holdExpiresAt.getTime()).toBeGreaterThan(
+        EXPIRY_SPEC_END.getTime()
+      );
       expect(await strategyOfBooking(after)).toBe(BOOKING_STRATEGY.NAIVE);
     });
 

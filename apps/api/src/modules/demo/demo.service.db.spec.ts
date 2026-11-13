@@ -22,7 +22,7 @@ import {
 } from '../../infrastructure/database/schema.js';
 import { HALL, layoutSeats, SEED, seed } from '../../infrastructure/database/seed.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
-import { SPEC_NOW } from '../../testing/time.js';
+import { EXPIRY_SPEC_END, SPEC_NOW } from '../../testing/time.js';
 import type { SeatChangePublisher } from '../bookings/index.js';
 import {
   ACCESS_TOKEN_GRACE_SECONDS,
@@ -96,7 +96,7 @@ describe('DemoService', () => {
         userId,
         strategy: BOOKING_STRATEGY.PESSIMISTIC,
         status,
-        holdExpiresAt: at,
+        holdExpiresAt: SPEC_NOW,
       })
       .returning({ id: bookings.id });
     return { userId, bookingId: booking?.id ?? '', eventId, seatId: seatIds[0] ?? '' };
@@ -104,6 +104,16 @@ describe('DemoService', () => {
 
   const bookingRows = (bookingId: string) =>
     db.select().from(bookings).where(eq(bookings.id, bookingId));
+
+  // The expiry spec expires every hold of the table that is due on its day: a hold of this spec
+  // that is due earlier turns EXPIRED under a test that still needs it HELD.
+  it('keeps the holds of its users out of reach of the sweeps of the expiry spec', async () => {
+    const { bookingId } = await loginWithBooking(era(2010), BOOKING_STATUS.HELD);
+
+    const [held] = await bookingRows(bookingId);
+
+    expect(held?.holdExpiresAt.getTime()).toBeGreaterThan(EXPIRY_SPEC_END.getTime());
+  });
 
   describe('login', () => {
     it('creates a user with its role, stores it with an expiry and returns the grant', async () => {
@@ -146,7 +156,7 @@ describe('DemoService', () => {
     });
 
     // The table is shared with the other specs, which only add rows: a cap read from it stays
-    // reached, while one row more than it is free unless another spec logs in at that very moment.
+    // reached, while one row more than it is free unless another spec adds a user at that very moment.
     describe('with the number of demo users at the cap', () => {
       const countUsers = async () =>
         (await db.select({ total: count() }).from(demoUsers))[0]?.total ?? 0;
@@ -164,11 +174,15 @@ describe('DemoService', () => {
       });
 
       it('lets the last free place in', async () => {
-        const reached = await countUsers();
+        // Another spec may take that place between the count and the login: count again then.
+        // A service that lets nobody into the last place fails every attempt.
+        await vi.waitFor(async () => {
+          const reached = await countUsers();
 
-        await expect(serviceWithCap(reached + 1).login(ROLE.CUSTOMER)).resolves.toEqual(
-          FAKE_TOKENS
-        );
+          await expect(serviceWithCap(reached + 1).login(ROLE.CUSTOMER)).resolves.toEqual(
+            FAKE_TOKENS
+          );
+        });
       });
     });
 
@@ -358,7 +372,7 @@ describe('DemoService', () => {
           userId: randomUUID(),
           strategy: BOOKING_STRATEGY.NAIVE,
           status: BOOKING_STATUS.CONFIRMED,
-          holdExpiresAt: start,
+          holdExpiresAt: SPEC_NOW,
         });
 
         await service.deleteExpired(dueAfter(start));
@@ -382,7 +396,7 @@ describe('DemoService', () => {
           userId,
           strategy: sandbox?.strategy ?? BOOKING_STRATEGY.PESSIMISTIC,
           status: BOOKING_STATUS.HELD,
-          holdExpiresAt: start,
+          holdExpiresAt: SPEC_NOW,
         });
 
         await service.deleteExpired(dueAfter(start));
