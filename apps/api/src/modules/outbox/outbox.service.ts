@@ -4,7 +4,7 @@ import { asc, eq, isNull, min, sql } from 'drizzle-orm';
 
 import { CLOCK, type Clock } from '../../core/clock.js';
 import { type Database, DB, type Tx } from '../../infrastructure/database/database.module.js';
-import { outboxMessages } from '../../infrastructure/database/schema.js';
+import { outboxMessages, processedMessages } from '../../infrastructure/database/schema.js';
 import { MESSAGE_QUEUE, type MessageQueue } from './domain/message-queue.js';
 
 /** The oldest unpublished row may be this old before the ready probe reports the outbox as stuck. */
@@ -78,6 +78,30 @@ export class OutboxService {
         }
       }
       return { sent, failed };
+    });
+  }
+
+  /**
+   * Runs `effect` once per (consumer, message ID): the pair is recorded and the effect runs in one
+   * transaction, so both commit together or neither does. Returns false, without running the
+   * effect, when the pair is recorded already (a duplicate delivery). A second delivery that
+   * arrives while the first is still running waits for its outcome: on commit it is a duplicate, on
+   * rollback it runs the effect itself.
+   */
+  processOnce(
+    consumer: string,
+    messageId: string,
+    effect: (tx: Tx) => Promise<void>
+  ): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      const recorded = await tx
+        .insert(processedMessages)
+        .values({ consumer, messageId })
+        .onConflictDoNothing()
+        .returning({ messageId: processedMessages.messageId });
+      if (recorded.length === 0) return false;
+      await effect(tx);
+      return true;
     });
   }
 
