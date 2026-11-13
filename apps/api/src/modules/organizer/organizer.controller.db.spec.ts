@@ -28,16 +28,29 @@ import {
   venues,
   venueSeats,
 } from '../../infrastructure/database/schema.js';
+import { RATE_LIMIT } from '../../infrastructure/rate-limit/rate-limit.decorator.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { fakeTokenVerifier, randomClientAddress } from '../../testing/http.js';
 import { SPEC_NOW } from '../../testing/time.js';
 import { TOKEN_VERIFIER } from '../auth/index.js';
+import { MAX_EVENTS_PER_OWNER } from './organizer.service.js';
 
 const ORGANIZER_A = { id: randomUUID(), roles: [ROLE.ORGANIZER] };
 const ORGANIZER_B = { id: randomUUID(), roles: [ROLE.ORGANIZER] };
 const CUSTOMER = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
 const DEMO_ORGANIZER = { id: randomUUID(), roles: [ROLE.ORGANIZER] };
-const TOKENS = { a: ORGANIZER_A, b: ORGANIZER_B, customer: CUSTOMER, demo: DEMO_ORGANIZER };
+const FULL_ORGANIZER = { id: randomUUID(), roles: [ROLE.ORGANIZER] };
+const RACING_ORGANIZER = { id: randomUUID(), roles: [ROLE.ORGANIZER] };
+const BURST_ORGANIZER = { id: randomUUID(), roles: [ROLE.ORGANIZER] };
+const TOKENS = {
+  a: ORGANIZER_A,
+  b: ORGANIZER_B,
+  customer: CUSTOMER,
+  demo: DEMO_ORGANIZER,
+  full: FULL_ORGANIZER,
+  burst: BURST_ORGANIZER,
+  racing: RACING_ORGANIZER,
+};
 type Caller = keyof typeof TOKENS;
 const STRATEGY = BOOKING_STRATEGY.PESSIMISTIC;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -197,6 +210,65 @@ describe('organizer endpoints', () => {
         .get(`/api/events/${id}`)
         .set('X-Forwarded-For', randomClientAddress())
         .expect(404);
+    });
+
+    it('answers 429 after CREATE_EVENT.limit creations from one address', async () => {
+      const venueId = await venueWith(PRICED);
+      const address = randomClientAddress();
+      const createFrom = () =>
+        post(
+          '/events',
+          { venueId, name: 'Burst', startsAt: DAY_AFTER, strategy: STRATEGY },
+          'burst'
+        ).set('X-Forwarded-For', address);
+
+      for (let call = 0; call < RATE_LIMIT.CREATE_EVENT.limit; call++) {
+        await createFrom().expect(201);
+      }
+      const refused = await createFrom().expect(429);
+
+      expect(refused.headers['retry-after']).toBeDefined();
+    });
+
+    describe('the cap of MAX_EVENTS_PER_OWNER events per owner', () => {
+      const own = (count: number) =>
+        Promise.all(
+          Array.from({ length: count }, () =>
+            createTestEvent(db, { strategy: STRATEGY, seats: 0, ownerId: FULL_ORGANIZER.id })
+          )
+        );
+
+      it('allows the last event under the cap and answers 409 for the next, nothing is stored', async () => {
+        const venueId = await venueWith(PRICED);
+        await own(MAX_EVENTS_PER_OWNER - 1);
+        const name = `over the cap ${randomUUID()}`;
+
+        await create(venueId, 'full').expect(201);
+        const refused = await create(venueId, 'full', { name }).expect(409);
+
+        expect(refused.body).toMatchObject({ message: expect.stringContaining('20') });
+        expect(await db.select().from(events).where(eq(events.name, name))).toEqual([]);
+      });
+
+      it('another owner is not affected', async () => {
+        const venueId = await venueWith(PRICED);
+
+        await create(venueId, 'b').expect(201);
+      });
+    });
+
+    it('parallel creations cannot pass the cap together', async () => {
+      const venueId = await venueWith(PRICED);
+      await Promise.all(
+        Array.from({ length: MAX_EVENTS_PER_OWNER - 1 }, () =>
+          createTestEvent(db, { strategy: STRATEGY, seats: 0, ownerId: RACING_ORGANIZER.id })
+        )
+      );
+
+      const answers = await Promise.all(Array.from({ length: 5 }, () => create(venueId, 'racing')));
+
+      expect(answers.filter(({ status }) => status === 201)).toHaveLength(1);
+      expect(answers.filter(({ status }) => status === 409)).toHaveLength(4);
     });
 
     it('answers 404 for an unknown venue and 400 for a start in the past or a bad body', async () => {

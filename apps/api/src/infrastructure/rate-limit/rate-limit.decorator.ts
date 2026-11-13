@@ -4,6 +4,7 @@ export const RATE_LIMIT = {
   DEFAULT: { limit: 120, windowSeconds: 60 },
   DEMO_LOGIN: { limit: 5, windowSeconds: 60 },
   REFRESH: { limit: 30, windowSeconds: 60 },
+  CREATE_EVENT: { limit: 10, windowSeconds: 60 },
 } as const;
 
 export type RateLimitName = keyof typeof RATE_LIMIT;

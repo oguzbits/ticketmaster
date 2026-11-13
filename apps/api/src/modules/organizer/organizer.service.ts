@@ -6,7 +6,13 @@ import {
   type OrganizerEvent,
   type Venue,
 } from '@app/shared';
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { asc, count, eq, inArray, sql } from 'drizzle-orm';
 
 import { CLOCK, type Clock } from '../../core/clock.js';
@@ -19,6 +25,9 @@ import {
   venues,
   venueSeats,
 } from '../../infrastructure/database/schema.js';
+
+/** Events one owner may have; every event copies a venue's seats, so the table cannot grow unbounded. */
+export const MAX_EVENTS_PER_OWNER = 20;
 
 @Injectable()
 export class OrganizerService {
@@ -37,6 +46,15 @@ export class OrganizerService {
       throw new BadRequestException('startsAt must lie in the future');
     }
     return this.db.transaction(async (tx) => {
+      // Serializes one owner's creations, so parallel requests cannot all pass the count below.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${ownerId}))`);
+      const [owned] = await tx
+        .select({ total: count() })
+        .from(events)
+        .where(eq(events.ownerId, ownerId));
+      if ((owned?.total ?? 0) >= MAX_EVENTS_PER_OWNER) {
+        throw new ConflictException(`At most ${MAX_EVENTS_PER_OWNER} events per organizer`);
+      }
       const [venue] = await tx
         .select({ id: venues.id, name: venues.name })
         .from(venues)

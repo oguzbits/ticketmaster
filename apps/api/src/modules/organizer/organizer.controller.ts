@@ -9,6 +9,7 @@ import {
 import { Body, Controller, Get, Post } from '@nestjs/common';
 
 import { ZodPipe } from '../../infrastructure/http/zod.pipe.js';
+import { RateLimit } from '../../infrastructure/rate-limit/rate-limit.decorator.js';
 import { type AuthUser, CurrentUser, Roles } from '../auth/index.js';
 import { OrganizerService } from './organizer.service.js';
 
@@ -29,6 +30,7 @@ export class OrganizerController {
   }
 
   @Roles(ROLE.ORGANIZER)
+  @RateLimit('CREATE_EVENT')
   @Post('events')
   create(
     @Body(new ZodPipe(CreateEventRequestSchema)) body: CreateEventRequest,
