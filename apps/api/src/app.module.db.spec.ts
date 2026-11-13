@@ -1,12 +1,13 @@
 import { ROLE } from '@app/shared';
 import { Controller, Get, type INestApplication, UnauthorizedException } from '@nestjs/common';
+import { DiscoveryModule, DiscoveryService, Reflector } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { AppModule } from './app.module.js';
 import { configureApp } from './app.setup.js';
-import { TOKEN_VERIFIER, type TokenVerifier } from './modules/auth/index.js';
+import { IS_PUBLIC_KEY, TOKEN_VERIFIER, type TokenVerifier } from './modules/auth/index.js';
 
 const GOOD_TOKEN = 'good-token';
 const fakeVerifier: TokenVerifier = {
@@ -31,7 +32,7 @@ describe('the real app module', () => {
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [AppModule],
+      imports: [AppModule, DiscoveryModule],
       controllers: [ProbeController],
     })
       .overrideProvider(TOKEN_VERIFIER)
@@ -62,6 +63,16 @@ describe('the real app module', () => {
 
   it('a route nobody marked answers 401 without a token', async () => {
     await get('/api/probe').expect(401);
+  });
+
+  it('no controller is public as a whole, so a new handler is not public by accident', () => {
+    const publicControllers = app
+      .get(DiscoveryService)
+      .getControllers()
+      .filter(({ metatype }) => metatype && new Reflector().get(IS_PUBLIC_KEY, metatype))
+      .map(({ name }) => name);
+
+    expect(publicControllers).toEqual([]);
   });
 
   it('a route nobody marked answers 200 with a good token', async () => {

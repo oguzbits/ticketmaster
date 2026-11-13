@@ -6,7 +6,6 @@ import { type Database, DB } from '../../infrastructure/database/database.module
 import { REDIS, type Redis } from '../../infrastructure/redis/redis.module.js';
 import { Public } from '../auth/index.js';
 
-@Public()
 @Controller('health')
 export class HealthController {
   private readonly logger = new Logger(HealthController.name);
@@ -16,12 +15,14 @@ export class HealthController {
     @Inject(REDIS) private readonly redis: Redis
   ) {}
 
+  @Public()
   @Get('live')
   live(): HealthResponse {
     return { status: HEALTH_STATUS.UP };
   }
 
   /** Ready when Postgres answers `select 1` and Redis answers PING; 503 otherwise. */
+  @Public()
   @Get('ready')
   async ready(): Promise<HealthResponse> {
     try {
