@@ -8,7 +8,7 @@ export type DemoRole = 'customer' | 'organizer' | 'admin';
 /** The start page, one click on the role, then the event list. */
 export async function loginAs(page: Page, role: DemoRole): Promise<void> {
   await page.goto('/');
-  await page.getByRole('button', { name: new RegExp(`^${role}`, 'i') }).click();
+  await page.getByRole('button', { name: role }).click();
   await expect(page.getByText(`Signed in as ${role}`)).toBeVisible();
 }
 
