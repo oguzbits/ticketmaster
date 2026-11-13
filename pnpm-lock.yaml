@@ -229,6 +229,9 @@ importers:
       '@app/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@aws-sdk/client-sqs':
+        specifier: ^3.1168.0
+        version: 3.1168.0
       '@nestjs/common':
         specifier: ^12.4.2
         version: 12.4.2(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0)

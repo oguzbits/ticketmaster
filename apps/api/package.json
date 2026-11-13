@@ -24,6 +24,14 @@
       "types": "./dist/modules/demo/index.d.ts",
       "default": "./dist/modules/demo/index.js"
     },
+    "./outbox": {
+      "types": "./dist/modules/outbox/index.d.ts",
+      "default": "./dist/modules/outbox/index.js"
+    },
+    "./outbox/testing": {
+      "types": "./dist/modules/outbox/testing/index.d.ts",
+      "default": "./dist/modules/outbox/testing/index.js"
+    },
     "./simulations": {
       "types": "./dist/modules/simulations/index.d.ts",
       "default": "./dist/modules/simulations/index.js"
@@ -49,6 +57,7 @@
   },
   "dependencies": {
     "@app/shared": "workspace:*",
+    "@aws-sdk/client-sqs": "^3.1168.0",
     "@nestjs/common": "^12.4.2",
     "@nestjs/core": "^12.4.2",
     "@nestjs/platform-express": "^12.4.2",

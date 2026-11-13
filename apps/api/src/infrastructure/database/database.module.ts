@@ -7,6 +7,8 @@ import type { Env } from '../../config/env.js';
 import * as schema from './schema.js';
 
 export type Database = PostgresJsDatabase<typeof schema>;
+/** The handle inside `db.transaction(async (tx) => ...)`. */
+export type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 export const DB = Symbol('DB');
 const DB_CLIENT = Symbol('DB_CLIENT');
