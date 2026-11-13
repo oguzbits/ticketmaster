@@ -15,6 +15,7 @@ erDiagram
     events ||--o{ bookings : "has"
     seats ||--o{ bookings : "is held by"
     bookings ||--o{ booking_transitions : "records"
+    demo_users ||--o{ events : "owns as sandbox (by sandbox_user_id)"
 
     events {
         uuid id PK
@@ -44,6 +45,12 @@ erDiagram
         timestamptz hold_expires_at
         text payment_idempotency_key "unique, null until payment"
     }
+    demo_users {
+        uuid user_id PK "the sub of the user's tokens"
+        user_role role
+        timestamptz expires_at
+        timestamptz created_at
+    }
     booking_transitions {
         uuid id PK
         uuid booking_id FK
@@ -54,6 +61,12 @@ erDiagram
         timestamptz at
     }
 ```
+
+`demo_users` lists the temporary Keycloak users of the demo login. It has no foreign key: `user_id`
+is the Keycloak user ID, which `events.sandbox_user_id`, `events.owner_id` and `bookings.user_id`
+also carry. The cleanup job reads `expires_at` (indexed) and, per expired user, deletes the
+Keycloak user, then the user's bookings, the sandbox events (their seats and transitions cascade)
+and the row, in one transaction.
 
 Seats are copied from the venue template when an event is created, so a later change of the
 template does not move seats of events that already sell. Foreign keys from seats, bookings and

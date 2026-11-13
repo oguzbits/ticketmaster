@@ -1,4 +1,4 @@
-import { BOOKING_STATUS, BOOKING_STRATEGY, TRANSITION_REASON } from '@app/shared';
+import { BOOKING_STATUS, BOOKING_STRATEGY, ROLE, TRANSITION_REASON } from '@app/shared';
 import { sql } from 'drizzle-orm';
 import {
   index,
@@ -16,6 +16,7 @@ import {
 export const bookingStrategyEnum = pgEnum('booking_strategy', BOOKING_STRATEGY);
 export const bookingStatusEnum = pgEnum('booking_status', BOOKING_STATUS);
 export const transitionReasonEnum = pgEnum('transition_reason', TRANSITION_REASON);
+export const userRoleEnum = pgEnum('user_role', ROLE);
 
 // The index predicate is DDL, so the values are written into it instead of passed as parameters.
 const literal = (value: string) => sql.raw(`'${value}'`);
@@ -118,3 +119,17 @@ export const bookingTransitions = pgTable('booking_transitions', {
   actorId: uuid('actor_id'),
   at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** A throw-away Keycloak user of the demo login; the worker deletes it and its data after `expires_at`. */
+export const demoUsers = pgTable(
+  'demo_users',
+  {
+    // The `sub` of the user's tokens, so also `events.sandbox_user_id` and `bookings.user_id`.
+    userId: uuid('user_id').primaryKey(),
+    role: userRoleEnum('role').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  // Serves the cleanup job: users whose time has passed.
+  (t) => [index('demo_users_expires_at_idx').on(t.expiresAt)]
+);
