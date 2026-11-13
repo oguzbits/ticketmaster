@@ -134,11 +134,15 @@ export class SimulationConsumer implements OnModuleInit, OnModuleDestroy {
     await this.execute(runId, run);
   }
 
-  /** Runs the buyers; a failure is stored on the run, so it never stays RUNNING. */
+  /**
+   * Runs the buyers and stores the result. A run that fails, or whose result cannot be stored, is
+   * marked FAILED, so it never stays RUNNING; the progress key follows the row, never the other way.
+   */
   private async execute(runId: string, run: ClaimedRun): Promise<void> {
     let last: SimulationMetrics = EMPTY_METRICS;
+    let metrics: SimulationMetrics;
     try {
-      const metrics = await this.runner.run({
+      metrics = await this.runner.run({
         runId,
         eventId: run.eventId,
         buyers: run.buyers,
@@ -153,11 +157,26 @@ export class SimulationConsumer implements OnModuleInit, OnModuleDestroy {
         },
       });
       await this.simulations.finish(runId, metrics);
-      await this.report(runId, SIMULATION_STATUS.FINISHED, metrics);
     } catch (error) {
       this.logger.error(`run ${runId} failed: ${error instanceof Error ? error.name : 'unknown'}`);
+      await this.markFailed(runId, last);
+      return;
+    }
+    // The row says FINISHED: a Redis that fails now must not turn the run into FAILED.
+    await this.report(runId, SIMULATION_STATUS.FINISHED, metrics).catch((error: Error) =>
+      this.logger.error(`final progress of run ${runId} not written: ${error.name}`)
+    );
+  }
+
+  /** Never throws: the command is acknowledged either way, a run that cannot be marked is logged. */
+  private async markFailed(runId: string, last: SimulationMetrics): Promise<void> {
+    try {
       await this.simulations.fail(runId);
       await this.report(runId, SIMULATION_STATUS.FAILED, last);
+    } catch (error) {
+      this.logger.error(
+        `run ${runId} not marked FAILED: ${error instanceof Error ? error.name : 'unknown'}`
+      );
     }
   }
 

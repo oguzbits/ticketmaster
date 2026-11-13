@@ -71,9 +71,11 @@ describe('SimulationConsumer', () => {
 
   /** A consumer on the spec's stream, not started yet. */
   function consumerWith(
-    runner: SimulationRunner = moduleRef.get(SimulationRunner, { strict: false })
+    runner: SimulationRunner = moduleRef.get(SimulationRunner, { strict: false }),
+    store: SimulationsService = simulations,
+    connection: Redis = redis
   ): SimulationConsumer {
-    const consumer = new SimulationConsumer(redis, simulations, runner);
+    const consumer = new SimulationConsumer(connection, store, runner);
     consumer.streamKey = streamKey;
     consumer.blockMs = BLOCK_MS;
     consumer.errorPauseMs = ERROR_PAUSE_MS;
@@ -81,8 +83,12 @@ describe('SimulationConsumer', () => {
     return consumer;
   }
 
-  async function startedConsumer(runner?: SimulationRunner): Promise<SimulationConsumer> {
-    const consumer = consumerWith(runner);
+  async function startedConsumer(
+    runner?: SimulationRunner,
+    store?: SimulationsService,
+    connection?: Redis
+  ): Promise<SimulationConsumer> {
+    const consumer = consumerWith(runner, store, connection);
     await consumer.onModuleInit();
     return consumer;
   }
@@ -141,6 +147,73 @@ describe('SimulationConsumer', () => {
 
     expect((await simulations.find(broken.id)).finishedAt).toBe(NOW.toISOString());
     expect((await progressOf(broken))?.status).toBe(SIMULATION_STATUS.FAILED);
+  });
+
+  it('acknowledges a run whose failure cannot be stored and keeps consuming', async () => {
+    const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    class CannotFail extends SimulationsService {
+      override fail(): Promise<void> {
+        return Promise.reject(new Error('database down'));
+      }
+    }
+    const store = new CannotFail(database, redis, { now: () => NOW });
+    store.streamKey = streamKey;
+    let failingEvent = '';
+    await startedConsumer(
+      runnerOver((input) =>
+        input.eventId === failingEvent ? Promise.reject(new Error('boom')) : bookings.hold(input)
+      ),
+      store
+    );
+    const broken = await simulations.start(REQUEST, randomUUID());
+    failingEvent = broken.eventId;
+    const next = await simulations.start(REQUEST, randomUUID());
+
+    await untilAcknowledged();
+    await untilStatus(next, SIMULATION_STATUS.FINISHED);
+
+    const messages = logged.mock.calls.map(([message]) => String(message));
+    expect(messages.filter((message) => message.includes(broken.id))).toHaveLength(2);
+  });
+
+  it('stores a run as FAILED when its result cannot be stored', async () => {
+    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    class CannotFinish extends SimulationsService {
+      override finish(): Promise<void> {
+        return Promise.reject(new Error('database down'));
+      }
+    }
+    const store = new CannotFinish(database, redis, { now: () => NOW });
+    store.streamKey = streamKey;
+    await startedConsumer(undefined, store);
+    const run = await simulations.start(REQUEST, randomUUID());
+
+    await untilStatus(run, SIMULATION_STATUS.FAILED);
+    await untilAcknowledged();
+  });
+
+  it('keeps a finished run FINISHED when its final progress cannot be written', async () => {
+    const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    // Only the write of the FINISHED progress fails; every other command goes to the real client.
+    const flaky: Redis = new Proxy(redis, {
+      get(target, property) {
+        const member: unknown = Reflect.get(target, property);
+        if (typeof member !== 'function') return member;
+        if (property !== 'set') return member.bind(target);
+        return (key: string, value: string, options: object) =>
+          value.includes(SIMULATION_STATUS.FINISHED)
+            ? Promise.reject(new Error('redis down'))
+            : target.set(key, value, options);
+      },
+    });
+    await startedConsumer(undefined, undefined, flaky);
+    const run = await simulations.start(REQUEST, randomUUID());
+
+    await untilAcknowledged();
+
+    expect((await simulations.find(run.id)).status).toBe(SIMULATION_STATUS.FINISHED);
+    expect((await progressOf(run))?.status).not.toBe(SIMULATION_STATUS.FAILED);
+    expect(logged.mock.calls.map(([message]) => String(message)).join('\n')).toContain(run.id);
   });
 
   it('acknowledges a malformed entry and an unknown run, logs them and keeps going', async () => {
