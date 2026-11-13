@@ -38,37 +38,40 @@ function git(root, ...args) {
 
 const lines = (text) => (text ? text.split('\n') : []);
 
-function commitsOf(root, range) {
-  return lines(git(root, 'log', '--no-merges', '--format=%H', range)).map((hash) => ({
-    label: hash.slice(0, 7),
-    files: lines(git(root, 'diff-tree', '--no-commit-id', '--name-only', '-r', hash)),
-    message: git(root, 'log', '-1', '--format=%B', hash),
-  }));
+// A mapping added later must not judge older commits, so each commit uses its own map.
+function mapAt(root, hash) {
+  const tracked = lines(git(root, 'ls-tree', '--name-only', hash, MAP_FILE));
+  return tracked.length > 0 ? JSON.parse(git(root, 'show', `${hash}:${MAP_FILE}`)) : {};
+}
+
+/** Violations of every commit in a range: `[{ label, path, doc }]`. */
+export function auditRange(root, range) {
+  return lines(git(root, 'log', '--no-merges', '--format=%H', range)).flatMap((hash) => {
+    const files = lines(git(root, 'diff-tree', '--no-commit-id', '--name-only', '-r', hash));
+    const message = git(root, 'log', '-1', '--format=%B', hash);
+    return missingDocs(mapAt(root, hash), files, message).map((v) => ({
+      label: hash.slice(0, 7),
+      ...v,
+    }));
+  });
 }
 
 function main(argv) {
   const root = process.cwd();
-  const map = JSON.parse(fs.readFileSync(path.join(root, MAP_FILE), 'utf8'));
   const option = (name) => argv[argv.indexOf(name) + 1];
-  const commits = argv.includes('--range')
-    ? commitsOf(root, option('--range'))
-    : [
-        {
-          label: 'staged changes',
-          files: lines(git(root, 'diff', '--cached', '--name-only')),
-          message: fs.readFileSync(option('--message'), 'utf8'),
-        },
-      ];
-  let failed = false;
-  for (const commit of commits) {
-    for (const { path: changed, doc } of missingDocs(map, commit.files, commit.message)) {
-      failed = true;
-      process.stderr.write(
-        `${commit.label}: ${changed} changed without ${doc} (update it or write "Docs: n/a, <reason>")\n`
-      );
-    }
+  const violations = argv.includes('--range')
+    ? auditRange(root, option('--range'))
+    : missingDocs(
+        JSON.parse(fs.readFileSync(path.join(root, MAP_FILE), 'utf8')),
+        lines(git(root, 'diff', '--cached', '--name-only')),
+        fs.readFileSync(option('--message'), 'utf8')
+      ).map((v) => ({ label: 'staged changes', ...v }));
+  for (const { label, path: changed, doc } of violations) {
+    process.stderr.write(
+      `${label}: ${changed} changed without ${doc} (update it or write "Docs: n/a, <reason>")\n`
+    );
   }
-  if (failed) process.exit(1);
+  if (violations.length > 0) process.exit(1);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) main(process.argv.slice(2));
