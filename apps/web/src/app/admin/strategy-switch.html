@@ -1,0 +1,58 @@
+<h2 class="text-lg font-medium">Booking strategy</h2>
+<p>Current strategy: {{ strategy() }}</p>
+
+<div class="flex flex-col gap-1">
+  <label for="strategy-choice" class="text-sm font-medium">New strategy</label>
+  <select
+    id="strategy-choice"
+    class="rounded border border-edge bg-surface-raised px-3 py-2 disabled:opacity-60"
+    [disabled]="confirming()"
+    (change)="choose(choiceInput.value)"
+    #choiceInput
+  >
+    @for (item of strategies; track item) {
+      <option [value]="item" [selected]="item === choice()">{{ item }}</option>
+    }
+  </select>
+</div>
+
+@if (problem(); as text) {
+  <p role="alert" class="text-danger">{{ text }}</p>
+}
+@if (done(); as strategy) {
+  <p role="status">The strategy is now {{ strategy }}.</p>
+}
+
+@if (confirming()) {
+  <p>
+    Switch from {{ strategy() }} to {{ choice() }}? Later holds use the new strategy; existing
+    bookings keep the strategy they were made under.
+  </p>
+  <div class="flex gap-3">
+    <button
+      type="button"
+      class="btn disabled:cursor-not-allowed disabled:opacity-60"
+      [disabled]="pending()"
+      (click)="confirm()"
+    >
+      {{ pending() ? 'Switching…' : problem() ? 'Try again' : 'Confirm' }}
+    </button>
+    <button
+      type="button"
+      class="rounded border border-edge px-4 py-2 disabled:cursor-not-allowed disabled:opacity-60"
+      [disabled]="pending()"
+      (click)="cancel()"
+    >
+      Cancel
+    </button>
+  </div>
+} @else {
+  <button
+    type="button"
+    class="btn self-start disabled:cursor-not-allowed disabled:opacity-60"
+    [disabled]="choice() === strategy()"
+    (click)="ask()"
+  >
+    Switch strategy
+  </button>
+}

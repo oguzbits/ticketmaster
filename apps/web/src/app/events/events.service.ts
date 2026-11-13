@@ -1,10 +1,12 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import {
+  type BookingStrategy,
   type EventDetail,
   EventDetailSchema,
   EventListResponseSchema,
   type EventSummary,
+  EventSummarySchema,
 } from '@app/shared';
 import { map, type Observable } from 'rxjs';
 
@@ -20,5 +22,12 @@ export class EventsService {
     return this.http
       .get(`/api/events/${encodeURIComponent(id)}`)
       .pipe(map((body) => EventDetailSchema.parse(body)));
+  }
+
+  /** The server decides which events this admin may switch; any other answers 404. */
+  setStrategy(id: string, strategy: BookingStrategy): Observable<EventSummary> {
+    return this.http
+      .patch(`/api/events/${encodeURIComponent(id)}/strategy`, { strategy })
+      .pipe(map((body) => EventSummarySchema.parse(body)));
   }
 }

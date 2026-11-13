@@ -346,6 +346,43 @@ describe('SeatMap', () => {
     );
   });
 
+  describe('strategy switch', () => {
+    it.each([ROLE.CUSTOMER, ROLE.ORGANIZER, null])('is not offered to %s', async (role) => {
+      const { element, loaded } = render(role);
+      await loaded();
+
+      expect(element.textContent).not.toContain('Booking strategy');
+    });
+
+    it('shows the new strategy in the header after an admin switched it', async () => {
+      const { element, http, answer, press, loaded } = render(ROLE.ADMIN);
+      await loaded();
+      expect(element.querySelector('header')?.textContent).toContain(BOOKING_STRATEGY.PESSIMISTIC);
+      const select = element.querySelector('select');
+      if (!select) throw new Error('No strategy select');
+      select.value = BOOKING_STRATEGY.REDIS_LOCK;
+      select.dispatchEvent(new Event('change'));
+      TestBed.tick();
+
+      press(/Switch strategy/);
+      press(/Confirm/);
+      await answer(() =>
+        http.expectOne(`${EVENT_URL}/strategy`).flush({
+          id: EVENT_ID,
+          name: DETAIL.name,
+          startsAt: DETAIL.startsAt,
+          venueName: DETAIL.venueName,
+          strategy: BOOKING_STRATEGY.REDIS_LOCK,
+        })
+      );
+
+      expect(element.querySelector('header')?.textContent).toContain(BOOKING_STRATEGY.REDIS_LOCK);
+      expect(element.querySelector('header')?.textContent).not.toContain(
+        BOOKING_STRATEGY.PESSIMISTIC
+      );
+    });
+  });
+
   describe('live updates', () => {
     const HELD_SEAT = 'Section B, row 1, seat 1, held';
     const change = (status: DetailStatus) => ({

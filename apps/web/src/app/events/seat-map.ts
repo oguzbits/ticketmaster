@@ -6,6 +6,7 @@ import { RouterLink } from '@angular/router';
 import { BOOKING_STATUS, ROLE, type Seat, SEAT_STATUS, SEAT_STREAM_EVENT } from '@app/shared';
 import { EMPTY, switchMap } from 'rxjs';
 
+import { StrategySwitch } from '../admin/strategy-switch';
 import { SessionStore } from '../auth/session.store';
 import { BOOKING_ACTION, BookingsStore } from '../bookings/bookings.store';
 import { EventsService } from './events.service';
@@ -27,7 +28,7 @@ interface SeatSection {
 
 @Component({
   selector: 'app-seat-map',
-  imports: [CurrencyPipe, DatePipe, RouterLink],
+  imports: [CurrencyPipe, DatePipe, RouterLink, StrategySwitch],
   templateUrl: './seat-map.html',
   providers: [BookingsStore],
 })
@@ -48,7 +49,11 @@ export class SeatMap {
   /** The seats as the server last told us; a booking action reads them again. */
   protected readonly seats = linkedSignal(() => this.event.value()?.seats ?? []);
 
+  /** The strategy as shown; an admin's switch replaces it without reloading the page. */
+  protected readonly strategy = linkedSignal(() => this.event.value()?.strategy);
+
   protected readonly role = this.session.role;
+  protected readonly isAdmin = computed(() => this.role() === ROLE.ADMIN);
   protected readonly isCustomer = computed(() => this.role() === ROLE.CUSTOMER);
   protected readonly action = BOOKING_ACTION;
   protected readonly held = BOOKING_STATUS.HELD;

@@ -14,9 +14,18 @@
     <header>
       <h1 class="text-2xl font-semibold">{{ detail.name }}</h1>
       <p class="text-sm text-text-muted">
-        {{ detail.startsAt | date: 'medium' }} · {{ detail.venueName }} · {{ detail.strategy }}
+        {{ detail.startsAt | date: 'medium' }} · {{ detail.venueName }} ·
+        {{ strategy() ?? detail.strategy }}
       </p>
     </header>
+
+    @if (isAdmin()) {
+      <app-strategy-switch
+        [eventId]="id()"
+        [strategy]="strategy() ?? detail.strategy"
+        (switched)="strategy.set($event)"
+      />
+    }
 
     @if (!isCustomer()) {
       <p class="text-sm text-text-muted">
