@@ -22,6 +22,12 @@ Every response carries no personal data; requests are logged with the `x-request
 - Every response carries the `helmet` defaults (for example `X-Content-Type-Options: nosniff`) and no
   `X-Powered-By`. The API trusts exactly one proxy hop (Caddy): the client address is the last
   `X-Forwarded-For` entry, so a prefix the client forges is ignored.
+- Caddy (`apps/web/Caddyfile`) adds a Content-Security-Policy to every answer (`default-src 'self'`,
+  scripts from the same origin only, no inline script, `frame-ancestors 'none'`; styles allow
+  `'unsafe-inline'` because Angular writes component styles into `<style>` elements), plus
+  `X-Content-Type-Options`, `Referrer-Policy: no-referrer` and `Permissions-Policy`. The web build
+  keeps `inlineCritical` off: the inlined critical CSS comes with an inline script the policy blocks,
+  which would leave the stylesheet unapplied.
 - CORS headers appear only when `CORS_ORIGIN` is set, and only for that origin (`GET`, `POST`,
   `PATCH`, `DELETE`; headers `Authorization` and `Content-Type`; no credentials). Behind Caddy web and
   API share an origin and the variable stays unset.

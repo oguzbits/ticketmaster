@@ -8,6 +8,15 @@
 :8080 {
 	encode zstd gzip
 
+	# Scripts only from this origin, no inline script. Angular writes component styles into
+	# <style> elements, so styles allow 'unsafe-inline'. The API shares the origin (fetch and SSE).
+	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+	}
+
 	handle /health/* {
 		reverse_proxy api:3000
 	}
