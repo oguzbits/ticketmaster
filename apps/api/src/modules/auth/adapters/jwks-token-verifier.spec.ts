@@ -116,6 +116,7 @@ describe('JwksTokenVerifier', () => {
   });
 
   it('rejects a token with alg none', async () => {
+    // jose refuses this on its own; the RS384 test above is the one that pins our `algorithms` allowlist.
     const token = `${base64Url({ alg: 'none', typ: 'JWT' })}.${base64Url({
       ...claims(),
       iss: ISSUER,
@@ -126,6 +127,7 @@ describe('JwksTokenVerifier', () => {
   });
 
   it('rejects an HS256 token signed with the public key as the secret', async () => {
+    // jose refuses this on its own; the RS384 test above is the one that pins our `algorithms` allowlist.
     const secret = new TextEncoder().encode(JSON.stringify(publicJwk));
     const token = await new SignJWT(claims())
       .setProtectedHeader({ alg: 'HS256', kid: KEY_ID })

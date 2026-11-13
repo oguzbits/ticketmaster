@@ -159,7 +159,7 @@ holdExpiresAt (ISO), seatLabel info, transitions: { fromStatus|null, toStatus, r
 - guards through a test controller: no token → 401 (not on `@Public()`); bad token on a `@Public()`
   route → 401; good token on a `@Public()` route → handler sees the user; role missing → 403; role
   present → 200.
-- Mutations: remove the `algorithms` allowlist (HS256 test dies), remove the issuer option (issuer
+- Mutations: remove the `algorithms` allowlist (the RS384 test dies; HS256 and `alg: none` stay green, jose rejects them anyway), remove the issuer option (issuer
   test dies), make the guard skip verification when the route is public (bad-token test dies),
   remove the role check (403 test dies).
 
