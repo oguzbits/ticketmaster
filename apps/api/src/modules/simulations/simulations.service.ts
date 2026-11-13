@@ -14,7 +14,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { and, count, desc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 
 import { CLOCK, type Clock } from '../../core/clock.js';
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
@@ -234,5 +234,25 @@ export class SimulationsService {
       .update(simulationRuns)
       .set({ status: SIMULATION_STATUS.FAILED, finishedAt: this.clock.now() })
       .where(and(eq(simulationRuns.id, runId), inArray(simulationRuns.status, ACTIVE_STATUSES)));
+  }
+
+  /**
+   * The reaper's step: a run that is still QUEUED or RUNNING although it started before the
+   * timeout has lost its worker (or its result); it becomes FAILED. This is the exact complement of
+   * the cap's window, so a run stops counting as active and is marked in the same instant.
+   * Returns the IDs, so the caller can end their progress streams.
+   */
+  async failStale(now: Date): Promise<string[]> {
+    const rows = await this.db
+      .update(simulationRuns)
+      .set({ status: SIMULATION_STATUS.FAILED, finishedAt: now })
+      .where(
+        and(
+          inArray(simulationRuns.status, ACTIVE_STATUSES),
+          lt(simulationRuns.startedAt, new Date(now.getTime() - SIMULATION_RUN_TIMEOUT_MS))
+        )
+      )
+      .returning({ id: simulationRuns.id });
+    return rows.map(({ id }) => id);
   }
 }

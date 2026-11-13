@@ -162,11 +162,6 @@ follows, then phase 2. Still open from earlier notes:
   seed (this also resets the Keycloak realm, which lives in the same Postgres).
 - **The worker has no healthcheck and no restart policy** in the Compose stack (phase 5, with the
   container hardening).
-- **A run in `QUEUED` or `RUNNING` is never recovered** when the worker dies or Redis loses the
-  stream. The row stays until the 10-minute window frees its slot; the progress stream polls it up
-  to its lifetime, and the pending message is not claimed again.
-- **A run strands in `RUNNING`** when both `finish()` and `fail()` fail (the database is down for
-  both writes).
 - **Finished runs of a real (non-demo) admin are never cleaned**, and neither are their up to 2000
   `HELD` bookings per run; `GET /api/bookings` of that admin lists them. The cleanup of a demo admin
   cascades into its runs.

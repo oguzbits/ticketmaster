@@ -76,10 +76,14 @@ export class SimulationConsumer implements OnModuleInit, OnModuleDestroy {
     await this.loop;
   }
 
-  /** From now on only: commands from before the group existed are not run. */
+  /**
+   * From the start of the stream (id `0`), so a command written before the group existed, or after
+   * a Redis that lost its data, is still read. A command of a settled run is dropped and
+   * acknowledged by `handle`, so reading old entries is harmless.
+   */
   private async createGroup(): Promise<void> {
     try {
-      await this.redis.xGroupCreate(this.streamKey, this.group, '$', { MKSTREAM: true });
+      await this.redis.xGroupCreate(this.streamKey, this.group, '0', { MKSTREAM: true });
     } catch (error) {
       // The group of an earlier start (or another worker) is the one to use.
       if (!(error instanceof Error && error.message.includes('BUSYGROUP'))) throw error;
@@ -115,7 +119,8 @@ export class SimulationConsumer implements OnModuleInit, OnModuleDestroy {
     if (entry === undefined) return;
     await this.handle(entry.id, entry.message);
     // Every command is acknowledged once handled, also a malformed one: no poison loop. A command
-    // whose handling threw (the database or Redis is down) stays pending; nothing re-claims it.
+    // whose handling threw (the database or Redis is down) stays pending until the reaper job
+    // acknowledges it after the run timeout.
     await this.redis.xAck(this.streamKey, this.group, entry.id);
   }
 

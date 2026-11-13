@@ -11,4 +11,8 @@ export {
   type SimulationRunnerDeps,
 } from './simulation-runner.js';
 export { SimulationsModule } from './simulations.module.js';
-export { type ClaimedRun, SimulationsService } from './simulations.service.js';
+export {
+  type ClaimedRun,
+  SIMULATION_RUN_TIMEOUT_MS,
+  SimulationsService,
+} from './simulations.service.js';

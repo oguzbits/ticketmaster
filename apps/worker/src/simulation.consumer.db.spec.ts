@@ -248,6 +248,17 @@ describe('SimulationConsumer', () => {
     expect(await simulations.find(run.id)).toEqual(before);
   });
 
+  it('runs an entry that was written before the group existed', async () => {
+    // No consumer yet, so no group: the entry sits in a stream that only start() has created.
+    const run = await simulations.start(REQUEST, randomUUID());
+    expect(await redis.xLen(streamKey)).toBe(1);
+
+    await startedConsumer();
+
+    await untilStatus(run, SIMULATION_STATUS.FINISHED);
+    await untilAcknowledged();
+  });
+
   it('lets two consumers of the group take two different runs, each delivered once', async () => {
     const warned = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     const takenByFirst = new Set<string>();

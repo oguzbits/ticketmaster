@@ -12,6 +12,7 @@ import { LoggerModule } from 'nestjs-pino';
 import { DemoCleanupJob } from './demo-cleanup.job.js';
 import { HoldExpiryJob } from './hold-expiry.job.js';
 import { SimulationConsumer } from './simulation.consumer.js';
+import { SimulationReaperJob } from './simulation-reaper.job.js';
 
 @Module({
   imports: [
@@ -25,6 +26,6 @@ import { SimulationConsumer } from './simulation.consumer.js';
     DemoModule,
     SimulationsModule,
   ],
-  providers: [HoldExpiryJob, DemoCleanupJob, SimulationConsumer],
+  providers: [HoldExpiryJob, DemoCleanupJob, SimulationReaperJob, SimulationConsumer],
 })
 export class WorkerModule {}

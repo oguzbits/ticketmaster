@@ -188,13 +188,20 @@ the run with `GET /api/simulations/:id` at any time. The cap of open streams (50
 memory per process.
 
 The worker reads the stream through the consumer group `simulation-workers` (created on start, from
-the end of the stream; one run at a time per worker, a blocking read on a connection of its own).
+the beginning of the stream, so a command written before the group existed is read; one run at a time per worker, a blocking read on a connection of its own).
 The idempotency key of the command is the run ID: the worker starts a run only by changing its row
 from `QUEUED` to `RUNNING`, so a command that is delivered twice runs once; a malformed command, an
 unknown run and a repeated command are logged with their IDs and acknowledged. The worker reads the
 parameters from the row, writes the progress key every 250 ms, counts the double bookings in SQL
 when the buyers are done and stores the final metrics. A run that fails is stored as `FAILED` (with
 its last progress in the key) and acknowledged; the next command still runs. A command whose
-handling fails on the infrastructure (database or Redis down) stays pending and is not claimed again;
-its run frees its slot after the timeout. Every buyer books as the admin who started the run,
+handling fails on the infrastructure (database or Redis down) stays pending.
+Every buyer books as the admin who started the run,
 because a sandbox event accepts bookings only from its owner.
+
+The worker's reaper job (every 30 seconds) recovers what a dead worker leaves behind. A run that is
+still `QUEUED` or `RUNNING` although it started more than `SIMULATION_RUN_TIMEOUT_MS` ago becomes
+`FAILED` with its end time, and its progress key is set to `FAILED` with empty metrics, so open
+streams end; the cut is the exact complement of the cap's window. A queue entry that was delivered
+to a worker and not acknowledged for that long is acknowledged. A run that is still going after the
+timeout is failed too; if its worker then stores a result, the run is `FINISHED` after all.
