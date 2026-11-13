@@ -1,0 +1,29 @@
+<h1 class="text-2xl font-semibold">Events</h1>
+
+@if (events.isLoading()) {
+  <p role="status">Loading events…</p>
+} @else if (events.error()) {
+  <p role="alert" class="text-danger">The events could not be loaded.</p>
+  <button type="button" class="btn self-start" (click)="events.reload()">Try again</button>
+} @else {
+  @let list = events.value() ?? [];
+  @if (list.length === 0) {
+    <p>No events yet.</p>
+  } @else {
+    <ul class="flex flex-col gap-3">
+      @for (event of list; track event.id) {
+        <li>
+          <a
+            [routerLink]="['/events', event.id]"
+            class="block rounded border border-edge bg-surface-raised p-4 hover:border-accent"
+          >
+            <span class="block text-lg font-medium">{{ event.name }}</span>
+            <span class="block text-sm text-text-muted">
+              {{ event.startsAt | date: 'medium' }} · {{ event.venueName }} · {{ event.strategy }}
+            </span>
+          </a>
+        </li>
+      }
+    </ul>
+  }
+}

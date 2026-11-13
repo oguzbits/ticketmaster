@@ -29,7 +29,6 @@ Phase 0 (foundation) is complete:
 - **CI cancels a run in progress only outside `main`,** so every commit on `main` keeps its result.
 - **The worker is a skeleton** and not part of the Compose stack: without a consumer or a job the
   process ends right after start.
-- **`DESIGN.md` is missing.** It is written with the first real screens in phase 1.
 - **The live demo moved from phase 1 to its own last phase** (phase 5), together with the deploy
   scripts, the backups and the uptime workflow. Until then the system runs locally with
   `docker compose up`.

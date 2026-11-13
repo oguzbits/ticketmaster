@@ -1,17 +1,11 @@
-<main class="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-4 p-6">
-  <h1 class="text-3xl font-semibold">ticketmaster-klon</h1>
-  <p>Seat booking for live events that stays consistent when everyone wants the same seat.</p>
+<div class="mx-auto flex min-h-dvh max-w-3xl flex-col gap-6 p-6">
+  <a routerLink="/" class="self-start text-xl font-semibold">ticketmaster-klon</a>
 
-  @if (health.isLoading()) {
-    <p role="status">Checking the API…</p>
-  } @else if (health.error()) {
-    <p role="alert">The API is not reachable.</p>
-    <button type="button" class="self-start rounded border px-3 py-1" (click)="health.reload()">
-      Try again
-    </button>
-  } @else {
-    <p>API status: {{ health.value()?.status }}</p>
-  }
+  <main class="flex flex-1 flex-col gap-4">
+    <router-outlet />
+  </main>
 
-  <footer class="text-sm">Unofficial demo. Not affiliated with Ticketmaster.</footer>
-</main>
+  <footer class="text-sm text-text-muted">
+    Unofficial demo. Not affiliated with Ticketmaster.
+  </footer>
+</div>

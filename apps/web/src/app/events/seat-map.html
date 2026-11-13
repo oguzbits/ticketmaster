@@ -1,0 +1,58 @@
+<a routerLink="/" class="self-start text-sm underline">All events</a>
+
+@if (event.isLoading()) {
+  <p role="status">Loading the seat map…</p>
+} @else if (notFound()) {
+  <h1 class="text-2xl font-semibold">Event not found</h1>
+  <p>This event does not exist or is no longer available.</p>
+} @else if (event.error()) {
+  <p role="alert" class="text-danger">The seat map could not be loaded.</p>
+  <button type="button" class="btn self-start" (click)="event.reload()">Try again</button>
+} @else {
+  @let detail = event.value();
+  @if (detail) {
+    <header>
+      <h1 class="text-2xl font-semibold">{{ detail.name }}</h1>
+      <p class="text-sm text-text-muted">
+        {{ detail.startsAt | date: 'medium' }} · {{ detail.venueName }} · {{ detail.strategy }}
+      </p>
+    </header>
+
+    <ul class="flex flex-wrap gap-4 text-sm" aria-label="Legend">
+      @for (status of legend; track status) {
+        <li class="flex items-center gap-2">
+          <span class="seat seat-{{ status.toLowerCase() }}" aria-hidden="true"></span>
+          {{ status.toLowerCase() }}
+        </li>
+      }
+    </ul>
+
+    @for (section of sections(); track section.name) {
+      <section class="flex flex-col gap-2">
+        <h2 class="text-lg font-medium">
+          Section {{ section.name }}
+          <span class="text-sm font-normal text-text-muted">
+            · {{ section.priceCents / 100 | currency: 'EUR' }}
+          </span>
+        </h2>
+        @for (row of section.rows; track row.row) {
+          <div class="flex items-center gap-2">
+            <span class="w-14 text-sm text-text-muted">Row {{ row.row }}</span>
+            <div class="flex flex-wrap gap-1">
+              @for (seat of row.seats; track seat.id) {
+                <button
+                  type="button"
+                  disabled
+                  class="seat seat-{{ seat.status.toLowerCase() }}"
+                  [attr.aria-label]="label(seat)"
+                >
+                  {{ seat.number }}
+                </button>
+              }
+            </div>
+          </div>
+        }
+      </section>
+    }
+  }
+}

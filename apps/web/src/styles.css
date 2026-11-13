@@ -1,1 +1,98 @@
 @import 'tailwindcss';
+
+/*
+ * Semantic design tokens (see DESIGN.md). The default palette is removed, so a component can only
+ * use these names: `bg-surface`, `text-text-muted`, `border-edge`, `bg-seat-held`, and so on.
+ */
+@theme {
+  --color-*: initial;
+
+  --color-surface: #fafaf9;
+  --color-surface-raised: #ffffff;
+  --color-text: #1c1917;
+  --color-text-muted: #57534e;
+  --color-edge: #78716c;
+  --color-accent: #4338ca;
+  --color-accent-strong: #3730a3;
+  --color-on-accent: #ffffff;
+  --color-danger: #b91c1c;
+  --color-focus: #1d4ed8;
+
+  --color-seat-available: #ffffff;
+  --color-seat-available-edge: #15803d;
+  --color-seat-held: #fef3c7;
+  --color-seat-held-stripe: #fcd34d;
+  --color-seat-held-edge: #b45309;
+  --color-seat-sold: #44403c;
+  --color-seat-sold-text: #fafaf9;
+
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-surface);
+    color: var(--color-text);
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .btn {
+    border-radius: var(--radius-md);
+    background-color: var(--color-accent);
+    color: var(--color-on-accent);
+    padding: 0.5rem 1rem;
+    font-weight: 500;
+  }
+  .btn:hover {
+    background-color: var(--color-accent-strong);
+  }
+
+  /*
+   * A seat shows its status three ways, never by color alone: border style (solid, dashed, none),
+   * fill (empty, striped, solid) and the number (struck through when sold). The accessible name
+   * carries the status in words.
+   */
+  .seat {
+    display: inline-flex;
+    height: 2.25rem;
+    width: 2.25rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    border: 2px solid transparent;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-text);
+  }
+  .seat-available {
+    background-color: var(--color-seat-available);
+    border-color: var(--color-seat-available-edge);
+  }
+  .seat-held {
+    border-style: dashed;
+    border-color: var(--color-seat-held-edge);
+    background-color: var(--color-seat-held);
+    background-image: repeating-linear-gradient(
+      45deg,
+      var(--color-seat-held-stripe) 0 3px,
+      transparent 3px 8px
+    );
+  }
+  .seat-sold {
+    background-color: var(--color-seat-sold);
+    border-color: var(--color-seat-sold);
+    color: var(--color-seat-sold-text);
+    text-decoration: line-through;
+  }
+  /* The seats are disabled for now; keep their colors readable (WCAG AA) instead of dimmed. */
+  .seat:disabled {
+    opacity: 1;
+    cursor: not-allowed;
+  }
+}
