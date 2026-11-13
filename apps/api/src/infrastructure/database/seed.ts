@@ -25,7 +25,8 @@ interface Layout {
   seatsPerRow: number;
 }
 
-const HALL: Layout = {
+/** The hall's seats and prices; the sandbox events of the demo login reuse them. */
+export const HALL: Layout = {
   sections: [
     { name: 'A', priceCents: 9000 },
     { name: 'B', priceCents: 7000 },
@@ -39,7 +40,7 @@ const CLUB: Layout = { sections: [{ name: 'FLOOR', priceCents: 4500 }], rows: 6,
 
 // shortcut: fixed dates, so the demo events eventually lie in the past; upgrade when the demo goes
 // live (phase 5) by deriving the date from the injected clock.
-const STARTS_AT = new Date('2027-06-01T19:00:00Z');
+export const STARTS_AT = new Date('2027-06-01T19:00:00Z');
 
 const PUBLIC_EVENTS: { id: string; name: string; strategy: BookingStrategy; venueId: string }[] = [
   {
@@ -69,7 +70,7 @@ const PUBLIC_EVENTS: { id: string; name: string; strategy: BookingStrategy; venu
 ];
 
 /** Every seat of a layout: section, row and number, with the section's price. */
-function layoutSeats(layout: Layout) {
+export function layoutSeats(layout: Layout) {
   return layout.sections.flatMap(({ name, priceCents }) =>
     Array.from({ length: layout.rows }, (_, row) =>
       Array.from({ length: layout.seatsPerRow }, (_, seat) => ({

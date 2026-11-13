@@ -13,6 +13,8 @@ the `/api` prefix (Caddy forwards `/api/*` and `/health/*` to the API).
 | `POST /api/bookings/:id/payment` | customer | 200 `Booking` (`CONFIRMED`, or `CANCELLED` when the payment fails); header `Idempotency-Key` (1 to 128 characters) is required, else 400; 403 for another user's booking, 409 for an expired hold or a booking that cannot be paid |
 | `POST /api/bookings/:id/cancel`  | customer | 200 `Booking` (`CANCELLED`) from `HELD` or `CONFIRMED`; 403 for another user's booking, 409 from any other status                                                                                                                  |
 | `GET /api/bookings`              | customer | 200 `Booking[]`: the caller's own bookings, newest first, each with its stored transitions newest first                                                                                                                            |
+| `POST /api/demo-login`           | public   | 200 `TokenResponse` for a `DemoLoginRequest` (`role`: `customer`, `organizer` or `admin`), 400 for another role; creates a temporary user, rate limit `DEMO_LOGIN`                                                                 |
+| `POST /api/auth/refresh`         | public   | 200 `TokenResponse` (a new access and refresh token) for a `RefreshRequest` (`refreshToken`), 400 for a malformed body, 401 when Keycloak refuses the token; rate limit `REFRESH`                                                  |
 
 A seat's `status` is derived in one query from its active booking (`HELD`, `PAID` or `CONFIRMED`
 occupy the seat) and is `AVAILABLE` when there is none; it is never stored. A sandbox event is
@@ -24,6 +26,15 @@ Booking routes take the user from the verified token only; no route reads a user
 query or path, and a booking of another user answers 403 without changing. The payment key is unique
 over all bookings: the same key on the same booking returns the stored result without a second
 charge, a key another booking already used answers 409.
+
+The demo login creates a Keycloak user with a random name and password and the requested realm role,
+stores it in `demo_users` with an expiry (`DEMO_USER_TTL_SECONDS`), gives it four private sandbox
+events (one per booking strategy, on the hall's seats) and answers with the tokens of a password
+grant on the server-only client `api-demo`; if a step fails, the Keycloak user is deleted again.
+The worker deletes expired demo users in Keycloak, then their bookings, sandbox events and row (see
+[data model](../data-model.md)), once a minute. The refresh route lets the browser renew its tokens
+without talking to Keycloak. Details and the Keycloak facts behind them:
+[ADR 0003](../adr/0003-authentication-and-demo-login.md).
 
 Every response carries no personal data; requests are logged with the `x-request-id` of the caller
 (or a generated one) and the `authorization` and `cookie` headers redacted.

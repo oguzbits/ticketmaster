@@ -20,6 +20,10 @@
       "types": "./dist/infrastructure/database/database.module.d.ts",
       "default": "./dist/infrastructure/database/database.module.js"
     },
+    "./demo": {
+      "types": "./dist/modules/demo/index.d.ts",
+      "default": "./dist/modules/demo/index.js"
+    },
     "./redis": {
       "types": "./dist/infrastructure/redis/redis.module.d.ts",
       "default": "./dist/infrastructure/redis/redis.module.js"

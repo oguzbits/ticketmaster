@@ -11,6 +11,7 @@ import { RateLimitModule } from './infrastructure/rate-limit/rate-limit.module.j
 import { RedisModule } from './infrastructure/redis/redis.module.js';
 import { AUTH_GUARD_PROVIDERS, AuthModule } from './modules/auth/index.js';
 import { BookingsModule } from './modules/bookings/index.js';
+import { DemoModule } from './modules/demo/index.js';
 import { EventsModule } from './modules/events/index.js';
 import { HealthModule } from './modules/health/index.js';
 
@@ -28,6 +29,7 @@ import { HealthModule } from './modules/health/index.js';
     HealthModule,
     BookingsModule,
     EventsModule,
+    DemoModule,
   ],
   // Order matters: token first, then roles, then the rate limit (it reads the user the token guard
   // attached). Every global guard is listed here, in one place, because Nest runs them in the

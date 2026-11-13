@@ -1,0 +1,106 @@
+import { randomBytes } from 'node:crypto';
+
+import { BOOKING_STRATEGY, type Role, type TokenResponse } from '@app/shared';
+import { Injectable, Logger } from '@nestjs/common';
+import { eq, lte } from 'drizzle-orm';
+
+import type { Clock } from '../../core/clock.js';
+import type { Database } from '../../infrastructure/database/database.module.js';
+import { bookings, demoUsers, events, seats } from '../../infrastructure/database/schema.js';
+import { HALL, layoutSeats, SEED, STARTS_AT } from '../../infrastructure/database/seed.js';
+import { demoIdentity, type KeycloakAdmin } from './domain/demo-user.js';
+
+const SUFFIX_BYTES = 6;
+const PASSWORD_BYTES = 24;
+
+@Injectable()
+export class DemoService {
+  private readonly logger = new Logger(DemoService.name);
+
+  constructor(
+    private readonly db: Database,
+    private readonly keycloak: KeycloakAdmin,
+    private readonly clock: Clock,
+    private readonly userTtlSeconds: number
+  ) {}
+
+  async login(role: Role): Promise<TokenResponse> {
+    const password = randomBytes(PASSWORD_BYTES).toString('base64url');
+    const identity = demoIdentity(randomBytes(SUFFIX_BYTES).toString('hex'));
+    const userId = await this.keycloak.createUser({ ...identity, password, role });
+    try {
+      // The grant comes first: a refused grant leaves nothing in the database to clean up.
+      const tokens = await this.keycloak.passwordGrant(identity.username, password);
+      await this.storeUser(userId, role);
+      return tokens;
+    } catch (error) {
+      await this.keycloak.deleteUser(userId);
+      throw error;
+    }
+  }
+
+  refresh(refreshToken: string): Promise<TokenResponse> {
+    return this.keycloak.refresh(refreshToken);
+  }
+
+  /**
+   * Cleans up every demo user whose time has passed and returns how many it cleaned. A user whose
+   * Keycloak call fails keeps its row, so the next run tries again; the others are cleaned anyway.
+   */
+  async deleteExpired(now: Date): Promise<number> {
+    const due = await this.db
+      .select({ userId: demoUsers.userId })
+      .from(demoUsers)
+      .where(lte(demoUsers.expiresAt, now));
+    const failures: Error[] = [];
+    for (const { userId } of due) {
+      try {
+        await this.deleteUser(userId);
+      } catch (error) {
+        this.logger.error(`could not clean up demo user ${userId}`);
+        failures.push(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, `${failures.length} demo users could not be cleaned up`);
+    }
+    return due.length;
+  }
+
+  /** The user's row, and one private event per strategy on the hall's layout. */
+  private storeUser(userId: string, role: Role): Promise<void> {
+    const expiresAt = new Date(this.clock.now().getTime() + this.userTtlSeconds * 1000);
+    return this.db.transaction(async (tx) => {
+      await tx.insert(demoUsers).values({ userId, role, expiresAt });
+      const created = await tx
+        .insert(events)
+        .values(
+          Object.values(BOOKING_STRATEGY).map((strategy) => ({
+            venueId: SEED.VENUE_IDS.HALL,
+            name: `Your sandbox (${strategy.toLowerCase().replaceAll('_', ' ')})`,
+            startsAt: STARTS_AT,
+            strategy,
+            ownerId: userId,
+            sandboxUserId: userId,
+          }))
+        )
+        .returning({ id: events.id });
+      await tx
+        .insert(seats)
+        .values(
+          created.flatMap(({ id }) => layoutSeats(HALL).map((seat) => ({ ...seat, eventId: id })))
+        );
+    });
+  }
+
+  /** Keycloak first: if the database part fails afterwards, the row stays and the next run retries. */
+  private async deleteUser(userId: string): Promise<void> {
+    await this.keycloak.deleteUser(userId);
+    await this.db.transaction(async (tx) => {
+      // A demo customer may have booked seats of public events too; those go with the user.
+      await tx.delete(bookings).where(eq(bookings.userId, userId));
+      await tx.delete(events).where(eq(events.sandboxUserId, userId));
+      await tx.delete(demoUsers).where(eq(demoUsers.userId, userId));
+    });
+  }
+}

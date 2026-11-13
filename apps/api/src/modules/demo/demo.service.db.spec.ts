@@ -1,0 +1,198 @@
+import { BOOKING_STATUS, BOOKING_STRATEGY, ROLE, TRANSITION_REASON } from '@app/shared';
+import { count, eq } from 'drizzle-orm';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+
+import {
+  bookings,
+  bookingTransitions,
+  demoUsers,
+  events,
+  seats,
+} from '../../infrastructure/database/schema.js';
+import { HALL, layoutSeats, SEED, seed } from '../../infrastructure/database/seed.js';
+import { createTestEvent, openTestDatabase } from '../../testing/database.js';
+import { SPEC_NOW } from '../../testing/time.js';
+import { DemoService } from './demo.service.js';
+import { FAKE_TOKENS, FakeKeycloakAdmin } from './testing/fake-keycloak-admin.js';
+
+const TTL_SECONDS = 3600;
+const HOUR_MS = TTL_SECONDS * 1000;
+// Every cleanup test lives in its own early year: deleteExpired works on the whole table, and no
+// other user (the login tests use SPEC_NOW, other specs the real clock) is due by then.
+const era = (year: number): Date => new Date(`${year}-01-01T00:00:00Z`);
+const STRATEGIES = Object.values(BOOKING_STRATEGY).toSorted();
+
+describe('DemoService', () => {
+  const database = openTestDatabase();
+  const { db } = database;
+  const keycloak = new FakeKeycloakAdmin();
+  let now = SPEC_NOW;
+  const service = new DemoService(db, keycloak, { now: () => now }, TTL_SECONDS);
+
+  beforeAll(() => seed(db));
+  beforeEach(() => {
+    now = SPEC_NOW;
+  });
+  afterAll(() => database.close());
+
+  const sandboxEvents = (userId: string) =>
+    db.select().from(events).where(eq(events.sandboxUserId, userId));
+  const demoUserRows = (userId: string) =>
+    db.select().from(demoUsers).where(eq(demoUsers.userId, userId));
+
+  /** A demo user at time `at`, with one confirmed booking on a public event. */
+  async function loginWithBooking(at: Date): Promise<{ userId: string; bookingId: string }> {
+    now = at;
+    const before = keycloak.created.length;
+    await service.login(ROLE.CUSTOMER);
+    const userId = keycloak.created[before]?.id ?? '';
+    const { eventId, seatIds } = await createTestEvent(db, {
+      strategy: BOOKING_STRATEGY.PESSIMISTIC,
+      seats: 1,
+    });
+    const [booking] = await db
+      .insert(bookings)
+      .values({
+        eventId,
+        seatId: seatIds[0] ?? '',
+        userId,
+        strategy: BOOKING_STRATEGY.PESSIMISTIC,
+        status: BOOKING_STATUS.CONFIRMED,
+        holdExpiresAt: at,
+      })
+      .returning({ id: bookings.id });
+    return { userId, bookingId: booking?.id ?? '' };
+  }
+
+  const bookingRows = (bookingId: string) =>
+    db.select().from(bookings).where(eq(bookings.id, bookingId));
+
+  describe('login', () => {
+    it('creates a user with its role, stores it with an expiry and returns the grant', async () => {
+      const tokens = await service.login(ROLE.ORGANIZER);
+
+      expect(tokens).toEqual(FAKE_TOKENS);
+      const created = keycloak.created.at(-1);
+      expect(created).toMatchObject({ role: ROLE.ORGANIZER });
+      const [row] = await demoUserRows(created?.id ?? '');
+      expect(row).toMatchObject({
+        role: ROLE.ORGANIZER,
+        expiresAt: new Date(SPEC_NOW.getTime() + HOUR_MS),
+      });
+    });
+
+    it('gives every visitor their own username and password', async () => {
+      await service.login(ROLE.CUSTOMER);
+      await service.login(ROLE.CUSTOMER);
+
+      const [first, second] = keycloak.created.slice(-2);
+      expect(first?.username).not.toBe(second?.username);
+      expect(first?.password).not.toBe(second?.password);
+    });
+
+    it('seeds four sandbox events of the hall, one per strategy, owned by the user', async () => {
+      await service.login(ROLE.CUSTOMER);
+      const userId = keycloak.created.at(-1)?.id ?? '';
+
+      const rows = await sandboxEvents(userId);
+
+      expect(rows.map((row) => row.strategy).toSorted()).toEqual(STRATEGIES);
+      for (const row of rows) {
+        expect(row).toMatchObject({ venueId: SEED.VENUE_IDS.HALL, ownerId: userId });
+        const [seatCount] = await db
+          .select({ total: count() })
+          .from(seats)
+          .where(eq(seats.eventId, row.id));
+        expect(seatCount?.total).toBe(layoutSeats(HALL).length);
+      }
+    });
+
+    it('deletes the Keycloak user again and keeps nothing when the grant fails', async () => {
+      keycloak.failGrant = true;
+      const before = keycloak.created.length;
+
+      try {
+        await expect(service.login(ROLE.CUSTOMER)).rejects.toThrow('grant refused');
+      } finally {
+        keycloak.failGrant = false;
+      }
+
+      const failed = keycloak.created[before]?.id ?? '';
+      expect(keycloak.deleted).toContain(failed);
+      expect(await demoUserRows(failed)).toEqual([]);
+      expect(await sandboxEvents(failed)).toEqual([]);
+    });
+  });
+
+  describe('refresh', () => {
+    it('hands the refresh token to Keycloak and returns the new pair', async () => {
+      await expect(service.refresh('old')).resolves.toEqual(FAKE_TOKENS);
+
+      expect(keycloak.refreshed).toContain('old');
+    });
+  });
+
+  describe('deleteExpired', () => {
+    it('removes only expired users: their Keycloak user, bookings, events and row', async () => {
+      const start = era(2003);
+      const expired = await loginWithBooking(start);
+      const active = await loginWithBooking(new Date(start.getTime() + HOUR_MS / 2));
+      const due = new Date(start.getTime() + HOUR_MS + 1);
+
+      await expect(service.deleteExpired(due)).resolves.toBe(1);
+
+      expect(keycloak.deleted).toContain(expired.userId);
+      expect(keycloak.deleted).not.toContain(active.userId);
+      expect(await demoUserRows(expired.userId)).toEqual([]);
+      expect(await sandboxEvents(expired.userId)).toEqual([]);
+      expect(await bookingRows(expired.bookingId)).toEqual([]);
+      expect(await sandboxEvents(active.userId)).toHaveLength(STRATEGIES.length);
+      expect(await demoUserRows(active.userId)).toHaveLength(1);
+      expect(await bookingRows(active.bookingId)).toHaveLength(1);
+    });
+
+    it('removes the transitions of the bookings with them', async () => {
+      const { userId, bookingId } = await loginWithBooking(era(2004));
+      await db.insert(bookingTransitions).values({
+        bookingId,
+        toStatus: BOOKING_STATUS.CONFIRMED,
+        reason: TRANSITION_REASON.CONFIRMED,
+      });
+
+      await service.deleteExpired(new Date(era(2004).getTime() + HOUR_MS + 1));
+
+      const [left] = await db
+        .select({ total: count() })
+        .from(bookingTransitions)
+        .where(eq(bookingTransitions.bookingId, bookingId));
+      expect(left?.total).toBe(0);
+      expect(await demoUserRows(userId)).toEqual([]);
+    });
+
+    it('cleans the others and keeps the row of a user whose Keycloak call fails, for the next run', async () => {
+      const start = era(2005);
+      const stuck = await loginWithBooking(start);
+      const fine = await loginWithBooking(start);
+      const due = new Date(start.getTime() + HOUR_MS + 1);
+      keycloak.failDelete.add(stuck.userId);
+
+      try {
+        await expect(service.deleteExpired(due)).rejects.toThrow(AggregateError);
+      } finally {
+        keycloak.failDelete.clear();
+      }
+
+      expect(await demoUserRows(fine.userId)).toEqual([]);
+      expect(await sandboxEvents(fine.userId)).toEqual([]);
+      expect(await demoUserRows(stuck.userId)).toHaveLength(1);
+      expect(await sandboxEvents(stuck.userId)).toHaveLength(STRATEGIES.length);
+
+      await expect(service.deleteExpired(due)).resolves.toBe(1);
+      expect(await demoUserRows(stuck.userId)).toEqual([]);
+    });
+
+    it('does nothing when nobody is due', async () => {
+      await expect(service.deleteExpired(era(2000))).resolves.toBe(0);
+    });
+  });
+});
