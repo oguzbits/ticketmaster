@@ -5,6 +5,7 @@ import {
   BOOKING_STRATEGY,
   type BookingStatus,
   type BookingStrategy,
+  SIMULATION_STATUS,
 } from '@app/shared';
 import { and, count, eq, inArray } from 'drizzle-orm';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -12,7 +13,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { SPEC_NOW } from '../../testing/time.js';
 import type { Database } from './database.module.js';
-import { bookings, events, seats, venues, venueSeats } from './schema.js';
+import { bookings, events, seats, simulationRuns, venues, venueSeats } from './schema.js';
 import { HALL, SEED, seed } from './seed.js';
 
 const HOLD_MS = 600_000;
@@ -117,5 +118,24 @@ describe('booking schema', () => {
       .from(venueSeats)
       .where(where);
     expect(row?.priceCents).toBe(HALL.sections[0]?.priceCents);
+  });
+
+  it('deleting an event deletes its simulation runs', async () => {
+    const { eventId } = await createTestEvent(db, { strategy: BOOKING_STRATEGY.NAIVE, seats: 1 });
+    const runId = randomUUID();
+    await db.insert(simulationRuns).values({
+      id: runId,
+      eventId,
+      strategy: BOOKING_STRATEGY.NAIVE,
+      buyers: 10,
+      seats: 1,
+      status: SIMULATION_STATUS.QUEUED,
+      startedBy: randomUUID(),
+    });
+
+    await db.delete(events).where(eq(events.id, eventId));
+
+    const rows = await db.select().from(simulationRuns).where(eq(simulationRuns.id, runId));
+    expect(rows).toEqual([]);
   });
 });

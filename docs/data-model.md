@@ -13,6 +13,7 @@ erDiagram
     venues ||--o{ events : "hosts"
     events ||--o{ seats : "has (copied from the template)"
     events ||--o{ bookings : "has"
+    events ||--o{ simulation_runs : "is the sandbox of"
     seats ||--o{ bookings : "is held by"
     bookings ||--o{ booking_transitions : "records"
     demo_users ||--o{ events : "owns as sandbox (by sandbox_user_id)"
@@ -61,6 +62,18 @@ erDiagram
         timestamptz expires_at
         timestamptz created_at
     }
+    simulation_runs {
+        uuid id PK
+        uuid event_id FK "cascade"
+        booking_strategy strategy
+        int buyers
+        int seats
+        simulation_status status "QUEUED, RUNNING, FINISHED, FAILED"
+        jsonb metrics "null until the run ends"
+        uuid started_by "the admin"
+        timestamptz started_at
+        timestamptz finished_at "null until the run ends"
+    }
     booking_transitions {
         uuid id PK
         uuid booking_id FK
@@ -77,6 +90,12 @@ is the Keycloak user ID, which `events.sandbox_user_id`, `events.owner_id` and `
 also carry. The cleanup job reads `expires_at` (indexed) and, per expired user, deletes the
 Keycloak user, then the user's bookings, the sandbox events (their seats and transitions cascade)
 and the row, in one transaction.
+
+`simulation_runs` holds one rush of the simulator. The run belongs to its own sandbox event (owned
+by the admin who started it, so it never shows in the public list); deleting the event deletes the
+run. `metrics` is a JSON document of the shape `SimulationMetricsSchema`, null until the run ends.
+`simulation_runs(status, started_at)` serves the cap query, which counts the runs that are still
+active and started within the timeout.
 
 Seats are copied from the venue template when an event is created (one `INSERT ... SELECT` in the
 same transaction as the event), so a later change of the template does not move seats of events

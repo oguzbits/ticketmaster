@@ -1,8 +1,16 @@
-import { BOOKING_STATUS, BOOKING_STRATEGY, ROLE, TRANSITION_REASON } from '@app/shared';
+import {
+  BOOKING_STATUS,
+  BOOKING_STRATEGY,
+  ROLE,
+  SIMULATION_STATUS,
+  type SimulationMetrics,
+  TRANSITION_REASON,
+} from '@app/shared';
 import { sql } from 'drizzle-orm';
 import {
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   primaryKey,
@@ -17,6 +25,7 @@ export const bookingStrategyEnum = pgEnum('booking_strategy', BOOKING_STRATEGY);
 export const bookingStatusEnum = pgEnum('booking_status', BOOKING_STATUS);
 export const transitionReasonEnum = pgEnum('transition_reason', TRANSITION_REASON);
 export const userRoleEnum = pgEnum('user_role', ROLE);
+export const simulationStatusEnum = pgEnum('simulation_status', SIMULATION_STATUS);
 
 // The index predicate is DDL, so the values are written into it instead of passed as parameters.
 const literal = (value: string) => sql.raw(`'${value}'`);
@@ -137,4 +146,26 @@ export const demoUsers = pgTable(
   },
   // Serves the cleanup job: users whose time has passed.
   (t) => [index('demo_users_expires_at_idx').on(t.expiresAt)]
+);
+
+/** One rush of the simulator on its own sandbox event; the metrics are filled when the run ends. */
+export const simulationRuns = pgTable(
+  'simulation_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    eventId: uuid('event_id')
+      .notNull()
+      .references(() => events.id, { onDelete: 'cascade' }),
+    strategy: bookingStrategyEnum('strategy').notNull(),
+    buyers: integer('buyers').notNull(),
+    seats: integer('seats').notNull(),
+    status: simulationStatusEnum('status').notNull(),
+    metrics: jsonb('metrics').$type<SimulationMetrics>(),
+    // The admin who started the run.
+    startedBy: uuid('started_by').notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+  },
+  // Serves the cap query: runs that are still active and started within the timeout.
+  (t) => [index('simulation_runs_status_started_at_idx').on(t.status, t.startedAt)]
 );
