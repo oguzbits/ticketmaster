@@ -52,7 +52,10 @@ Anyone, signed in or not, can browse public events and watch the seat map.
 
 ## Architecture
 
-Preliminary. Caddy serves the web app and forwards `/api` and `/health` to the API; the API
+Preliminary. Caddy serves the web app and forwards `/api` and `/health` to two API replicas
+(round robin, a failed connection is retried on the other replica); the replicas and the worker
+reach PostgreSQL through PgBouncer in transaction mode
+([ADR 0005](docs/adr/0005-pgbouncer-transaction-mode.md)). The API
 verifies Keycloak tokens, writes to PostgreSQL and publishes every seat change to Redis, which fans
 it out to the open seat streams. The worker runs the scheduled jobs (hold expiry, cleanup of demo
 users) and the simulator: the API puts a run on a Redis stream, the worker's consumer runs the
@@ -69,23 +72,23 @@ at least once.
 ```mermaid
 flowchart LR
   browser[Browser: Angular app] -->|HTTP, SSE| caddy[Caddy]
-  caddy -->|/api, /health| api[API: NestJS]
+  caddy -->|/api, /health, round robin| api[API: NestJS, 2 replicas]
   api -->|verify tokens by JWKS, demo login| keycloak[Keycloak]
-  api --> postgres[(PostgreSQL)]
+  api --> pgbouncer[PgBouncer: transaction mode] --> postgres[(PostgreSQL)]
   api -->|publish seat changes| redis[(Redis: pub/sub, rate limits)]
   redis -->|seat stream| api
-  worker[Worker: NestJS] --> postgres
+  worker[Worker: NestJS] --> pgbouncer
   worker -->|publish seat changes| redis
   worker -->|delete expired demo users| keycloak
   api -->|simulation command: stream| redis
   redis -->|consumer group| worker
   worker -->|progress key| redis
   redis -->|progress key polled for SSE| api
-  api -->|booking and outbox row, one transaction| postgres
+  api -->|booking and outbox row, one transaction| pgbouncer
   worker -->|relay: unpublished outbox rows| queue[[SQS: booking-events]]
   queue -->|long poll, delete after success| worker
   queue -.->|after 5 receives| dlq[[Dead-letter queue]]
-  worker -->|processed_messages: handle once| postgres
+  worker -->|processed_messages: handle once| pgbouncer
 ```
 
 ## Entities
@@ -125,7 +128,7 @@ OpenAPI 3.1 description is [docs/api/openapi.json](docs/api/openapi.json).
 - `pnpm check`: typecheck, lint, architecture rules, dead code, duplication, audits, formatting.
 - `pnpm test`: unit tests, offline.
 - `pnpm test:db`: tests that need Postgres, Redis and the local AWS emulator (`pnpm db:up` and
-  `pnpm db:migrate` first).
+  `pnpm db:migrate` first); `pnpm test:db:pooled` runs them through PgBouncer.
 - `pnpm e2e`: browser tests against the whole Compose stack (builds it, runs it, removes it).
 
 ## Documentation

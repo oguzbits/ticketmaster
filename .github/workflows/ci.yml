@@ -103,7 +103,7 @@ jobs:
         ports:
           - 64320:5432
         options: >-
-          --health-cmd "pg_isready -h 127.0.0.1 -p 5432" --health-interval 2s --health-timeout 3s
+          --health-cmd "nc -z 127.0.0.1 5432" --health-interval 2s --health-timeout 3s
           --health-retries 30
       # The mail sink of the ticket mail specs: SMTP on 1025, REST API on 8025.
       mailpit:
