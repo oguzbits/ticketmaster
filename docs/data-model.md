@@ -134,6 +134,14 @@ a price makes the creation fail as a whole, since `seats.price_cents` is not nul
 transitions up to the event cascade on delete. The status of a seat (available, held, sold) is
 derived from its bookings and never stored.
 
+## Connections
+
+The API and the worker reach PostgreSQL through PgBouncer in transaction mode
+([ADR 0005](adr/0005-pgbouncer-transaction-mode.md)). Code that touches the database keeps every
+lock and setting inside one transaction: `pg_advisory_xact_lock`, `FOR UPDATE` and
+`set_config(..., true)` are fine, session-level locks, `LISTEN` and `SET` without `LOCAL` are not.
+`pnpm test:db:pooled` is the guard. Migrations run on a direct connection.
+
 ## Booking state machine
 
 Every change of `bookings.status` goes through the state machine in the bookings domain and writes

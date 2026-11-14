@@ -87,6 +87,24 @@ jobs:
         image: floci/floci:2.4.0
         ports:
           - 45660:4566
+      # Connection pooler of the app (transaction mode); the db specs run through it. Settings match
+      # docker-compose.yml.
+      pgbouncer:
+        image: edoburu/pgbouncer:v1.26.1-p0
+        env:
+          DB_HOST: postgres
+          DB_USER: app
+          DB_PASSWORD: app
+          AUTH_TYPE: scram-sha-256
+          POOL_MODE: transaction
+          MAX_PREPARED_STATEMENTS: '200'
+          DEFAULT_POOL_SIZE: '30'
+          MAX_CLIENT_CONN: '300'
+        ports:
+          - 64320:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -p 5432" --health-interval 2s --health-timeout 3s
+          --health-retries 30
       # The mail sink of the ticket mail specs: SMTP on 1025, REST API on 8025.
       mailpit:
         image: axllent/mailpit:v1.33.1
@@ -106,7 +124,8 @@ jobs:
       - run: pnpm aws:init
       - run: pnpm aws:smoke
       # The global setup creates and migrates its own `app_test` database on the service.
-      - run: pnpm test:db
+      # Through PgBouncer; the global setup creates `app_test` on the same server.
+      - run: pnpm test:db:pooled
       # drizzle-kit has no drift flag: generating again must not write a new migration.
       - name: Migrations match the schema
         run: |

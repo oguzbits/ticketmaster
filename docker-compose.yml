@@ -20,6 +20,35 @@ services:
       timeout: 3s
       retries: 30
 
+  # Connection pooler in transaction mode between the apps and Postgres, see
+  # docs/adr/0005-pgbouncer-transaction-mode.md. The wildcard database entry (no DB_NAME) lets the
+  # db specs reach `app_test` through it. migrate talks to Postgres directly.
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.26.1-p0
+    environment:
+      DB_HOST: postgres
+      DB_USER: app
+      DB_PASSWORD: app
+      # Postgres 18 stores SCRAM hashes, so the pooler logs in with SCRAM too.
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      # Named prepared statements survive a change of server connection (needs PgBouncer 1.21+).
+      MAX_PREPARED_STATEMENTS: '200'
+      # Server connections per database and user: shared by the API replicas and the worker.
+      DEFAULT_POOL_SIZE: '30'
+      # Client connections: 3 processes with 20 each, the 60 of the concurrency spec, headroom.
+      MAX_CLIENT_CONN: '300'
+    ports:
+      - '64320:5432'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -p 5432']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
   redis:
     image: redis:8.10.3-alpine
     ports:
@@ -97,7 +126,7 @@ services:
       retries: 40
       start_period: 20s
 
-  # One-shot: applies the migrations and the seed, then exits. api and worker wait for it.
+  # One-shot: applies the migrations and the seed, then exits. api and worker wait for it. It connects to Postgres directly (migrations need no pooler).
   migrate:
     build:
       context: .
@@ -123,7 +152,7 @@ services:
       target: api
     environment:
       PORT: 3000
-      DATABASE_URL: postgres://app:app@postgres:5432/app
+      DATABASE_URL: postgres://app:app@pgbouncer:5432/app
       REDIS_URL: redis://redis:6379
       KEYCLOAK_URL: http://keycloak:8080
       KEYCLOAK_DEMO_CLIENT_SECRET: local-demo-client-secret
@@ -133,6 +162,8 @@ services:
       # The API only serves tickets, but the tickets module builds the sender at start.
       SMTP_URL: smtp://mailpit:1025
     depends_on:
+      pgbouncer:
+        condition: service_healthy
       migrate:
         condition: service_completed_successfully
       redis:
@@ -145,7 +176,7 @@ services:
       context: .
       target: worker
     environment:
-      DATABASE_URL: postgres://app:app@postgres:5432/app
+      DATABASE_URL: postgres://app:app@pgbouncer:5432/app
       REDIS_URL: redis://redis:6379
       KEYCLOAK_URL: http://keycloak:8080
       KEYCLOAK_DEMO_CLIENT_SECRET: local-demo-client-secret
@@ -154,6 +185,8 @@ services:
       AWS_SECRET_ACCESS_KEY: test
       SMTP_URL: smtp://mailpit:1025
     depends_on:
+      pgbouncer:
+        condition: service_healthy
       migrate:
         condition: service_completed_successfully
       redis:
