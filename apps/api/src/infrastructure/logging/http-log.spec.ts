@@ -6,6 +6,8 @@ import { pinoHttp } from 'pino-http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
+import { SPAN_NAME, withSpan } from '../tracing/index.js';
+import { startTestTracing } from '../tracing/testing/index.js';
 import { httpLogOptions } from './http-log.js';
 
 const LogLineSchema = z.object({ req: z.object({}).loose(), res: z.object({}).loose() });
@@ -59,5 +61,52 @@ describe('http request log', () => {
     for (const secret of [TOKEN, CLIENT_IP, '127.0.0.1', 'authorization', 'cookie', 'remote']) {
       expect(raw.toLowerCase()).not.toContain(secret);
     }
+  });
+
+  describe('trace correlation', () => {
+    const TRACE_ID = /^[0-9a-f]{32}$/;
+    const TraceFieldsSchema = z.object({
+      trace_id: z.string().optional(),
+      span_id: z.string().optional(),
+    });
+
+    async function lineLoggedIn(inSpan: boolean): Promise<z.infer<typeof TraceFieldsSchema>> {
+      const lines: string[] = [];
+      const stream = new Writable({
+        write(chunk: Buffer, _encoding, done) {
+          lines.push(chunk.toString());
+          done();
+        },
+      });
+      const { logger } = pinoHttp({ ...httpLogOptions }, stream);
+      if (inSpan) {
+        await withSpan(SPAN_NAME.OUTBOX_SEND, () => {
+          logger.info('inside');
+          return Promise.resolve();
+        });
+      } else {
+        logger.info('inside');
+      }
+      return TraceFieldsSchema.parse(JSON.parse(lines[0] ?? ''));
+    }
+
+    it('writes the trace ID of the active span', async () => {
+      const tracing = startTestTracing();
+      try {
+        const line = await lineLoggedIn(true);
+
+        expect(line.trace_id).toMatch(TRACE_ID);
+        expect(line.span_id).toBeDefined();
+      } finally {
+        await tracing.shutdown();
+      }
+    });
+
+    it('writes no trace keys outside a span', async () => {
+      const line = await lineLoggedIn(false);
+
+      expect(line).not.toHaveProperty('trace_id');
+      expect(line).not.toHaveProperty('span_id');
+    });
   });
 });

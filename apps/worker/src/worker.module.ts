@@ -22,10 +22,11 @@ import { SimulationConsumer } from './simulation.consumer.js';
 import { SimulationReaperJob } from './simulation-reaper.job.js';
 import { SimulationRetentionJob } from './simulation-retention.job.js';
 import { WaitingRoomAdmissionJob } from './waiting-room-admission.job.js';
+import { workerLogOptions } from './worker-logger.js';
 
 @Module({
   imports: [
-    LoggerModule.forRoot(),
+    LoggerModule.forRoot({ pinoHttp: workerLogOptions }),
     ScheduleModule.forRoot(),
     ConfigModule,
     ClockModule,

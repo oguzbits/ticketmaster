@@ -1,6 +1,7 @@
 import type { StdSerializedResults } from 'pino-http';
 
 import { requestId } from './request-id.js';
+import { traceMixin } from './trace-mixin.js';
 
 /**
  * Options of the HTTP request log. The default serializers write every header and the client
@@ -9,6 +10,7 @@ import { requestId } from './request-id.js';
  */
 export const httpLogOptions = {
   genReqId: requestId,
+  mixin: traceMixin,
   serializers: {
     req: ({ id, method, url }: StdSerializedResults['req']) => ({ id, method, url }),
     res: ({ statusCode }: StdSerializedResults['res']) => ({ statusCode }),

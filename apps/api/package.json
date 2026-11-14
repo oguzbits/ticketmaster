@@ -60,6 +60,14 @@
       "types": "./dist/infrastructure/tracing/index.d.ts",
       "default": "./dist/infrastructure/tracing/index.js"
     },
+    "./tracing/testing": {
+      "types": "./dist/infrastructure/tracing/testing/index.d.ts",
+      "default": "./dist/infrastructure/tracing/testing/index.js"
+    },
+    "./logging": {
+      "types": "./dist/infrastructure/logging/index.d.ts",
+      "default": "./dist/infrastructure/logging/index.js"
+    },
     "./tickets": {
       "types": "./dist/modules/tickets/index.d.ts",
       "default": "./dist/modules/tickets/index.js"
