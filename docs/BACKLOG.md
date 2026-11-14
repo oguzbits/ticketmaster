@@ -203,6 +203,12 @@ ticket PDF) follow. Still open from earlier notes:
   dedupe record serializes the two, but the receive count rises toward the dead-letter queue).
   Irrelevant while the handler only logs; slice B (mail, PDF) needs a heartbeat that extends the
   timeout, or a longer timeout.
+- **A poison message stalls its consumer loop.** An unparsable message pauses the loop for one
+  second per receive, so it costs about `MAX_RECEIVE_COUNT` x (visibility timeout + 1 s) of
+  throughput before it reaches the dead-letter queue.
+- **Offline specs may reach the local AWS emulator.** The MSW passthrough in
+  `apps/api/src/testing/mock-server.ts` applies to every spec, not only the `db` project; register
+  it in the `db` setup only.
 - **Initial web bundle is about 790 kB**, over the 500 kB warning budget. Zod makes up a large part of it.
   Measure, then decide (lazy routes, `zod/mini`).
 - **A running hold is not restored after a reload.** The seat map keeps the customer's hold in the

@@ -20,15 +20,11 @@ import { and, count, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 
 import { CLOCK, type Clock } from '../../core/clock.js';
 import { type Database, DB, type Tx } from '../../infrastructure/database/database.module.js';
-import {
-  bookings,
-  bookingTransitions,
-  events,
-  seats,
-} from '../../infrastructure/database/schema.js';
+import { bookings, events, seats } from '../../infrastructure/database/schema.js';
 import { BOOKING_PORTS, type BookingPorts } from './adapters/booking-ports.js';
 import {
   claimPaymentKey,
+  paymentApplied,
   planTransition,
   storeTransition,
 } from './adapters/booking-transitions.js';
@@ -157,14 +153,16 @@ export class BookingsService {
       const { booking, paymentIdempotencyKey, paymentClaimedAt, priceCents, seat } =
         await this.lockOwnBooking(tx, input.bookingId, input.userId);
       const sameKey = paymentIdempotencyKey === input.idempotencyKey;
-      // The same key on a booking that left HELD: the stored result, nothing to charge or announce.
-      if (sameKey && booking.status !== BOOKING_STATUS.HELD) return { settled: booking };
+      if (sameKey && booking.status !== BOOKING_STATUS.HELD) {
+        // The same key on a booking that left HELD: its stored result, or 409 if it was never paid.
+        if (await paymentApplied(tx, booking.id)) return { settled: booking };
+        throw new ConflictException(`Booking is ${booking.status}, the payment was not applied`);
+      }
       // A retry keeps the first claim time: the hold was valid then and may finish inside the grace.
       const claimedAt = sameKey && paymentClaimedAt !== null ? paymentClaimedAt : this.clock.now();
       // Refused before the charge: another key on a settled booking, or a hold that ran out.
       planTransition(booking, TRANSITION_REASON.PAYMENT_SUCCEEDED, input.userId, claimedAt);
       if (!sameKey) {
-        // Another key is already being charged for this booking.
         if (paymentIdempotencyKey !== null) {
           throw new ConflictException('Another payment of this booking is in progress');
         }
@@ -189,7 +187,7 @@ export class BookingsService {
       const { booking } = await this.lockOwnBooking(tx, input.bookingId, input.userId);
       if (booking.status !== BOOKING_STATUS.HELD) {
         // A parallel request of this key applied the result first: its answer stands.
-        if (await this.paymentApplied(tx, booking.id)) return { state: booking, seat: null };
+        if (await paymentApplied(tx, booking.id)) return { state: booking, seat: null };
         // No refund in this phase (backlog): the charge went through, the booking did not.
         this.logger.warn(
           `payment of booking ${booking.id} finished while the booking was ${booking.status}; not applied`
@@ -216,23 +214,6 @@ export class BookingsService {
       });
       return { state: confirmed, seat: claim.seat };
     });
-  }
-
-  private async paymentApplied(tx: Tx, bookingId: string): Promise<boolean> {
-    const [applied] = await tx
-      .select({ id: bookingTransitions.id })
-      .from(bookingTransitions)
-      .where(
-        and(
-          eq(bookingTransitions.bookingId, bookingId),
-          inArray(bookingTransitions.reason, [
-            TRANSITION_REASON.PAYMENT_SUCCEEDED,
-            TRANSITION_REASON.PAYMENT_FAILED,
-          ])
-        )
-      )
-      .limit(1);
-    return applied !== undefined;
   }
 
   async cancel(input: { bookingId: string; userId: string }): Promise<BookingState> {

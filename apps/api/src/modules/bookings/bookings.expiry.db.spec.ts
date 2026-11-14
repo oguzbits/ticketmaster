@@ -196,7 +196,10 @@ describe('expireHolds', () => {
 
   describe('a payment is claimed on the booking', () => {
     /** Holds a seat and claims a payment key on it; the provider dies, the claim stays. */
-    async function claimedHold(userId = randomUUID()): Promise<string> {
+    async function claimedHold(
+      userId = randomUUID(),
+      idempotencyKey = randomUUID()
+    ): Promise<string> {
       now = START;
       const { eventId, seatIds } = await createTestEvent(db, {
         strategy: BOOKING_STRATEGY.PESSIMISTIC,
@@ -213,7 +216,7 @@ describe('expireHolds', () => {
         }
       );
       await expect(
-        dying.pay({ bookingId: held.bookingId, userId, idempotencyKey: randomUUID() })
+        dying.pay({ bookingId: held.bookingId, userId, idempotencyKey })
       ).rejects.toThrow('provider down');
       return held.bookingId;
     }
@@ -230,6 +233,17 @@ describe('expireHolds', () => {
       expect(inside).toEqual([BOOKING_STATUS.HELD]);
       expect(await statusOf([bookingId])).toEqual([BOOKING_STATUS.EXPIRED]);
       expect(await statusOf([unclaimed])).toEqual([BOOKING_STATUS.EXPIRED]);
+    });
+
+    it('a retry with the claimed key after the hold expired answers 409, not a stored result', async () => {
+      const userId = randomUUID();
+      const idempotencyKey = randomUUID();
+      const bookingId = await claimedHold(userId, idempotencyKey);
+      await service.expireHolds(new Date(START.getTime() + ttlMs + graceMs));
+
+      await expect(service.pay({ bookingId, userId, idempotencyKey })).rejects.toBeInstanceOf(
+        ConflictException
+      );
     });
 
     it('a charge that succeeds after the hold expired stores nothing: conflict, EXPIRED, logged with the booking ID', async () => {

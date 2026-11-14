@@ -1,6 +1,6 @@
-import type { TransitionReason } from '@app/shared';
+import { TRANSITION_REASON, type TransitionReason } from '@app/shared';
 import { ConflictException } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { Tx } from '../../../infrastructure/database/database.module.js';
@@ -68,4 +68,22 @@ export async function storeTransition(
     .where(eq(bookings.id, booking.id));
   await tx.insert(bookingTransitions).values(record);
   return booking;
+}
+
+/** Whether a payment result (success or failure) is already stored for the booking. */
+export async function paymentApplied(tx: Tx, bookingId: string): Promise<boolean> {
+  const [applied] = await tx
+    .select({ id: bookingTransitions.id })
+    .from(bookingTransitions)
+    .where(
+      and(
+        eq(bookingTransitions.bookingId, bookingId),
+        inArray(bookingTransitions.reason, [
+          TRANSITION_REASON.PAYMENT_SUCCEEDED,
+          TRANSITION_REASON.PAYMENT_FAILED,
+        ])
+      )
+    )
+    .limit(1);
+  return applied !== undefined;
 }
