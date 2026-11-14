@@ -17,7 +17,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../../app.module.js';
 import { configureApp } from '../../app.setup.js';
 import { CLOCK } from '../../core/clock.js';
-import { events } from '../../infrastructure/database/schema.js';
+import { demoUsers, events } from '../../infrastructure/database/schema.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { fakeTokenVerifier, randomClientAddress } from '../../testing/http.js';
 import { lockSpecs } from '../../testing/spec-lock.js';
@@ -34,9 +34,12 @@ const TOKENS = {
   organizer: { id: randomUUID(), roles: [ROLE.ORGANIZER] },
   other: { id: randomUUID(), roles: [ROLE.ORGANIZER] },
   admin: { id: randomUUID(), roles: [ROLE.ADMIN] },
+  demoAdmin: { id: randomUUID(), roles: [ROLE.ADMIN] },
+  otherDemoAdmin: { id: randomUUID(), roles: [ROLE.ADMIN] },
 };
 type Caller = keyof typeof TOKENS;
 const CAPACITY = 5;
+const DEMO_EXPIRES_AT = new Date('2100-01-01T00:00:00Z');
 
 describe('waiting room endpoints', () => {
   const database = openTestDatabase();
@@ -55,6 +58,13 @@ describe('waiting room endpoints', () => {
       .compile();
     app = configureApp(moduleRef.createNestApplication<NestExpressApplication>());
     await app.init();
+    await db.insert(demoUsers).values(
+      [TOKENS.demoAdmin, TOKENS.otherDemoAdmin].map(({ id }) => ({
+        userId: id,
+        role: ROLE.ADMIN,
+        expiresAt: DEMO_EXPIRES_AT,
+      }))
+    );
   });
   afterAll(async () => {
     await app.close();
@@ -174,6 +184,36 @@ describe('waiting room endpoints', () => {
       const eventId = await newEvent({ ownerId: TOKENS.organizer.id });
 
       await put(eventId, 9, 'admin').expect(200);
+    });
+
+    const capacityOf = async (eventId: string) =>
+      (await db.select().from(events).where(eq(events.id, eventId)))[0]?.waitingRoomCapacity;
+
+    it('a demo admin changes their own sandbox event but not a public one: 404', async () => {
+      const own = await newEvent({ sandboxUserId: TOKENS.demoAdmin.id });
+      const publicEvent = await newEvent();
+
+      await put(own, 9, 'demoAdmin').expect(200);
+      await put(publicEvent, 9, 'demoAdmin').expect(404);
+
+      expect(await capacityOf(own)).toBe(9);
+      expect(await capacityOf(publicEvent)).toBe(CAPACITY);
+    });
+
+    it("a demo admin cannot change another demo user's sandbox event: 404", async () => {
+      const eventId = await newEvent({ sandboxUserId: TOKENS.otherDemoAdmin.id });
+
+      await put(eventId, 9, 'demoAdmin').expect(404);
+
+      expect(await capacityOf(eventId)).toBe(CAPACITY);
+    });
+
+    it('a regular admin cannot change a sandbox event: 404', async () => {
+      const eventId = await newEvent({ sandboxUserId: TOKENS.demoAdmin.id });
+
+      await put(eventId, 9, 'admin').expect(404);
+
+      expect(await capacityOf(eventId)).toBe(CAPACITY);
     });
 
     it('a customer answers 403 and nothing changes', async () => {
