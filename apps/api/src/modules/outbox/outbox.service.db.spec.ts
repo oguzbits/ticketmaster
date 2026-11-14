@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 
 import { OUTBOX_MESSAGE_TYPE, type QueueMessage, QueueMessageSchema } from '@app/shared';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import type { Clock } from '../../core/clock.js';
 import type { Database } from '../../infrastructure/database/database.module.js';
 import { outboxMessages } from '../../infrastructure/database/schema.js';
 import { openTestDatabase } from '../../testing/database.js';
-import { OutboxService } from './outbox.service.js';
+import { OutboxService, RELAY_DEADLINE_ERROR } from './outbox.service.js';
 import { FakeMessageQueue, lockOutboxRelays } from './testing/index.js';
 
 // The relay takes every unpublished row of the table, and the other db specs share it. So these
@@ -18,10 +18,14 @@ import { FakeMessageQueue, lockOutboxRelays } from './testing/index.js';
 const CLOCK_TIME = new Date('2000-01-01T12:00:00.000Z');
 const BATCH = 1000;
 const GATE_WAIT_MS = 3000;
+const BACKDATED_SECONDS = 1000;
+const QUERY_CANCELED = '57014';
 
 class QueueDown extends Error {
   override name = 'QueueDown';
 }
+
+const addSeconds = (seconds: number) => new Date(CLOCK_TIME.getTime() + seconds * 1000);
 
 function message(): QueueMessage {
   return {
@@ -66,6 +70,14 @@ describe('OutboxService', () => {
     await db.transaction(async (tx) => {
       for (const m of messages) await service.enqueue(tx, m);
     });
+    // Dated in 2000, in order: before any row another spec writes at the same time, so these are the
+    // first rows a relay takes (a foreign row in front would absorb a hanging or blocked send).
+    for (const [index, m] of messages.entries()) {
+      await db
+        .update(outboxMessages)
+        .set({ createdAt: addSeconds(index - BACKDATED_SECONDS) })
+        .where(eq(outboxMessages.id, m.messageId));
+    }
     return messages;
   }
 
@@ -171,12 +183,70 @@ describe('OutboxService', () => {
     if (only === undefined) throw new Error('no message');
 
     // The database ends a transaction that sits idle for longer than the limit.
-    await expect(serviceWith(hung).relay(BATCH, limitMs)).rejects.toThrow();
+    await expect(serviceWith(hung).relay(BATCH, { transactionLimitMs: limitMs })).rejects.toThrow();
 
     expect(await rowOf(only.messageId)).toMatchObject({ publishedAt: null });
     const healthy = new FakeMessageQueue();
     await serviceWith(healthy).relay(BATCH);
     expect(healthy.sentCount(only.messageId)).toBe(1);
+  });
+
+  it('a send that never answers ends the run at its deadline: the row counts the attempt and the rows behind it are not tried', async () => {
+    const hung = new FakeMessageQueue(() => new Promise<void>(() => undefined));
+    // Written before any row of another spec (created in 2000), so they are the first the relay takes.
+    const [first, second] = [message(), message()];
+    written.push(first.messageId, second.messageId);
+    await db.insert(outboxMessages).values([
+      { id: first.messageId, type: first.type, payload: first, createdAt: addSeconds(-2) },
+      { id: second.messageId, type: second.type, payload: second, createdAt: addSeconds(-1) },
+    ]);
+
+    const result = await withinTimeout(serviceWith(hung).relay(BATCH, { deadlineMs: 200 }));
+
+    expect(result).toEqual({ sent: 0, failed: 1 });
+    expect(hung.attempted.map((input) => input.messageId)).toEqual([first.messageId]);
+    expect(await rowOf(first.messageId)).toMatchObject({
+      publishedAt: null,
+      attempts: 1,
+      lastError: RELAY_DEADLINE_ERROR,
+    });
+    expect(await rowOf(second.messageId)).toMatchObject({ publishedAt: null, attempts: 0 });
+  });
+
+  it('a statement that waits for a lock is ended at the statement limit', async () => {
+    const gate = () => {
+      let open: () => void = () => undefined;
+      const opened = new Promise<void>((resolve) => {
+        open = resolve;
+      });
+      return { open, opened };
+    };
+    const sending = gate();
+    const locked = gate();
+    const released = gate();
+    // While the relay sends (its row selected), a writer of the table takes a lock that blocks the mark.
+    const blocker = (async () => {
+      await sending.opened;
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`lock table outbox_messages in share mode`);
+        locked.open();
+        await released.opened;
+      });
+    })();
+    const queue = new FakeMessageQueue(async () => {
+      sending.open();
+      await locked.opened;
+    });
+    await enqueueMessages(serviceWith(queue), 1);
+
+    try {
+      await expect(
+        withinTimeout(serviceWith(queue).relay(BATCH, { statementLimitMs: 300 }))
+      ).rejects.toMatchObject({ cause: { code: QUERY_CANCELED } });
+    } finally {
+      released.open();
+      await blocker;
+    }
   });
 
   it('two relays at once: the second does not wait for the rows of the first and no row goes out twice', async () => {
@@ -236,7 +306,7 @@ describe('OutboxService', () => {
 
   it('oldestUnpublishedAgeSeconds is the age of the oldest unpublished row; published rows do not count', async () => {
     const service = serviceWith(new FakeMessageQueue());
-    const ageSeconds = (seconds: number) => new Date(CLOCK_TIME.getTime() - seconds * 1000);
+    const ageSeconds = (seconds: number) => addSeconds(-seconds);
     const [old, young, published] = [message(), message(), message()];
     written.push(old.messageId, young.messageId, published.messageId);
     await db.insert(outboxMessages).values([

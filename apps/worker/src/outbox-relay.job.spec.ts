@@ -3,11 +3,9 @@ import { Logger } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  OUTBOX_RELAY_BATCH_SIZE,
-  OUTBOX_RELAY_RUN_LIMIT_MS,
-  OutboxRelayJob,
-} from './outbox-relay.job.js';
+import { OUTBOX_RELAY_BATCH_SIZE, OutboxRelayJob } from './outbox-relay.job.js';
+
+const ONE_DAY_MS = 86_400_000;
 
 async function jobWith(relay: OutboxService['relay']): Promise<OutboxRelayJob> {
   const moduleRef = await Test.createTestingModule({
@@ -73,25 +71,20 @@ describe('OutboxRelayJob', () => {
     await third;
   });
 
-  it('gives up on a run that never finishes, logs it and runs again on the next tick', async () => {
+  it('never starts a second run while the first has not settled, however long it takes', async () => {
     vi.useFakeTimers();
     try {
-      const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
       let calls = 0;
       const job = await jobWith(() => {
         calls += 1;
         return new Promise(() => undefined);
       });
 
-      const hung = job.run();
-      await vi.advanceTimersByTimeAsync(OUTBOX_RELAY_RUN_LIMIT_MS);
-      await hung;
-      const next = job.run();
-      await vi.advanceTimersByTimeAsync(OUTBOX_RELAY_RUN_LIMIT_MS);
-      await next;
+      void job.run();
+      await vi.advanceTimersByTimeAsync(ONE_DAY_MS);
+      await job.run();
 
-      expect(logged).toHaveBeenCalledWith(expect.stringContaining('outbox relay failed'));
-      expect(calls).toBe(2);
+      expect(calls).toBe(1);
     } finally {
       vi.useRealTimers();
     }

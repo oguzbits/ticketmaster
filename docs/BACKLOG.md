@@ -145,11 +145,12 @@ follows, then phase 2. Still open from earlier notes:
   lock and the status check, not on a unique constraint. A unique index on the booking ID in the
   payload would make it a database guarantee.
 - **The outbox relay holds a transaction while it sends.** The rows stay locked (`SKIP LOCKED`
-  keeps other relays away) until the batch is sent and marked. A send is bounded by the queue
-  client's request timeout (5 s, one attempt), a batch is 20 rows, and the database ends a relay
-  transaction that sits idle for 120 s; a send that was made but not marked is repeated (at least
-  once, consumers dedupe). Selecting, sending outside the transaction and marking afterwards would
-  need a claim state on the row.
+  keeps other relays away) until the batch is sent and marked. A run ends within its deadline
+  (30 s): a send that has not answered by then counts as failed and ends the batch; each statement
+  is bounded by 10 s, a batch is 20 rows, and the database ends a relay transaction that sits idle
+  for 120 s. The job never abandons a run, so runs of one process never overlap. A send that was
+  made but not marked is repeated (at least once, consumers dedupe). Selecting, sending outside the
+  transaction and marking afterwards would need a claim state on the row.
 - **Published outbox rows are never deleted.** The table grows with every confirmed booking; a
   retention job (like the simulation retention) is needed before it matters.
 - **The queue consumer takes one message at a time** (`receive(1)`, one loop per worker), so its

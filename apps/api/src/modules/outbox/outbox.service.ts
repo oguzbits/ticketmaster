@@ -11,11 +11,21 @@ import { MESSAGE_QUEUE, type MessageQueue } from './domain/message-queue.js';
 export const OUTBOX_STUCK_SECONDS = 300;
 
 /**
- * The relay holds its transaction (and the locks of its rows) while it sends. The database ends a
- * transaction that sits idle longer than this: a batch of sends, each bounded by the request
- * timeout of the queue client (5 s), stays far below it.
+ * Limits of one relay run. The run holds a transaction (and the locks of its rows) while it sends,
+ * and it must end before the job's next tick can matter: `deadlineMs` bounds the whole batch,
+ * whatever the queue does; `statementLimitMs` bounds each query; the database ends a transaction
+ * that sits idle longer than `transactionLimitMs` (a backstop behind the deadline).
  */
-export const OUTBOX_RELAY_TRANSACTION_LIMIT_MS = 120_000;
+export const OUTBOX_RELAY_LIMITS_MS = {
+  DEADLINE: 30_000,
+  STATEMENT: 10_000,
+  TRANSACTION: 120_000,
+} as const;
+
+/** The failure name stored for a send that did not answer before the deadline of its run. */
+export const RELAY_DEADLINE_ERROR = 'RelayDeadline';
+
+type RelayLimits = { deadlineMs: number; statementLimitMs: number; transactionLimitMs: number };
 
 @Injectable()
 export class OutboxService {
@@ -39,18 +49,28 @@ export class OutboxService {
    * Sends the oldest unpublished rows and marks the sent ones published, in one transaction. Rows
    * another relay holds are skipped, so relays side by side never wait for each other and send
    * each row once. A failed send keeps its row, counts the attempt and stores the error name; it
-   * does not stop the batch. A crash between a send and the commit sends the row again later: the
-   * delivery is at least once and consumers dedupe by the message ID. A relay that sits idle in
-   * its transaction past `transactionLimitMs` (a send that hangs) is ended by the database: it
-   * rejects, its rows stay unpublished and the sends it made are repeated by the next relay.
+   * does not stop the batch. A send that has not answered when the run's deadline passes counts as
+   * failed and ends the batch (the rows behind it wait for the next run), so a run always ends
+   * within the deadline plus its queries: runs of one process never overlap. A crash between a
+   * send and the commit, or a send abandoned at the deadline that went out after all, sends the
+   * row again later: the delivery is at least once and consumers dedupe by the message ID. A
+   * relay that sits idle in its transaction past `transactionLimitMs` is ended by the database.
    */
   relay(
     batchSize: number,
-    transactionLimitMs: number = OUTBOX_RELAY_TRANSACTION_LIMIT_MS
+    limits: Partial<RelayLimits> = {}
   ): Promise<{ sent: number; failed: number }> {
+    const {
+      deadlineMs = OUTBOX_RELAY_LIMITS_MS.DEADLINE,
+      statementLimitMs = OUTBOX_RELAY_LIMITS_MS.STATEMENT,
+      transactionLimitMs = OUTBOX_RELAY_LIMITS_MS.TRANSACTION,
+    } = limits;
     return this.db.transaction(async (tx) => {
       await tx.execute(
         sql`select set_config('idle_in_transaction_session_timeout', ${String(transactionLimitMs)}, true)`
+      );
+      await tx.execute(
+        sql`select set_config('statement_timeout', ${String(statementLimitMs)}, true)`
       );
       const rows = await tx
         .select()
@@ -59,23 +79,39 @@ export class OutboxService {
         .orderBy(asc(outboxMessages.createdAt))
         .limit(batchSize)
         .for('update', { skipLocked: true });
+      let expired = false;
+      let timer: NodeJS.Timeout | undefined;
+      const deadline = new Promise<string>((resolve) => {
+        timer = setTimeout(() => {
+          expired = true;
+          resolve(RELAY_DEADLINE_ERROR);
+        }, deadlineMs);
+      });
       let sent = 0;
       let failed = 0;
-      for (const row of rows) {
-        const failure = await this.send(row.id, JSON.stringify(row.payload));
-        if (failure === null) {
-          await tx
-            .update(outboxMessages)
-            .set({ publishedAt: this.clock.now() })
-            .where(eq(outboxMessages.id, row.id));
-          sent += 1;
-        } else {
-          await tx
-            .update(outboxMessages)
-            .set({ attempts: sql`${outboxMessages.attempts} + 1`, lastError: failure })
-            .where(eq(outboxMessages.id, row.id));
-          failed += 1;
+      try {
+        for (const row of rows) {
+          if (expired) break;
+          const failure = await Promise.race([
+            this.send(row.id, JSON.stringify(row.payload)),
+            deadline,
+          ]);
+          if (failure === null) {
+            await tx
+              .update(outboxMessages)
+              .set({ publishedAt: this.clock.now() })
+              .where(eq(outboxMessages.id, row.id));
+            sent += 1;
+          } else {
+            await tx
+              .update(outboxMessages)
+              .set({ attempts: sql`${outboxMessages.attempts} + 1`, lastError: failure })
+              .where(eq(outboxMessages.id, row.id));
+            failed += 1;
+          }
         }
+      } finally {
+        clearTimeout(timer);
       }
       return { sent, failed };
     });
