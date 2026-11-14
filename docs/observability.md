@@ -117,6 +117,20 @@ error name, never reported as 0 or repeated with its last value (gauges are expo
 this). `tm_db_queries_active` (API and worker) is the number of database queries in flight; it
 needs only `METRICS_ENABLED`.
 
+## Dashboards
+
+Grafana loads four dashboards into the folder `ticketmaster` at start
+(`docker/observability/grafana/provisioning/dashboards/`, data source `prometheus`; the files are
+read-only in the UI, change the JSON): `API` (request rate, 5xx ratio and p50/p95/p99 per route
+template, queries in flight against the pool size of 20; the database host the services see is
+PgBouncer), `Bookings` (holds per second by strategy and outcome, `SEAT_TAKEN` ratio per strategy,
+settled bookings by status, expired holds), `Queue and outbox` (age of the oldest outbox row with a
+line at `OUTBOX_STUCK_SECONDS`, depth of the booking queue and its dead-letter queue, queue effects
+by outcome) and `Waiting room`. A panel shows a gap, not 0, while the process that reports its
+metric is down; a counter series starts with its first event. `observability-files.spec.ts` checks
+that every metric a panel reads is one the services emit and that the two threshold lines equal
+`OUTBOX_STUCK_SECONDS` and the pool size.
+
 ## Check it by hand
 
 A repeatable check, not a CI job: it needs the profile. Stop any `pnpm dev` worker first, or it

@@ -14,7 +14,7 @@ export const DB = Symbol('DB');
 const DB_CLIENT = Symbol('DB_CLIENT');
 
 /** Connections the API keeps open. The concurrency tests open their own pool. */
-const API_POOL_SIZE = 20;
+export const API_POOL_SIZE = 20;
 
 @Global()
 @Module({
