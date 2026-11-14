@@ -17,6 +17,7 @@ export async function loadOwnBookings(
       seatId: bookings.seatId,
       status: bookings.status,
       holdExpiresAt: bookings.holdExpiresAt,
+      ticketReadyAt: bookings.ticketReadyAt,
       section: seats.section,
       row: seats.row,
       number: seats.number,
@@ -38,9 +39,10 @@ export async function loadOwnBookings(
       )
     )
     .orderBy(desc(bookingTransitions.at), desc(bookingTransitions.toStatus));
-  return rows.map(({ section, row, number, holdExpiresAt, ...booking }) => ({
+  return rows.map(({ section, row, number, holdExpiresAt, ticketReadyAt, ...booking }) => ({
     ...booking,
     holdExpiresAt: holdExpiresAt.toISOString(),
+    ticketReady: ticketReadyAt !== null,
     seat: { section, row, number },
     transitions: stored
       .filter(({ bookingId }) => bookingId === booking.id)

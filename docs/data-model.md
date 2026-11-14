@@ -54,6 +54,7 @@ erDiagram
         timestamptz hold_expires_at
         text payment_idempotency_key "unique, null until payment"
         timestamptz payment_claimed_at "set with the key, null until payment"
+        timestamptz ticket_ready_at "set when the worker stored the ticket PDF, null until then"
         timestamptz created_at
         timestamptz updated_at
     }

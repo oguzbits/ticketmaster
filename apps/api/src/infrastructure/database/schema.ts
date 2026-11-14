@@ -109,6 +109,8 @@ export const bookings = pgTable(
     paymentIdempotencyKey: text('payment_idempotency_key').unique(),
     // When the key was claimed; the payment is planned at this time, however late a retry runs.
     paymentClaimedAt: timestamp('payment_claimed_at', { withTimezone: true }),
+    // When the worker stored the ticket PDF; null until then (and for bookings before the feature).
+    ticketReadyAt: timestamp('ticket_ready_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

@@ -50,6 +50,13 @@
       "when": 1794612657355,
       "tag": "0006_acoustic_korath",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794618577311,
+      "tag": "0007_perpetual_madelyne_pryor",
+      "breakpoints": true
     }
   ]
 }

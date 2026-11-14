@@ -18,6 +18,8 @@ export const BookingSchema = z.object({
   seatId: z.uuid(),
   status: BookingStatusSchema,
   holdExpiresAt: z.iso.datetime(),
+  // The ticket PDF is stored and can be downloaded.
+  ticketReady: z.boolean(),
   seat: SeatSchema.pick({ section: true, row: true, number: true }),
   transitions: z.array(BookingTransitionSchema),
 });

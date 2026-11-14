@@ -40,12 +40,14 @@ const DORA = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
 const ELI = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
 const NEWCOMER = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
 const FRIDA = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
+const GINA = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
 const TOKENS = {
   alice: ALICE,
   bob: BOB,
   dora: DORA,
   eli: ELI,
   frida: FRIDA,
+  gina: GINA,
   newcomer: NEWCOMER,
   organizer: ORGANIZER,
   admin: ADMIN,
@@ -410,6 +412,19 @@ describe('booking endpoints', () => {
         TRANSITION_REASON.PAYMENT_SUCCEEDED,
         TRANSITION_REASON.HOLD,
       ]);
+    });
+
+    it('flags a booking whose ticket was stored, and no other', async () => {
+      const booking = await hold('gina');
+      await pay(booking.id, 'gina', key('ticket-flag')).expect(200);
+      const flagOf = async () => {
+        const response = await call('get', '/bookings', 'gina').expect(200);
+        return BookingListResponseSchema.parse(response.body)[0]?.ticketReady;
+      };
+
+      expect(await flagOf()).toBe(false);
+      await db.update(bookings).set({ ticketReadyAt: SPEC_NOW }).where(eq(bookings.id, booking.id));
+      expect(await flagOf()).toBe(true);
     });
 
     it('is an empty list for a customer without bookings', async () => {

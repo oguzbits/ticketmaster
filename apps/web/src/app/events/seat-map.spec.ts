@@ -54,6 +54,7 @@ const BOOKING: Booking = {
   seatId: SEAT_ID(3),
   status: BOOKING_STATUS.HELD,
   holdExpiresAt: '2027-01-01T00:02:00.000Z',
+  ticketReady: false,
   seat: { section: 'B', row: 1, number: 1 },
   transitions: [],
 };
