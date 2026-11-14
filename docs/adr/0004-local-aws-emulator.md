@@ -18,7 +18,7 @@ know it behaves like SQS where the design depends on it?
   trip.
 - One container, fast start, a health signal Compose and CI can wait for.
 - The application code uses the standard AWS SDK with an endpoint override and nothing emulator
-  specific, so the same code runs against real AWS (slice E).
+  specific, so the same code runs against real AWS.
 - A small dependency set.
 
 ## Considered options
@@ -67,8 +67,8 @@ Findings that shape the setup:
   `us-east-1`, set through the config module (nothing reads the SDK's own environment variables).
 - **State.** The service has no volume: a restart starts empty, and the one-shot `aws-init`
   (`scripts/aws-init.mjs`, run by Compose, by `pnpm db:up` and by CI) creates the queues, the
-  redrive policy and the bucket again. It is safe to run twice. Slice E replaces it with declared
-  infrastructure.
+  redrive policy and the bucket again. It is safe to run twice. What it creates is declared in
+  `INFRASTRUCTURE` and applied as described in [ADR 0006](0006-infrastructure-as-code.md).
 - **Re-running.** `docker compose up --wait` treats an already exited one-shot container as a
   failure, so `pnpm db:up` starts the long-running services with `up` and runs `aws-init` with
   `docker compose run --rm`.

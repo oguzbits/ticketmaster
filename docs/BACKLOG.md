@@ -124,6 +124,15 @@ Phase 2, slice D (virtual waiting room) is complete:
   `waiting-room.e2e.ts` runs it: customer A is admitted and holds a seat, customer B waits at
   position 1 with gated seats and is admitted after A leaves.
 
+Phase 2, slice E (infrastructure as code) is complete:
+
+- The queues, the redrive policy and the bucket are declared once (`INFRASTRUCTURE`,
+  `packages/shared/src/aws.ts`) and converged by `scripts/infrastructure.mjs`; the one-shot
+  `aws-init` runs it and `api` and `worker` wait for it ([ADR 0006](adr/0006-infrastructure-as-code.md):
+  SDK script, not OpenTofu).
+- Applying twice sends no mutating call, a missing queue is recreated, a drifted attribute is set
+  back (`scripts/infrastructure.test.mjs`; also run by hand against the emulator).
+
 ## Deviations from the plan
 
 - **No SWC for NestJS decorators.** Vitest (Vite 8, Oxc) reads `experimentalDecorators` and
@@ -229,13 +238,15 @@ Slice D:
 
 ## Next
 
-Phase 2, slices A, B, C and D are done; infrastructure as code (E) remains. Still open from earlier notes:
+Phase 2 (slices A to E) is done. Still open from earlier notes:
 
 - Write the runbooks the docs-map entry for the deploy folder points to (`docs/runbooks/`).
 - Images are pinned by tag; pin by digest and add resource limits with the container hardening.
 
 ## Open points
 
+- **The infrastructure script never deletes.** A resource removed from `INFRASTRUCTURE` stays in
+  the account until it is deleted by hand ([ADR 0006](adr/0006-infrastructure-as-code.md)).
 - **A closed tab stays admitted until the admission runs out** (five minutes) and can fill the
   capacity meanwhile. No presence heartbeat drops it earlier.
 - **No admin screen for the capacity of an existing event.** The settings route exists.

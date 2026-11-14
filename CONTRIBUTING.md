@@ -28,9 +28,10 @@ Ports of the local stack (`docker-compose.yml`):
 | mailpit  | 1025, 8025 | mail sink: SMTP on 1025, UI and REST API on 8025; the worker's confirmation mails arrive here |
 
 `docker compose up` also starts two `api` replicas (no host port; `docker stop` of one container leaves the app answering, `docker compose stop api` stops both) and three more processes without a host port: `aws-init`, a one-shot service
-that creates the queues (`booking-events` with its dead-letter queue `booking-events-dlq`) and the
-bucket `tickets` in the emulator and exits (`pnpm aws:init` does the same from the host, and
-running it again changes nothing); `migrate`, a one-shot service
+that applies the declared infrastructure (`INFRASTRUCTURE` in `packages/shared/src/aws.ts`: the queue `booking-events` with its dead-letter queue `booking-events-dlq` and the
+bucket `tickets`) to the emulator and exits (`pnpm aws:init` does the same from the host and prints what it
+changed; running it again, or after a resource went missing, converges and changes nothing else, see
+[ADR 0006](docs/adr/0006-infrastructure-as-code.md)); `migrate`, a one-shot service
 that applies the migrations and the seed with the API image and exits, and `worker`, the scheduled
 jobs (hold expiry every two seconds, the simulation reaper every 30 seconds, the simulation retention every minute, the outbox relay every second), the consumer of the rush simulator and the consumer of the queue `booking-events` run. `api` and `worker` start only after `migrate` and `aws-init` have completed.
 
