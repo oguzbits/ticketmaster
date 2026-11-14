@@ -45,8 +45,9 @@ Anyone, signed in or not, can browse public events and watch the seat map.
   finished runs. Only `naive` shows double bookings.
 - A confirmed booking is announced through an asynchronous chain: an outbox row written in the
   booking's own transaction, a relay that sends it to a queue, and a consumer that handles each
-  message once. A message that keeps failing ends in a dead-letter queue; the payment call itself
-  runs outside any database transaction.
+  message once: it renders the ticket PDF, stores it and mails it to the customer, who can also
+  download it from my bookings. A message that keeps failing ends in a dead-letter queue; the
+  payment call itself runs outside any database transaction.
 - Keyboard operation, visible focus and a seat status that does not rely on color alone.
 
 ## Architecture
@@ -61,8 +62,8 @@ A payment is claimed in one transaction (the idempotency key is stored), charged
 transaction, and applied in a second one; that second transaction also writes the outbox row of a
 confirmed booking. The worker's relay sends unpublished outbox rows to the queue `booking-events`
 (SQS, a local emulator in development); the worker's consumer records each message ID in
-`processed_messages` together with its effect, deletes the message only after that succeeded, and
-leaves a failing message to return until the queue moves it to the dead-letter queue. Delivery is
+`processed_messages` together with its effect (the ticket PDF, then the confirmation mail, each
+under its own name), deletes the message only after that succeeded, and leaves a failing message to return until the queue moves it to the dead-letter queue. Delivery is
 at least once.
 
 ```mermaid

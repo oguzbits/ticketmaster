@@ -76,6 +76,24 @@ Phase 2, slice A (outbox, queue, dead-letter queue, idempotent consumers) is com
   path from `BookingsService.pay` to the recorded message; `pnpm e2e` runs the booking flow on
   the new payment path.
 
+Phase 2, slice B (confirmation mail and ticket PDF) is complete:
+
+- Each `BOOKING_CONFIRMED` message runs two effects in order, each under its own dedupe name: the
+  ticket PDF (pdfkit and qrcode, DejaVu Sans for Turkish glyphs) is rendered and stored in the
+  bucket under `tickets/<bookingId>.pdf`, then `bookings.ticket_ready_at` is set; the mail with the
+  PDF attached goes out through SMTP (Mailpit locally). The mail reads the PDF back from the store
+  and the address from Keycloak, so the message carries IDs only and logs carry IDs only.
+- `GET /api/bookings/:id/ticket` streams the PDF to its owner (403 for a foreign booking, 404 for
+  an unknown one, a ticket that is not stored yet, or a booking that is no longer `CONFIRMED`).
+  `ticketReady` is part of the booking contract; my bookings shows "Ticket is being prepared" and
+  then a download button.
+- The visibility timeout is 120 s and every external call has its own timeout (S3 10 s, SMTP 10 s,
+  Keycloak 5 s, one attempt), so a handler stays inside the timeout instead of sending a heartbeat.
+- Specs: renderer, store, sender and address lookup against Mailpit and the emulator, both effects
+  through the consumer (redelivery after a failing mail sends one mail and stores one PDF), the
+  download route (owner, foreign, unknown, not ready, cancelled) and `ticket.e2e.ts`: pay, one mail
+  with the PDF in Mailpit, the downloaded file starts with `%PDF-`.
+
 ## Deviations from the plan
 
 - **No SWC for NestJS decorators.** Vitest (Vite 8, Oxc) reads `experimentalDecorators` and
@@ -140,8 +158,8 @@ Phase 2, slice A:
 - **The fake payment provider decides by its key.** The result is a pure function of the
   idempotency key and the failure rate, so a retry with the same key gets the same answer; the
   injected random source is gone.
-- **The consumer handler only logs the booking ID.** It exists to prove dedupe, delete after
-  success and the dead-letter queue; slice B adds mail and PDF.
+- **The consumer handler grew from a log line to two effects** (slice B): PDF, then mail, each
+  deduplicated under its own name, so a failing mail does not render and store the PDF again.
 - **A failed payment and a cancel emit no message.** `BOOKING_CONFIRMED` is the only type.
 - **The relay bounds itself.** The plan had a job-level time limit; an abandoned run kept going
   and could overlap with the next, so the deadline moved into `OutboxService.relay` and the job
@@ -157,8 +175,7 @@ Phase 2, slice A:
 
 ## Next
 
-Phase 2, slice A is done; the final review of the branch and slice B (confirmation email and
-ticket PDF) follow. Still open from earlier notes:
+Phase 2, slices A and B are done. Still open from earlier notes:
 
 - Write the runbooks the docs-map entry for the deploy folder points to (`docs/runbooks/`).
 - Images are pinned by tag; pin by digest and add resource limits with the container hardening.
@@ -190,22 +207,39 @@ ticket PDF) follow. Still open from earlier notes:
   transaction and marking afterwards would need a claim state on the row.
 - **Queue ordering is not guaranteed.** The queue is standard, not FIFO, and the relay may send
   rows out of order after a failure; a consumer must not rely on the order of messages. A mail
-  that repeats after a crash between its send and the dedupe commit is slice B's to handle.
+  that repeats after a crash between its send and the dedupe commit is accepted: delivery is at
+  least once, and a repeated confirmation mail is harmless.
 - **Published outbox rows are never deleted.** The table grows with every confirmed booking; a
   retention job (like the simulation retention) is needed before it matters.
 - **The queue consumer takes one message at a time** (`receive(1)`, one loop per worker), so its
   throughput is one message per round trip and handler. Batching and parallel loops wait for a
-  handler that is slow enough to need them (slice B). A message that does not parse or whose
-  handler keeps failing is received `MAX_RECEIVE_COUNT` times (visibility timeout 30 s each)
+  handler that is slow enough to need them. A message that does not parse or whose
+  handler keeps failing is received `MAX_RECEIVE_COUNT` times (visibility timeout 120 s each)
   before it reaches the dead-letter queue; the queue has no replay tool yet.
-- **The queue consumer does not extend the visibility timeout.** A handler that runs longer than
-  the 30 s visibility timeout sees its message delivered again while it is still working (the
-  dedupe record serializes the two, but the receive count rises toward the dead-letter queue).
-  Irrelevant while the handler only logs; slice B (mail, PDF) needs a heartbeat that extends the
-  timeout, or a longer timeout.
 - **A poison message stalls its consumer loop.** An unparsable message pauses the loop for one
   second per receive, so it costs about `MAX_RECEIVE_COUNT` x (visibility timeout + 1 s) of
-  throughput before it reaches the dead-letter queue.
+  throughput before it reaches the dead-letter queue. A handler that runs longer than the 120 s
+  visibility timeout still sees its message delivered again while it works (the dedupe record
+  serializes the two); the timeouts of the external calls keep a run well below that.
+- **The dead-letter queue has no replay tool.** A message that reached it (a mail server that was
+  down for five deliveries) stays there until someone moves it back by hand.
+- **The PDF stays after a cancel and is never deleted.** The download answers 404 for a booking
+  that is no longer `CONFIRMED`, but the object remains in the bucket; a retention job (with the
+  outbox rows) would remove it.
+- **The mail effect costs one Keycloak call per message** (the address is read when the mail is
+  sent, not stored). Acceptable at demo volume; a cache or a stored address needs a data-protection
+  decision first.
+- **The ticket font ships through an npm package** (`dejavu-fonts-ttf`, copied into the images with
+  the dependencies) instead of a font file in the repository; replacing it means changing the
+  renderer's font path.
+- **The MSW passthrough also covers Mailpit** (`LOCAL_MAILPIT_ORIGIN` in
+  `apps/api/src/testing/mock-server.ts`), next to the emulator; the same point as above applies:
+  register it in the `db` setup only.
+- **Db specs assume no other consumer on the shared infrastructure.** A running Compose stack
+  (worker, relay) on the same database and queue emulator made the mail-down consumer spec time
+  out; under a full parallel run the queue consumer specs and `double books under naive` also
+  failed once each and passed on a rerun. Give the specs their own database and queue names, or
+  run them with the stack stopped.
 - **Offline specs may reach the local AWS emulator.** The MSW passthrough in
   `apps/api/src/testing/mock-server.ts` applies to every spec, not only the `db` project; register
   it in the `db` setup only.
