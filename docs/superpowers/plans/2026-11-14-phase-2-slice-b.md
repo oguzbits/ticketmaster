@@ -293,6 +293,6 @@ only, no status), architecture or README sections that mention the async chain,
 
 ## Ledger (fill while executing)
 
-| Task | Duration | Subagent tokens | Notes               |
-| ---- | -------- | --------------- | ------------------- |
-| 1-7  |          |                 | Sum line at the end |
+| Task | Duration                                 | Subagent tokens                                                          | Notes                                                                                                          |
+| ---- | ---------------------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| 1-7  | not timed per task (inline, one session) | 0 for the tasks; 87,997 for the final review (opus, 21 tool uses, 207 s) | Sum: 7 tasks inline, 12 commits after the plan; `pnpm check`, `pnpm test`, `pnpm test:db` and `pnpm e2e` green |
