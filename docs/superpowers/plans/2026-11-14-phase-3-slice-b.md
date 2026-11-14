@@ -57,18 +57,18 @@ export const BUSINESS_METRICS = Symbol('BUSINESS_METRICS')
 export const EFFECT_OUTCOME = { SUCCEEDED: 'SUCCEEDED', FAILED: 'FAILED' } as const
 ```
 
-Instruments (OTel name → Prometheus name as the exporter writes it; Task 1 verifies the mapping and fixes the table if it differs):
+Instruments (OTel name → Prometheus name as the exporter writes it, verified in Task 1: counters get `_total`, the unit is never appended, so no `_seconds`. HTTP labels are the semconv names `http_request_method`, `http_route`, `http_response_status_code`, not `method`/`route`/`status`; queries in Tasks 5 and 6 use them):
 
-| OTel name                      | Kind                 | Labels                | Prometheus name                          | Emitted by                                                 |
-| ------------------------------ | -------------------- | --------------------- | ---------------------------------------- | ---------------------------------------------------------- |
-| `http.server.request.duration` | histogram (s)        | method, route, status | `http_server_request_duration_seconds_*` | API (HTTP instrumentation)                                 |
-| `tm.holds`                     | counter              | strategy, outcome     | `tm_holds_total`                         | API                                                        |
-| `tm.bookings.settled`          | counter              | status                | `tm_bookings_settled_total`              | API (pay, cancel), worker (expiry)                         |
-| `tm.queue.effects`             | counter              | effect, outcome       | `tm_queue_effects_total`                 | worker                                                     |
-| `tm.db.queries.active`         | up-down counter      | none                  | `tm_db_queries_active`                   | API, worker                                                |
-| `tm.outbox.oldest_age`         | observable gauge (s) | none                  | `tm_outbox_oldest_age_seconds`           | worker only; 0 when no row waits                           |
-| `tm.queue.depth`               | observable gauge     | queue                 | `tm_queue_depth`                         | worker only; queues `booking-events`, `booking-events-dlq` |
-| `tm.waiting_room.waiting`      | observable gauge     | none                  | `tm_waiting_room_waiting`                | worker only; sum over events                               |
+| OTel name                      | Kind                 | Labels                | Prometheus name                                   | Emitted by                                                 |
+| ------------------------------ | -------------------- | --------------------- | ------------------------------------------------- | ---------------------------------------------------------- |
+| `http.server.request.duration` | histogram (s)        | method, route, status | `http_server_request_duration_bucket/_sum/_count` | API (HTTP instrumentation)                                 |
+| `tm.holds`                     | counter              | strategy, outcome     | `tm_holds_total`                                  | API                                                        |
+| `tm.bookings.settled`          | counter              | status                | `tm_bookings_settled_total`                       | API (pay, cancel), worker (expiry)                         |
+| `tm.queue.effects`             | counter              | effect, outcome       | `tm_queue_effects_total`                          | worker                                                     |
+| `tm.db.queries.active`         | up-down counter      | none                  | `tm_db_queries_active`                            | API, worker                                                |
+| `tm.outbox.oldest_age`         | observable gauge (s) | none                  | `tm_outbox_oldest_age`                            | worker only; 0 when no row waits                           |
+| `tm.queue.depth`               | observable gauge     | queue                 | `tm_queue_depth`                                  | worker only; queues `booking-events`, `booking-events-dlq` |
+| `tm.waiting_room.waiting`      | observable gauge     | none                  | `tm_waiting_room_waiting`                         | worker only; sum over events                               |
 
 ## Review Focus
 
@@ -162,7 +162,7 @@ Reviewed by `pruefer` (new listening port, new attack surface).
 
 - `api`: request rate, error ratio (5xx / all) and p50/p95/p99 by route template; in-flight queries `tm_db_queries_active` against a threshold line at 20 (the pool size, named in the panel description); note on the panel that the database host seen is PgBouncer.
 - `bookings`: holds per second by strategy and outcome, conflicts (`SEAT_TAKEN`) ratio per strategy, settled bookings by status, expired holds rate.
-- `queue-outbox`: `tm_outbox_oldest_age_seconds` (threshold at `OUTBOX_STUCK_SECONDS`, 300), `tm_queue_depth` for both queues, effect outcomes.
+- `queue-outbox`: `tm_outbox_oldest_age` (threshold at `OUTBOX_STUCK_SECONDS`, 300), `tm_queue_depth` for both queues, effect outcomes.
 - `waiting-room`: `tm_waiting_room_waiting`.
 
 - [ ] **Step 1: Failing test** in `observability-files.spec.ts`: every dashboard file parses as JSON with a unique `uid`; every metric name found in a panel `expr` (regex over `[a-z_:]+` tokens followed by `{`, `(`, `[`, space or end) exists in `EMITTED_METRIC_NAMES`, a list derived in the spec from `METRIC` plus the HTTP histogram's three suffixes; the threshold in `queue-outbox.json` equals `OUTBOX_STUCK_SECONDS`. **Guard:** rename a metric in a dashboard, the test fails.
@@ -180,7 +180,7 @@ Reviewed by `pruefer` (new listening port, new attack surface).
 - Availability: at least 99.5 % of requests to the booking routes (`POST /api/bookings`, `POST /api/bookings/:id/payment`, `POST /api/bookings/:id/cancel`) answer with a status below 500, over 30 days.
 - Latency: p95 of the hold route at most 500 ms, of the payment route at most 1 s.
 
-**Rules:** `BookingErrorRatioHigh` (5xx ratio of the booking routes above 5 % for 5 min, severity page), `HoldLatencyHigh` and `PaymentLatencyHigh` (p95 above target for 10 min), `OutboxStuck` (`tm_outbox_oldest_age_seconds > 300` for 1 min), `DeadLetterQueueNotEmpty` (`tm_queue_depth{queue="booking-events-dlq"} > 0` for 1 min), `ScrapeTargetDown` (`up == 0` for 1 min). Each rule has `summary` and `runbook` annotations (`docs/observability.md#alerts`).
+**Rules:** `BookingErrorRatioHigh` (5xx ratio of the booking routes above 5 % for 5 min, severity page), `HoldLatencyHigh` and `PaymentLatencyHigh` (p95 above target for 10 min), `OutboxStuck` (`tm_outbox_oldest_age > 300` for 1 min), `DeadLetterQueueNotEmpty` (`tm_queue_depth{queue="booking-events-dlq"} > 0` for 1 min), `ScrapeTargetDown` (`up == 0` for 1 min). Each rule has `summary` and `runbook` annotations (`docs/observability.md#alerts`).
 
 - [ ] **Step 1: Failing tests** added to `observability-files.spec.ts`: `alerts.yml` parses (use the `yaml` package if already a dependency, otherwise read the dependency list first and add it as a dev dependency with the reason in the commit); every metric name in a rule `expr` is emitted; `OutboxStuck` threshold equals `OUTBOX_STUCK_SECONDS`; every rule has both annotations. **Guard:** change the threshold to 301, the test fails.
 - [ ] **Step 2: Run, expect FAIL.** **Step 3:** write the rules. **Step 4:** `docker run --rm --entrypoint promtool -v "$PWD/docker/observability:/c:ro" <prometheus image from Task 4> check rules /c/alerts.yml` passes; with the stack running, stop the worker (`docker compose stop worker`) and see `ScrapeTargetDown` pending then firing under Alerts in Prometheus, then start it again. **Step 5:** `pnpm check`; commit `feat(observability): SLO alert rules`.
