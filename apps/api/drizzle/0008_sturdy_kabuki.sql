@@ -1,0 +1,2 @@
+ALTER TABLE "events" ADD COLUMN "waiting_room_capacity" integer;--> statement-breakpoint
+ALTER TABLE "events" ADD CONSTRAINT "events_waiting_room_capacity_positive" CHECK ("events"."waiting_room_capacity" > 0);

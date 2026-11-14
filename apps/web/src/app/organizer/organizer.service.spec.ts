@@ -18,6 +18,7 @@ const REQUEST: CreateEventRequest = {
   name: 'Gala',
   startsAt: '2099-01-01T19:00:00.000Z',
   strategy: BOOKING_STRATEGY.PESSIMISTIC,
+  waitingRoomCapacity: null,
 };
 const SUMMARY: EventSummary = {
   id: '00000000-0000-4000-8000-0000000000e1',
@@ -25,6 +26,7 @@ const SUMMARY: EventSummary = {
   startsAt: REQUEST.startsAt,
   venueName: 'Hall',
   strategy: REQUEST.strategy,
+  waitingRoomCapacity: null,
 };
 const OWN: OrganizerEvent = {
   ...SUMMARY,

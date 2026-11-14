@@ -25,6 +25,7 @@ const summaryColumns = {
   startsAt: events.startsAt,
   venueName: venues.name,
   strategy: events.strategy,
+  waitingRoomCapacity: events.waitingRoomCapacity,
 };
 
 @Injectable()

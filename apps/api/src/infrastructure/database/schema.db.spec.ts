@@ -29,6 +29,7 @@ import { HALL, SEED, seed } from './seed.js';
 
 const HOLD_MS = 600_000;
 const UNIQUE_VIOLATION = '23505';
+const CHECK_VIOLATION = '23514';
 const ACTIVE_SEAT_INDEX = 'bookings_active_seat_uidx';
 const UNPUBLISHED_INDEX = 'outbox_messages_unpublished_idx';
 const SPEC_CONSUMER = 'schema-spec';
@@ -193,5 +194,27 @@ describe('booking schema', () => {
       db.insert(processedMessages).values({ consumer: SPEC_CONSUMER, messageId })
     ).rejects.toMatchObject({ cause: { code: UNIQUE_VIOLATION } });
     await db.insert(processedMessages).values({ consumer: `${SPEC_CONSUMER}-other`, messageId });
+  });
+
+  it('rejects a waiting room capacity of 0', async () => {
+    const { eventId } = await createTestEvent(db, {
+      strategy: BOOKING_STRATEGY.PESSIMISTIC,
+      seats: 0,
+    });
+
+    await expect(
+      db.update(events).set({ waitingRoomCapacity: 0 }).where(eq(events.id, eventId))
+    ).rejects.toMatchObject({ cause: { code: CHECK_VIOLATION } });
+  });
+
+  it('an event without a capacity has none', async () => {
+    const { eventId } = await createTestEvent(db, {
+      strategy: BOOKING_STRATEGY.PESSIMISTIC,
+      seats: 0,
+    });
+
+    const [row] = await db.select().from(events).where(eq(events.id, eventId));
+
+    expect(row?.waitingRoomCapacity).toBeNull();
   });
 });

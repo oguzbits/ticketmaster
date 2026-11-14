@@ -24,7 +24,13 @@ export function openTestDatabase(): { db: Database; close(): Promise<void> } {
  */
 export async function createTestEvent(
   db: Database,
-  input: { strategy: BookingStrategy; seats: number; sandboxUserId?: string; ownerId?: string }
+  input: {
+    strategy: BookingStrategy;
+    seats: number;
+    sandboxUserId?: string;
+    ownerId?: string;
+    waitingRoomCapacity?: number;
+  }
 ): Promise<{ eventId: string; seatIds: string[] }> {
   const venueId = randomUUID();
   const eventId = randomUUID();
@@ -39,6 +45,7 @@ export async function createTestEvent(
       strategy: input.strategy,
       ownerId: input.ownerId ?? randomUUID(),
       sandboxUserId: input.sandboxUserId ?? null,
+      waitingRoomCapacity: input.waitingRoomCapacity ?? null,
     });
     if (seatIds.length === 0) return;
     await tx.insert(schema.seats).values(

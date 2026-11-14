@@ -88,3 +88,13 @@ export {
   type StartSimulationRequest,
   StartSimulationRequestSchema,
 } from './simulations.js';
+export {
+  MAX_ADMISSION_CAPACITY,
+  type SetWaitingRoomRequest,
+  SetWaitingRoomRequestSchema,
+  WAITING_ROOM_STATE,
+  WaitingRoomCapacitySchema,
+  type WaitingRoomState,
+  type WaitingRoomStatus,
+  WaitingRoomStatusSchema,
+} from './waiting-room.js';

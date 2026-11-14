@@ -1734,6 +1734,19 @@
               "OPTIMISTIC",
               "REDIS_LOCK"
             ]
+          },
+          "waitingRoomCapacity": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1866,6 +1879,18 @@
               "REDIS_LOCK"
             ]
           },
+          "waitingRoomCapacity": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "seats": {
             "type": "array",
             "items": {
@@ -1921,6 +1946,7 @@
           "startsAt",
           "venueName",
           "strategy",
+          "waitingRoomCapacity",
           "seats"
         ],
         "additionalProperties": false
@@ -2044,6 +2070,18 @@
               "OPTIMISTIC",
               "REDIS_LOCK"
             ]
+          },
+          "waitingRoomCapacity": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2051,7 +2089,8 @@
           "name",
           "startsAt",
           "venueName",
-          "strategy"
+          "strategy",
+          "waitingRoomCapacity"
         ],
         "additionalProperties": false
       },
@@ -2249,6 +2288,18 @@
                 "REDIS_LOCK"
               ]
             },
+            "waitingRoomCapacity": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "seatCount": {
               "type": "integer",
               "minimum": 0,
@@ -2276,6 +2327,7 @@
             "startsAt",
             "venueName",
             "strategy",
+            "waitingRoomCapacity",
             "seatCount",
             "soldCount",
             "heldCount",

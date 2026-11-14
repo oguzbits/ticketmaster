@@ -18,6 +18,7 @@ const GALA: OrganizerEvent = {
   startsAt: '2099-01-01T19:00:00.000Z',
   venueName: 'Hall',
   strategy: BOOKING_STRATEGY.PESSIMISTIC,
+  waitingRoomCapacity: null,
   seatCount: 40,
   soldCount: 10,
   heldCount: 2,
@@ -107,6 +108,7 @@ describe('OrganizerEvents', () => {
       startsAt: GALA.startsAt,
       venueName: 'Hall',
       strategy: GALA.strategy,
+      waitingRoomCapacity: GALA.waitingRoomCapacity,
     });
     TestBed.tick();
 

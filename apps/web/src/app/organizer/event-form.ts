@@ -88,6 +88,7 @@ export class EventForm {
         name,
         startsAt: start.toISOString(),
         strategy: this.strategy(),
+        waitingRoomCapacity: null,
       })
       .subscribe({
         next: (summary) => {

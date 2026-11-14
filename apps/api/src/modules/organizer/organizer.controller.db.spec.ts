@@ -6,6 +6,7 @@ import {
   type BookingStatus,
   EventListResponseSchema,
   EventSummarySchema,
+  MAX_ADMISSION_CAPACITY,
   OrganizerEventListResponseSchema,
   ROLE,
   VenueListResponseSchema,
@@ -177,6 +178,34 @@ describe('organizer endpoints', () => {
           .map(({ section, row, number, priceCents }) => ({ section, row, number, priceCents }))
           .toSorted((x, y) => x.section.localeCompare(y.section) || x.number - y.number)
       ).toEqual(PRICED);
+    });
+
+    it('creates an event with a capacity, and the own list returns it', async () => {
+      const venueId = await venueWith(PRICED);
+
+      const response = await create(venueId, 'a', { waitingRoomCapacity: 40 }).expect(201);
+
+      const created = EventSummarySchema.parse(response.body);
+      expect(created.waitingRoomCapacity).toBe(40);
+      const own = OrganizerEventListResponseSchema.parse(
+        (await get('/organizer/events', 'a')).body
+      );
+      expect(own.find(({ id }) => id === created.id)?.waitingRoomCapacity).toBe(40);
+    });
+
+    it('creates an event without a waiting room by default', async () => {
+      const venueId = await venueWith(PRICED);
+
+      const response = await create(venueId, 'a').expect(201);
+
+      expect(EventSummarySchema.parse(response.body).waitingRoomCapacity).toBeNull();
+    });
+
+    it('rejects a capacity above MAX_ADMISSION_CAPACITY or below 1 with 400', async () => {
+      const venueId = await venueWith(PRICED);
+
+      await create(venueId, 'a', { waitingRoomCapacity: MAX_ADMISSION_CAPACITY + 1 }).expect(400);
+      await create(venueId, 'a', { waitingRoomCapacity: 0 }).expect(400);
     });
 
     it('owns the event by the caller from the token and publishes it, so a visitor sees it', async () => {

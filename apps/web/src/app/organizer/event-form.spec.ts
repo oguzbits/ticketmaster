@@ -17,6 +17,7 @@ const SUMMARY: EventSummary = {
   startsAt: new Date(FUTURE).toISOString(),
   venueName: 'Arena',
   strategy: BOOKING_STRATEGY.OPTIMISTIC,
+  waitingRoomCapacity: null,
 };
 
 function render() {
@@ -117,6 +118,7 @@ describe('EventForm', () => {
       name: 'Gala',
       startsAt: new Date(FUTURE).toISOString(),
       strategy: BOOKING_STRATEGY.OPTIMISTIC,
+      waitingRoomCapacity: null,
     });
     await answer(() => request.flush(SUMMARY));
 

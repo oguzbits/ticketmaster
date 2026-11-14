@@ -15,6 +15,7 @@ const EVENTS: EventSummary[] = [
     startsAt: '2027-06-01T19:00:00.000Z',
     venueName: 'Hall',
     strategy: BOOKING_STRATEGY.PESSIMISTIC,
+    waitingRoomCapacity: null,
   },
   {
     id: '00000000-0000-4000-8000-0000000000a3',
@@ -22,6 +23,7 @@ const EVENTS: EventSummary[] = [
     startsAt: '2027-06-02T19:00:00.000Z',
     venueName: 'Hall',
     strategy: BOOKING_STRATEGY.OPTIMISTIC,
+    waitingRoomCapacity: null,
   },
 ];
 

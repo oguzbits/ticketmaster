@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { BookingStrategySchema } from './booking.js';
 import { EventSummarySchema } from './events.js';
+import { WaitingRoomCapacitySchema } from './waiting-room.js';
 
 export const VenueSchema = z.object({
   id: z.uuid(),
@@ -16,6 +17,7 @@ export const CreateEventRequestSchema = z.object({
   name: z.string().trim().min(1).max(120),
   startsAt: z.iso.datetime(),
   strategy: BookingStrategySchema,
+  waitingRoomCapacity: WaitingRoomCapacitySchema.nullable().default(null),
 });
 
 /** An own event with its sales; the counts are aggregated in the database. */

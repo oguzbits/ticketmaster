@@ -71,6 +71,7 @@ export class OrganizerService {
           name: input.name,
           startsAt,
           strategy: input.strategy,
+          waitingRoomCapacity: input.waitingRoomCapacity,
           ownerId,
           sandboxUserId: demoUser === undefined ? null : ownerId,
         })
@@ -89,6 +90,7 @@ export class OrganizerService {
         startsAt: startsAt.toISOString(),
         venueName: venue.name,
         strategy: input.strategy,
+        waitingRoomCapacity: input.waitingRoomCapacity,
       };
     });
   }
@@ -115,6 +117,7 @@ export class OrganizerService {
         startsAt: events.startsAt,
         venueName: venues.name,
         strategy: events.strategy,
+        waitingRoomCapacity: events.waitingRoomCapacity,
         seatCount: sql<number>`(select count(*) from ${seats} where ${eq(seats.eventId, events.id)})::int`,
         soldCount: seatsWith([BOOKING_STATUS.PAID, BOOKING_STATUS.CONFIRMED]),
         heldCount: seatsWith([BOOKING_STATUS.HELD]),

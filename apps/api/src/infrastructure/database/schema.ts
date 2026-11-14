@@ -10,6 +10,7 @@ import {
 } from '@app/shared';
 import { sql } from 'drizzle-orm';
 import {
+  check,
   index,
   integer,
   jsonb,
@@ -59,19 +60,25 @@ export const venueSeats = pgTable(
   (t) => [primaryKey({ columns: [t.venueId, t.section, t.row, t.number] })]
 );
 
-export const events = pgTable('events', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  venueId: uuid('venue_id')
-    .notNull()
-    .references(() => venues.id),
-  name: text('name').notNull(),
-  startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
-  strategy: bookingStrategyEnum('strategy').notNull(),
-  ownerId: uuid('owner_id').notNull(),
-  // Set for a demo user's private event; null for a public one.
-  sandboxUserId: uuid('sandbox_user_id'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const events = pgTable(
+  'events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    venueId: uuid('venue_id')
+      .notNull()
+      .references(() => venues.id),
+    name: text('name').notNull(),
+    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+    strategy: bookingStrategyEnum('strategy').notNull(),
+    ownerId: uuid('owner_id').notNull(),
+    // Set for a demo user's private event; null for a public one.
+    sandboxUserId: uuid('sandbox_user_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    // Null: no waiting room; a number is the capacity (live admissions at once).
+    waitingRoomCapacity: integer('waiting_room_capacity'),
+  },
+  (t) => [check('events_waiting_room_capacity_positive', sql`${t.waitingRoomCapacity} > 0`)]
+);
 
 export const seats = pgTable(
   'seats',

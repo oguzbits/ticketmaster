@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { BookingStrategySchema, SeatStatusSchema } from './booking.js';
+import { WaitingRoomCapacitySchema } from './waiting-room.js';
 
 export const EventSummarySchema = z.object({
   id: z.uuid(),
@@ -8,6 +9,8 @@ export const EventSummarySchema = z.object({
   startsAt: z.iso.datetime(),
   venueName: z.string(),
   strategy: BookingStrategySchema,
+  /** Null: no waiting room. */
+  waitingRoomCapacity: WaitingRoomCapacitySchema.nullable(),
 });
 
 export const EventListResponseSchema = z.array(EventSummarySchema);

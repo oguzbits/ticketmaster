@@ -104,6 +104,24 @@ describe('events endpoints', () => {
     expect(ids).not.toContain(sandboxEvent.eventId);
   });
 
+  it('the list and the detail carry the capacity', async () => {
+    const withRoom = await createTestEvent(db, {
+      strategy: STRATEGY,
+      seats: 1,
+      waitingRoomCapacity: 25,
+    });
+    const without = await createTestEvent(db, { strategy: STRATEGY, seats: 1 });
+
+    const listed = EventListResponseSchema.parse((await get('/api/events').expect(200)).body);
+    const detail = EventDetailSchema.parse(
+      (await get(`/api/events/${withRoom.eventId}`).expect(200)).body
+    );
+
+    expect(listed.find(({ id }) => id === withRoom.eventId)?.waitingRoomCapacity).toBe(25);
+    expect(listed.find(({ id }) => id === without.eventId)?.waitingRoomCapacity).toBeNull();
+    expect(detail.waitingRoomCapacity).toBe(25);
+  });
+
   it('lists events by start time', async () => {
     await createTestEvent(db, { strategy: STRATEGY, seats: 1 });
     const response = await get('/api/events').expect(200);

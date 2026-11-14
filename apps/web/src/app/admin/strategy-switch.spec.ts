@@ -14,6 +14,7 @@ const SUMMARY: EventSummary = {
   startsAt: '2099-01-01T19:00:00.000Z',
   venueName: 'Hall',
   strategy: BOOKING_STRATEGY.OPTIMISTIC,
+  waitingRoomCapacity: null,
 };
 
 function render(current: BookingStrategy = BOOKING_STRATEGY.PESSIMISTIC) {

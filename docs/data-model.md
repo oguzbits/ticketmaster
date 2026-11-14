@@ -33,6 +33,7 @@ erDiagram
         booking_strategy strategy
         uuid owner_id
         uuid sandbox_user_id "null for a public event"
+        int waiting_room_capacity "null means no waiting room"
         timestamptz created_at
     }
     seats {
@@ -133,6 +134,11 @@ a price makes the creation fail as a whole, since `seats.price_cents` is not nul
 `not null` is the later contract step. Foreign keys from seats, bookings and
 transitions up to the event cascade on delete. The status of a seat (available, held, sold) is
 derived from its bookings and never stored.
+
+`events.waiting_room_capacity` is the waiting room switch: null means the event has none, a number
+is how many customers may hold seats at once. A check constraint keeps the number positive; the
+upper bound (`MAX_ADMISSION_CAPACITY`) lives in the request schema. The column was added in the
+expand step, existing events keep null.
 
 ## Connections
 

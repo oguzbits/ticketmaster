@@ -57,6 +57,13 @@
       "when": 1794618577311,
       "tag": "0007_perpetual_madelyne_pryor",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794658575562,
+      "tag": "0008_sturdy_kabuki",
+      "breakpoints": true
     }
   ]
 }

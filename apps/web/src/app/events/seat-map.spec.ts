@@ -34,6 +34,7 @@ const DETAIL: EventDetail = {
   startsAt: '2027-06-01T19:00:00.000Z',
   venueName: 'Hall',
   strategy: BOOKING_STRATEGY.PESSIMISTIC,
+  waitingRoomCapacity: null,
   seats: [
     { id: SEAT_ID(1), section: 'A', row: 3, number: 7, priceCents: 9000, status: SEAT_STATUS.HELD },
     { id: SEAT_ID(2), section: 'A', row: 3, number: 8, priceCents: 9000, status: SEAT_STATUS.SOLD },
@@ -374,6 +375,7 @@ describe('SeatMap', () => {
           startsAt: DETAIL.startsAt,
           venueName: DETAIL.venueName,
           strategy: BOOKING_STRATEGY.REDIS_LOCK,
+          waitingRoomCapacity: null,
         })
       );
 
