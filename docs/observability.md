@@ -102,18 +102,24 @@ each replica is a target, and the job `worker` scrapes `worker:9464`.
 `METRICS_ENABLED=true` (without it every target is down). The decision and the spike are in
 [ADR 0008](adr/0008-metrics-with-opentelemetry.md).
 
-| OpenTelemetry name             | Prometheus series                                                 | Kind             | Labels                                                           | Emitted by                                 |
-| ------------------------------ | ----------------------------------------------------------------- | ---------------- | ---------------------------------------------------------------- | ------------------------------------------ |
-| `http.server.request.duration` | `http_server_request_duration_bucket`, `_sum`, `_count` (seconds) | histogram        | `http_request_method`, `http_route`, `http_response_status_code` | API (HTTP instrumentation)                 |
-| `tm.holds`                     | `tm_holds_total`                                                  | counter          | `strategy`, `outcome`                                            | API, once per hold attempt                 |
-| `tm.bookings.settled`          | `tm_bookings_settled_total`                                       | counter          | `status`                                                         | API (payment, cancel), worker (expiry job) |
-| `tm.queue.effects`             | `tm_queue_effects_total`                                          | counter          | `effect`, `outcome`                                              | worker                                     |
-| `tm.db.queries.active`         | `tm_db_queries_active`                                            | up-down counter  | none                                                             | API, worker                                |
-| `tm.outbox.oldest_age`         | `tm_outbox_oldest_age` (seconds, 0 when no row waits)             | observable gauge | none                                                             | worker only                                |
-| `tm.queue.depth`               | `tm_queue_depth`                                                  | observable gauge | `queue` (`booking-events`, `booking-events-dlq`)                 | worker only                                |
-| `tm.waiting_room.waiting`      | `tm_waiting_room_waiting`                                         | observable gauge | none                                                             | worker only; users waiting in all rooms    |
+| OpenTelemetry name             | Prometheus series                                                 | Kind             | Labels                                                           | Emitted by                                                 |
+| ------------------------------ | ----------------------------------------------------------------- | ---------------- | ---------------------------------------------------------------- | ---------------------------------------------------------- |
+| `http.server.request.duration` | `http_server_request_duration_bucket`, `_sum`, `_count` (seconds) | histogram        | `http_request_method`, `http_route`, `http_response_status_code` | API (HTTP instrumentation)                                 |
+| `tm.holds`                     | `tm_holds_total`                                                  | counter          | `strategy`, `outcome`                                            | API and the simulator in the worker, once per hold attempt |
+| `tm.bookings.settled`          | `tm_bookings_settled_total`                                       | counter          | `status`                                                         | API (payment, cancel), worker (expiry job)                 |
+| `tm.queue.effects`             | `tm_queue_effects_total`                                          | counter          | `effect`, `outcome`                                              | worker                                                     |
+| `tm.db.queries.active`         | `tm_db_queries_active`                                            | up-down counter  | none                                                             | API, worker                                                |
+| `tm.outbox.oldest_age`         | `tm_outbox_oldest_age` (seconds, 0 when no row waits)             | observable gauge | none                                                             | worker only                                                |
+| `tm.queue.depth`               | `tm_queue_depth`                                                  | observable gauge | `queue` (`booking-events`, `booking-events-dlq`)                 | worker only                                                |
+| `tm.waiting_room.waiting`      | `tm_waiting_room_waiting`                                         | observable gauge | none                                                             | worker only; users waiting in all rooms                    |
 
 The exporter turns the dots into underscores, adds `_total` to counters and never appends the unit.
+
+`tm_holds_total` also counts the hold attempts of the simulator, which runs in the worker, so the
+`Bookings` dashboard mixes simulator load into the customer holds while a run is going.
+
+The HTTP instrumentation also exposes `http_client_request_duration_*` (outgoing calls, labelled by
+server address and bounded by the few hosts the services call). No dashboard or alert reads it.
 
 **Cardinality rule.** A label value comes from a closed set: the route template, a strategy, a
 booking status, a hold outcome, an effect, a queue name. No ID of a user, booking, event, seat or
@@ -173,20 +179,31 @@ Prometheus evaluates `docker/observability/alerts.yml` every evaluation interval
 of each rule at `http://localhost:9090/alerts`. Every rule links here from its `runbook` annotation.
 The rules are Prometheus rule files, not Grafana-managed rules.
 
-| Alert                     | Severity | Condition (for)                                                            | Check first                                                                                                                                                                                                                    |
-| ------------------------- | -------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `BookingErrorRatioHigh`   | page     | 5xx share of the three booking routes above 5 % over 5 min (5 min)         | The `API` dashboard: which route template and status. Then the API log lines of that time in Loki and a failing request's trace in Tempo; a failing `db.query` or `redis.command` span names the dependency.                   |
-| `HoldLatencyHigh`         | warning  | p95 of `POST /api/bookings` above 500 ms over 5 min (10 min)               | The `API` dashboard: queries in flight against the pool size of 20 (saturation), then the `Bookings` dashboard for the strategy in use; open a slow request's trace and read its `booking.hold.strategy` and `db.query` spans. |
-| `PaymentLatencyHigh`      | warning  | p95 of `POST /api/bookings/:id/payment` above 1 s over 5 min (10 min)      | The same panels, then the spans of a slow payment trace: the transaction and the outbox write happen in the request, the effects run later in the worker.                                                                      |
-| `OutboxStuck`             | warning  | `tm_outbox_oldest_age` above `OUTBOX_STUCK_SECONDS` (300 s) (1 min)        | Is the worker up (`ScrapeTargetDown`)? Then the worker log of the outbox relay and the reachability of SQS; the `Queue and outbox` dashboard shows the age and the queue depth.                                                |
-| `DeadLetterQueueNotEmpty` | warning  | `tm_queue_depth{queue="booking-events-dlq"}` above 0 (1 min)               | `tm_queue_effects_total{outcome="FAILED"}` on the `Queue and outbox` dashboard for the failing effect, then the worker log line and trace of that message.                                                                     |
-| `GaugeSourceMissing`      | warning  | the worker is up but reports no outbox age or no dead-letter depth (2 min) | The worker log for the gauge error (PostgreSQL or SQS unreachable, or no answer within 3 s). Until fixed, `OutboxStuck` and `DeadLetterQueueNotEmpty` cannot fire.                                                             |
-| `ScrapeTargetDown`        | warning  | `up == 0` for any target (1 min)                                           | `http://localhost:9090/targets` for the target and its error. Every target is down when the stack was started without `METRICS_ENABLED=true`; a stopped container is down too.                                                 |
+| Alert                     | Severity | Condition (for)                                                                           | Check first                                                                                                                                                                                                                       |
+| ------------------------- | -------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BookingErrorRatioHigh`   | page     | 5xx share of the three booking routes above 5 % over 5 min (5 min)                        | The `API` dashboard: which route template and status. Then the API log lines of that time in Loki and a failing request's trace in Tempo; a failing `db.query` or `redis.command` span names the dependency.                      |
+| `HoldLatencyHigh`         | warning  | p95 of `POST /api/bookings` above 500 ms over 5 min (10 min)                              | The `API` dashboard: queries in flight against the pool size of 20 (saturation), then the `Bookings` dashboard for the strategy in use; open a slow request's trace and read its `booking.hold.strategy` and `db.query` spans.    |
+| `PaymentLatencyHigh`      | warning  | p95 of `POST /api/bookings/:id/payment` above 1 s over 5 min (10 min)                     | The same panels, then the spans of a slow payment trace: the transaction and the outbox write happen in the request, the effects run later in the worker.                                                                         |
+| `OutboxStuck`             | warning  | maximum of `tm_outbox_oldest_age` over 5 min above `OUTBOX_STUCK_SECONDS` (300 s) (1 min) | Is the worker up (`ScrapeTargetDown`)? Then the worker log of the outbox relay and the reachability of SQS; the `Queue and outbox` dashboard shows the age and the queue depth.                                                   |
+| `DeadLetterQueueNotEmpty` | warning  | maximum of `tm_queue_depth{queue="booking-events-dlq"}` over 5 min above 0 (1 min)        | `tm_queue_effects_total{outcome="FAILED"}` on the `Queue and outbox` dashboard for the failing effect, then the worker log line and trace of that message.                                                                        |
+| `GaugeSourceMissing`      | warning  | the worker is up but reported no outbox age or no dead-letter depth for 1 min (2 min)     | The worker log for the gauge error (PostgreSQL or SQS unreachable, or no answer within 3 s). Until fixed, `OutboxStuck` and `DeadLetterQueueNotEmpty` cannot fire.                                                                |
+| `ScrapeTargetDown`        | warning  | `up == 0` for any target (1 min)                                                          | `http://localhost:9090/targets` for the target and its error. Every target is down when the stack was started without `METRICS_ENABLED=true`. A container that stopped is not down here, it is gone: see the two API rules below. |
+| `ApiAllReplicasGone`      | page     | no API target answers (`absent(up{job="api"} == 1)`) (1 min)                              | `docker compose ps api` and the API container log; the booking alerts are blind and requests fail while this fires.                                                                                                               |
+| `ApiReplicaMissing`       | warning  | fewer than 2 API targets answer (1 min)                                                   | `docker compose ps api` for the replica that exited or restarts. The 2 is `deploy.replicas` of the `api` service in `docker-compose.yml`; change both together (the spec checks it).                                              |
 
 `GaugeSourceMissing` exists because a gauge whose source is down is absent from the scrape instead
 of 0, so the two rules on worker gauges would go silent. It requires `up{job="worker"} == 1`, so a
 worker that is down is `ScrapeTargetDown` alone. A target that is down for a few seconds during
 start shows as pending first.
+
+`OutboxStuck` and `DeadLetterQueueNotEmpty` judge the maximum of the last 5 minutes, because a gauge
+whose source times out is left out of a scrape and a plain comparison would restart its `for` on
+every gap; the price is that they resolve up to 5 minutes after the cause is gone. A gauge that is
+gone for a whole minute is `GaugeSourceMissing`.
+
+`ScrapeTargetDown` cannot see a stopped or crash-looping API container: Docker DNS stops returning
+its address, `dns_sd_configs` drops the target, and no `up == 0` series is written. That is why
+`ApiAllReplicasGone` and `ApiReplicaMissing` count the answering targets instead.
 
 Known limits:
 

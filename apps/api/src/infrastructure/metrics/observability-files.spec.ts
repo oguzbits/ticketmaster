@@ -1,9 +1,12 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { MODULE_METADATA, PATH_METADATA } from '@nestjs/common/constants.js';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 
+import { API_PREFIX } from '../../app.setup.js';
+import { BookingsModule } from '../../modules/bookings/index.js';
 import { OUTBOX_STUCK_SECONDS } from '../../modules/outbox/index.js';
 import { API_POOL_SIZE } from '../database/database.module.js';
 import { METRIC } from './names.js';
@@ -168,6 +171,8 @@ const ALERT = {
   DLQ: 'DeadLetterQueueNotEmpty',
   TARGET_DOWN: 'ScrapeTargetDown',
   GAUGE_MISSING: 'GaugeSourceMissing',
+  API_GONE: 'ApiAllReplicasGone',
+  API_REPLICA_MISSING: 'ApiReplicaMissing',
 } as const;
 
 const SEVERITY = { PAGE: 'page', WARNING: 'warning' } as const;
@@ -190,6 +195,8 @@ const EXPECTED_RULES: Record<string, { for: string; severity: string }> = {
   [ALERT.DLQ]: { for: '1m', severity: SEVERITY.WARNING },
   [ALERT.TARGET_DOWN]: { for: '1m', severity: SEVERITY.WARNING },
   [ALERT.GAUGE_MISSING]: { for: '2m', severity: SEVERITY.WARNING },
+  [ALERT.API_GONE]: { for: '1m', severity: SEVERITY.PAGE },
+  [ALERT.API_REPLICA_MISSING]: { for: '1m', severity: SEVERITY.WARNING },
 };
 
 // SAFETY: the shape is the Prometheus rule file format; the tests below fail on anything else.
@@ -207,6 +214,34 @@ function threshold(expr: string): number {
   const match = /[><]\s*([\d.]+)\s*$/.exec(expr.trim());
   if (!match?.[1]) throw new Error(`no threshold in ${expr}`);
   return Number(match[1]);
+}
+
+interface ComposeFile {
+  services: { api: { deploy: { replicas: number } }; prometheus: { volumes: string[] } };
+}
+// SAFETY: the shape is the Compose file format; the tests below fail on anything else.
+const compose = parse(readFileSync(COMPOSE_FILE, 'utf8')) as ComposeFile;
+
+interface BookingsHandlers {
+  hold: () => void;
+  pay: () => void;
+  cancel: () => void;
+}
+interface RouteController {
+  prototype: BookingsHandlers;
+}
+
+/** The controller classes Nest keeps as metadata of a module: no DI scan needed. */
+function bookingsControllers(): RouteController[] {
+  // SAFETY: Nest stores the controller classes under MODULE_METADATA.CONTROLLERS.
+  return Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, BookingsModule) as RouteController[];
+}
+
+/** The path segment of `@Controller('x')` or `@Post('y')`; empty for a bare decorator (stored as '/'). */
+function routePath(target: object): string {
+  // SAFETY: Nest stores the path of a controller or route handler as a string under PATH_METADATA.
+  const path = Reflect.getMetadata(PATH_METADATA, target) as string;
+  return path === '/' ? '' : path;
 }
 
 /** `up` is the synthetic series Prometheus writes for every scrape. */
@@ -262,8 +297,33 @@ describe('alert rules', () => {
     expect(rule(ALERT.TARGET_DOWN).expr).toBe('up == 0');
   });
 
+  it('flags an API target that left service discovery, which up == 0 cannot see', () => {
+    // dns_sd drops a stopped container from the target list instead of marking it down.
+    expect(rule(ALERT.API_GONE).expr).toBe('absent(up{job="api"} == 1)');
+    const replicaMissing = rule(ALERT.API_REPLICA_MISSING).expr;
+    expect(replicaMissing).toContain('count(up{job="api"} == 1) <');
+    expect(threshold(replicaMissing)).toBe(compose.services.api.deploy.replicas);
+  });
+
+  it('labels the booking requests with the route templates of the controller and the global prefix', () => {
+    const [controller] = bookingsControllers();
+    if (!controller) throw new Error('BookingsModule has no controller');
+    const route = (handler: keyof BookingsHandlers) =>
+      '/' +
+      [API_PREFIX, routePath(controller), routePath(controller.prototype[handler])]
+        .filter(Boolean)
+        .join('/');
+    expect([route('hold'), route('pay'), route('cancel')]).toEqual([...BOOKING_ROUTES]);
+  });
+
   it('watches the dead-letter queue by name', () => {
     expect(rule(ALERT.DLQ).expr).toContain('queue="booking-events-dlq"');
+  });
+
+  it('judges a worker gauge over a window, so a scrape that leaves it out does not reset the rule', () => {
+    for (const alert of [ALERT.OUTBOX_STUCK, ALERT.DLQ]) {
+      expect(rule(alert).expr, alert).toMatch(/^max_over_time\(tm_\w+(\{[^}]*\})?\[5m\]\)/);
+    }
   });
 
   it('flags a worker gauge that is missing while the worker is up, for every gauge a rule reads', () => {
@@ -272,7 +332,7 @@ describe('alert rules', () => {
     expect(missing).toContain('up{job="worker"}');
     for (const alert of [ALERT.OUTBOX_STUCK, ALERT.DLQ]) {
       const [gauge] = metricNames(rule(alert).expr);
-      expect(missing, alert).toContain(`absent(${gauge}`);
+      expect(missing, alert).toContain(`absent_over_time(${gauge}`);
     }
   });
 
@@ -280,10 +340,6 @@ describe('alert rules', () => {
     // SAFETY: the shape is the Prometheus config format; the assertions fail on anything else.
     const prometheus = parse(readFileSync(join(OBSERVABILITY_DIR, 'prometheus.yml'), 'utf8')) as {
       rule_files: string[];
-    };
-    // SAFETY: the shape is the Compose file format; the assertions fail on anything else.
-    const compose = parse(readFileSync(COMPOSE_FILE, 'utf8')) as {
-      services: { prometheus: { volumes: string[] } };
     };
     const mounts = compose.services.prometheus.volumes.map((volume) => volume.split(':'));
     expect(prometheus.rule_files).toHaveLength(1);

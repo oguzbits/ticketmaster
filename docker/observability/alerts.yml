@@ -40,8 +40,11 @@ groups:
 
   - name: worker
     rules:
+      # OutboxStuck and DeadLetterQueueNotEmpty read the maximum of the last 5 minutes: a gauge whose
+      # source times out is left out of a scrape, and a plain comparison would then restart `for`
+      # on every gap. The alert resolves up to 5 minutes after the cause is gone.
       - alert: OutboxStuck
-        expr: tm_outbox_oldest_age > 300
+        expr: max_over_time(tm_outbox_oldest_age[5m]) > 300
         for: 1m
         labels:
           severity: warning
@@ -50,7 +53,7 @@ groups:
           runbook: docs/observability.md#alerts
 
       - alert: DeadLetterQueueNotEmpty
-        expr: tm_queue_depth{queue="booking-events-dlq"} > 0
+        expr: max_over_time(tm_queue_depth{queue="booking-events-dlq"}[5m]) > 0
         for: 1m
         labels:
           severity: warning
@@ -60,11 +63,12 @@ groups:
 
       # A worker gauge whose source (PostgreSQL, SQS) is down is left out of the scrape instead of
       # reported as 0, so OutboxStuck and DeadLetterQueueNotEmpty would go silent. This rule covers
-      # that while the worker itself is up; a down worker is ScrapeTargetDown.
+      # a gauge that is gone for a whole minute while the worker itself is up; a down worker is
+      # ScrapeTargetDown, a gauge that only flaps is caught by the windows above.
       - alert: GaugeSourceMissing
         expr: |
           up{job="worker"} == 1
-          and on() (absent(tm_outbox_oldest_age) or absent(tm_queue_depth{queue="booking-events-dlq"}))
+          and on() (absent_over_time(tm_outbox_oldest_age[1m]) or absent_over_time(tm_queue_depth{queue="booking-events-dlq"}[1m]))
         for: 2m
         labels:
           severity: warning
@@ -81,4 +85,26 @@ groups:
           severity: warning
         annotations:
           summary: A metrics target does not answer its scrape
+          runbook: docs/observability.md#alerts
+
+      # dns_sd_configs lists the containers Docker DNS returns, so a stopped or crash-looping API
+      # container is no target at all and ScrapeTargetDown (up == 0) never sees it. The two rules
+      # below watch the number of API targets that answer. The 2 is `deploy.replicas` of the api
+      # service in docker-compose.yml; change both together.
+      - alert: ApiAllReplicasGone
+        expr: absent(up{job="api"} == 1)
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: No API replica answers its scrape, so the booking alerts are blind and requests fail
+          runbook: docs/observability.md#alerts
+
+      - alert: ApiReplicaMissing
+        expr: count(up{job="api"} == 1) < 2
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Fewer API replicas answer than deploy.replicas in docker-compose.yml (2)
           runbook: docs/observability.md#alerts
