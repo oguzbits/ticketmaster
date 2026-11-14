@@ -11,6 +11,8 @@ services:
       # The demo login is capped at 200 live users and a run logs in up to 190. The cleanup runs
       # this TTL plus the 300 s token grace after the login, so a run does not outlive its users.
       DEMO_USER_TTL_SECONDS: '60'
+      # The event cache is on; EVENT_CACHE_TTL_SECONDS=0 in the shell switches it off for a baseline.
+      EVENT_CACHE_TTL_SECONDS: ${EVENT_CACHE_TTL_SECONDS:-30}
       # The run never traces, whatever the shell has set.
       TRACING_ENABLED: 'false'
   worker:
