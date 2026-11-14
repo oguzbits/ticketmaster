@@ -221,6 +221,11 @@ Phase 2, slices A and B are done. Still open from earlier notes:
   throughput before it reaches the dead-letter queue. A handler that runs longer than the 120 s
   visibility timeout still sees its message delivered again while it works (the dedupe record
   serializes the two); the timeouts of the external calls keep a run well below that.
+- **A cancel between the status check and the send still gets a mail.** Both ticket effects read
+  the booking status outside their transaction and without a lock, so a customer who cancels in
+  that window receives a ticket mail (and the PDF flag may be set on the cancelled booking). The
+  download route answers 404 for it. Reading the status in the effect's transaction with a share
+  lock would close the window.
 - **The dead-letter queue has no replay tool.** A message that reached it (a mail server that was
   down for five deliveries) stays there until someone moves it back by hand.
 - **The PDF stays after a cancel and is never deleted.** The download answers 404 for a booking
