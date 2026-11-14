@@ -21,6 +21,7 @@ import { and, count, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { CLOCK, type Clock } from '../../core/clock.js';
 import { type Database, DB, type Tx } from '../../infrastructure/database/database.module.js';
 import { bookings, events, seats } from '../../infrastructure/database/schema.js';
+import { SPAN_ATTR, SPAN_NAME, withSpan } from '../../infrastructure/tracing/index.js';
 import { BOOKING_PORTS, type BookingPorts } from './adapters/booking-ports.js';
 import {
   claimPaymentKey,
@@ -81,7 +82,11 @@ export class BookingsService {
     if (event.waitingRoomCapacity !== null) {
       await this.ports.waitingRoom.assertAdmitted(input.eventId, input.userId);
     }
-    const result = await this.reservations.hold(event.strategy, input);
+    const result = await withSpan(
+      SPAN_NAME.HOLD_STRATEGY,
+      () => this.reservations.hold(event.strategy, input),
+      { attributes: { [SPAN_ATTR.STRATEGY]: event.strategy } }
+    );
     if (result.outcome === HOLD_OUTCOME.PLACED) {
       await this.announce(result.bookingId, input);
     }
