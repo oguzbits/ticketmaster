@@ -43,10 +43,10 @@ export interface TracingHandle {
 
 const RESOURCE_SERVICE_NAME = 'service.name';
 const OTLP_TRACES_PATH = '/v1/traces';
-// Tempo being down must cost a request nothing: short timeouts, a small queue, spans dropped when full.
+// Tempo being down must cost a request nothing: short timeouts, spans dropped when the queue is full.
+// The queue keeps the SDK default (2048): a 50-buyer simulation run puts ~780 spans in one trace.
 const EXPORT_TIMEOUT_MS = 2000;
 const EXPORT_DELAY_MS = 2000;
-const MAX_QUEUE_SIZE = 512;
 const EVENT_STREAM = 'text/event-stream';
 const HEALTH_PATH = /^\/health(\/|\?|$)/;
 
@@ -125,7 +125,6 @@ function otlpProcessor(endpoint: string): SpanProcessor {
     exporter,
     scheduledDelayMillis: EXPORT_DELAY_MS,
     exportTimeoutMillis: EXPORT_TIMEOUT_MS,
-    maxQueueSize: MAX_QUEUE_SIZE,
   });
 }
 

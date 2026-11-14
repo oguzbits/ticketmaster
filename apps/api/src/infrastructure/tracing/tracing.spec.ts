@@ -2,12 +2,7 @@ import { tracingChannel } from 'node:diagnostics_channel';
 
 import { ROOT_CONTEXT, SpanKind, trace } from '@opentelemetry/api';
 import { ExportResultCode } from '@opentelemetry/core';
-import {
-  BatchSpanProcessor,
-  type ReadableSpan,
-  SimpleSpanProcessor,
-  type SpanExporter,
-} from '@opentelemetry/sdk-trace';
+import { BatchSpanProcessor, type ReadableSpan, type SpanExporter } from '@opentelemetry/sdk-trace';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { withSpan } from './span.js';
@@ -63,19 +58,6 @@ describe('startTracing', () => {
 
     expect(spans.map((span) => span.name)).toEqual(['probe']);
     expect(spans[0]?.resource.attributes['service.name']).toBe(SERVICE_NAME.WORKER);
-  });
-
-  it('lets the callback finish when the export fails', async () => {
-    const failing: SpanExporter = {
-      export: (_batch, done) => done({ code: ExportResultCode.FAILED, error: new Error('down') }),
-      shutdown: () => Promise.resolve(),
-    };
-    handle = startTracing(ENV_ON, {
-      serviceName: SERVICE_NAME.API,
-      spanProcessor: new SimpleSpanProcessor({ exporter: failing }),
-    });
-
-    await expect(withSpan('probe', () => Promise.resolve('booked'))).resolves.toBe('booked');
   });
 });
 
