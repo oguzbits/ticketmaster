@@ -6,12 +6,16 @@ import type { MailSender } from '../domain/ticket.js';
 const SMTP_TIMEOUT_MS = 10_000;
 
 /** Sends through the SMTP server of `smtpUrl` (Mailpit locally); every failure throws. */
-export function createSmtpMailSender(smtpUrl: string, from: string): MailSender {
+export function createSmtpMailSender(
+  smtpUrl: string,
+  from: string,
+  timeoutMs: number = SMTP_TIMEOUT_MS
+): MailSender {
   const transport = createTransport({
     url: smtpUrl,
-    connectionTimeout: SMTP_TIMEOUT_MS,
-    greetingTimeout: SMTP_TIMEOUT_MS,
-    socketTimeout: SMTP_TIMEOUT_MS,
+    connectionTimeout: timeoutMs,
+    greetingTimeout: timeoutMs,
+    socketTimeout: timeoutMs,
   });
   return {
     async send({ to, subject, text, attachment }) {
