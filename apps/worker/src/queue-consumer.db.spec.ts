@@ -250,7 +250,10 @@ describe('QueueConsumer against the local emulator', () => {
     await expect.poll(() => handler.handled, { timeout: DLQ_WAIT_MS }).toEqual([message.messageId]);
 
     expect(handler.attempted).toEqual([message.messageId, message.messageId]);
-    expect(await countProcessed(db, message.messageId)).toBe(EFFECTS);
+    // The second effect of the message commits after the first one's handler has returned.
+    await expect
+      .poll(() => countProcessed(db, message.messageId), { timeout: DLQ_WAIT_MS })
+      .toBe(EFFECTS);
     expect(await leftOver(queue, consumer)).toEqual([]);
   });
 
@@ -291,7 +294,11 @@ describe('QueueConsumer against the local emulator', () => {
       await expect
         .poll(() => handler.byBooking.has(held.bookingId), { timeout: DLQ_WAIT_MS })
         .toBe(true);
-      expect(await countProcessed(db, handler.byBooking.get(held.bookingId) ?? '')).toBe(EFFECTS);
+      await expect
+        .poll(() => countProcessed(db, handler.byBooking.get(held.bookingId) ?? ''), {
+          timeout: DLQ_WAIT_MS,
+        })
+        .toBe(EFFECTS);
     } finally {
       await unlock();
     }
