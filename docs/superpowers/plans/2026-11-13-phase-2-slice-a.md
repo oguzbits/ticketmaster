@@ -308,5 +308,14 @@ other because both touch the bookings transaction code and the schema.
 
 ## Ledger
 
-| Task | Duration | Subagent tokens | Notes |
-| ---- | -------- | --------------- | ----- |
+| Task                              | Duration   | Subagent tokens | Notes                                           |
+| --------------------------------- | ---------- | --------------- | ----------------------------------------------- |
+| 1 AWS emulator, bootstrap         | 817 s      | 126.9k          |                                                 |
+| 2 Outbox, relay, readiness        | 1049 s     | 193.3k          |                                                 |
+| 3 Payment outside the transaction | 1013 s     | 165.4k          |                                                 |
+| Review of 2 and 3                 | 142 s      | 79.6k           | three findings, fixed in the next wave          |
+| Fix wave and 4 Consumer framework | 1374 s     | 216.2k          | claim time column, cancel guard, relay timeouts |
+| Review of 4 and fixes             | 126 s      | 69.8k           | relay run overlap, test gaps                    |
+| Fixes and 5 Docs                  | 996 s      | 157.8k          |                                                 |
+| Final review (strongest model)    | 214 s      | 88.1k           | one contract finding, fixed                     |
+| **Sum**                           | **5731 s** | **1097.1k**     |                                                 |
