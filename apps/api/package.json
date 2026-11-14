@@ -51,6 +51,14 @@
     "./clock": {
       "types": "./dist/infrastructure/clock/index.d.ts",
       "default": "./dist/infrastructure/clock/index.js"
+    },
+    "./tickets": {
+      "types": "./dist/modules/tickets/index.d.ts",
+      "default": "./dist/modules/tickets/index.js"
+    },
+    "./tickets/testing": {
+      "types": "./dist/modules/tickets/testing/index.d.ts",
+      "default": "./dist/modules/tickets/testing/index.js"
     }
   },
   "scripts": {

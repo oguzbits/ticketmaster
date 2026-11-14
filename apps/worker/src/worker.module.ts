@@ -6,12 +6,14 @@ import { DemoModule } from '@app/api/demo';
 import { OutboxModule } from '@app/api/outbox';
 import { RedisModule } from '@app/api/redis';
 import { SimulationsModule } from '@app/api/simulations';
+import { TicketsModule } from '@app/api/tickets';
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { LoggerModule } from 'nestjs-pino';
 
 import { DemoCleanupJob } from './demo-cleanup.job.js';
-import { BookingConfirmedHandler } from './handlers/booking-confirmed.handler.js';
+import { ConfirmationMailHandler } from './handlers/confirmation-mail.handler.js';
+import { TicketPdfHandler } from './handlers/ticket-pdf.handler.js';
 import { HoldExpiryJob } from './hold-expiry.job.js';
 import { OutboxRelayJob } from './outbox-relay.job.js';
 import { QueueConsumer } from './queue-consumer.js';
@@ -31,6 +33,7 @@ import { SimulationRetentionJob } from './simulation-retention.job.js';
     DemoModule,
     OutboxModule,
     SimulationsModule,
+    TicketsModule,
   ],
   providers: [
     HoldExpiryJob,
@@ -39,7 +42,8 @@ import { SimulationRetentionJob } from './simulation-retention.job.js';
     SimulationReaperJob,
     SimulationRetentionJob,
     SimulationConsumer,
-    BookingConfirmedHandler,
+    TicketPdfHandler,
+    ConfirmationMailHandler,
     QueueConsumer,
   ],
 })

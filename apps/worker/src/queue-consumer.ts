@@ -10,7 +10,9 @@ import {
   type OnModuleInit,
 } from '@nestjs/common';
 
-import { BookingConfirmedHandler } from './handlers/booking-confirmed.handler.js';
+import type { BookingConfirmedEffect } from './handlers/booking-confirmed-effect.js';
+import { ConfirmationMailHandler } from './handlers/confirmation-mail.handler.js';
+import { TicketPdfHandler } from './handlers/ticket-pdf.handler.js';
 
 /** The pause after a failing iteration, so a queue or database that is down is not hammered. */
 const ERROR_PAUSE_MS = 1000;
@@ -37,7 +39,8 @@ export class QueueConsumer implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(MESSAGE_QUEUE) private readonly queue: MessageQueue,
     @Inject(OutboxService) private readonly outbox: OutboxService,
-    @Inject(BookingConfirmedHandler) private readonly bookingConfirmed: BookingConfirmedHandler
+    @Inject(TicketPdfHandler) private readonly ticketPdf: BookingConfirmedEffect,
+    @Inject(ConfirmationMailHandler) private readonly confirmationMail: BookingConfirmedEffect
   ) {}
 
   onModuleInit(): void {
@@ -96,13 +99,19 @@ export class QueueConsumer implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** Runs the handler of the message's type under the dedupe record of that handler. */
+  /**
+   * Runs the effects of the message's type in order, each under the dedupe record of its own name:
+   * a retry after a failure skips the effects that took effect and runs the rest. The mail effect
+   * reads the PDF the first one stored, so they never run side by side.
+   */
   private async dispatch(message: QueueMessage): Promise<void> {
     switch (message.type) {
       case OUTBOX_MESSAGE_TYPE.BOOKING_CONFIRMED:
-        await this.outbox.processOnce(this.bookingConfirmed.consumer, message.messageId, () =>
-          this.bookingConfirmed.handle(message)
-        );
+        for (const effect of [this.ticketPdf, this.confirmationMail]) {
+          await this.outbox.processOnce(effect.consumer, message.messageId, (tx) =>
+            effect.handle(message, tx)
+          );
+        }
         return;
     }
   }

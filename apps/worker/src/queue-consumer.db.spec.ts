@@ -13,6 +13,8 @@ import {
   lockOutboxRelays,
   SqsMessageQueue,
 } from '@app/api/outbox/testing';
+import { MAIL_SENDER, TICKET_STORE, USER_DIRECTORY } from '@app/api/tickets';
+import { FakeMailSender, FakeTicketStore, FakeUserDirectory } from '@app/api/tickets/testing';
 import {
   BOOKING_STATUS,
   BOOKING_STRATEGY,
@@ -24,7 +26,13 @@ import { Logger } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { BookingConfirmedHandler } from './handlers/booking-confirmed.handler.js';
+import {
+  type BookingConfirmedEffect,
+  type BookingConfirmedMessage,
+  CONSUMER_NAME,
+} from './handlers/booking-confirmed-effect.js';
+import { ConfirmationMailHandler } from './handlers/confirmation-mail.handler.js';
+import { TicketPdfHandler } from './handlers/ticket-pdf.handler.js';
 import { QueueConsumer } from './queue-consumer.js';
 import { WorkerModule } from './worker.module.js';
 
@@ -39,23 +47,27 @@ const SLOW_TEST_MS = 30_000;
 const PROMPT_MS = 2000;
 const SECRET = 'top-secret-payload';
 
+/** Every message takes effect once per effect, under the name of each. */
+const EFFECTS = 2;
+
 /** Records every delivery; `failures` says how many deliveries of a message still fail. */
-class RecordingHandler extends BookingConfirmedHandler {
+class RecordingHandler implements BookingConfirmedEffect {
   readonly attempted: string[] = [];
   readonly handled: string[] = [];
   /** Message ID by booking ID. */
   readonly byBooking = new Map<string, string>();
   readonly failures = new Map<string, number>();
-  override async handle(message: Parameters<BookingConfirmedHandler['handle']>[0]): Promise<void> {
+  constructor(readonly consumer: string = CONSUMER_NAME.TICKET_PDF) {}
+  handle(message: BookingConfirmedMessage): Promise<void> {
     this.attempted.push(message.messageId);
     const failing = this.failures.get(message.messageId) ?? 0;
     if (failing > 0) {
       this.failures.set(message.messageId, failing - 1);
-      throw new Error('handler failed');
+      return Promise.reject(new Error('handler failed'));
     }
-    await super.handle(message);
     this.handled.push(message.messageId);
     this.byBooking.set(message.bookingId, message.messageId);
+    return Promise.resolve();
   }
 }
 
@@ -79,6 +91,9 @@ describe('QueueConsumer against the local emulator', () => {
   let outbox: OutboxService;
   let bookings: BookingsService;
   let moduleQueue: MessageQueue;
+  const store = new FakeTicketStore();
+  const mailer = new FakeMailSender();
+  const directory = new FakeUserDirectory();
 
   async function scratch(pollSeconds = POLL_SECONDS) {
     const scratchQueue = await createScratchQueueWithDlq(
@@ -101,6 +116,12 @@ describe('QueueConsumer against the local emulator', () => {
       // Every payment succeeds: the full path needs a confirmed booking.
       .overrideProvider(APP_CONFIG)
       .useValue({ ...loadEnv(), PAYMENT_FAILURE_RATE: 0 })
+      .overrideProvider(TICKET_STORE)
+      .useValue(store)
+      .overrideProvider(MAIL_SENDER)
+      .useValue(mailer)
+      .overrideProvider(USER_DIRECTORY)
+      .useValue(directory)
       .compile();
     db = moduleRef.get<Database>(DB, { strict: false });
     outbox = moduleRef.get(OutboxService, { strict: false });
@@ -116,8 +137,12 @@ describe('QueueConsumer against the local emulator', () => {
     client.destroy();
   });
 
-  function start(queue: MessageQueue, handler = new RecordingHandler()): QueueConsumer {
-    const consumer = new QueueConsumer(queue, outbox, handler);
+  function start(
+    queue: MessageQueue,
+    handler = new RecordingHandler(),
+    second = new RecordingHandler(CONSUMER_NAME.CONFIRMATION_MAIL)
+  ): QueueConsumer {
+    const consumer = new QueueConsumer(queue, outbox, handler, second);
     consumer.errorPauseMs = ERROR_PAUSE_MS;
     consumer.onModuleInit();
     running.push(consumer);
@@ -156,7 +181,7 @@ describe('QueueConsumer against the local emulator', () => {
     await sleep(SETTLE_MS);
 
     expect(handler.attempted).toEqual([message.messageId]);
-    expect(await countProcessed(db, message.messageId)).toBe(1);
+    expect(await countProcessed(db, message.messageId)).toBe(EFFECTS);
     expect(await leftOver(queue, consumer)).toEqual([]);
   });
 
@@ -225,7 +250,7 @@ describe('QueueConsumer against the local emulator', () => {
     await expect.poll(() => handler.handled, { timeout: DLQ_WAIT_MS }).toEqual([message.messageId]);
 
     expect(handler.attempted).toEqual([message.messageId, message.messageId]);
-    expect(await countProcessed(db, message.messageId)).toBe(1);
+    expect(await countProcessed(db, message.messageId)).toBe(EFFECTS);
     expect(await leftOver(queue, consumer)).toEqual([]);
   });
 
@@ -266,9 +291,199 @@ describe('QueueConsumer against the local emulator', () => {
       await expect
         .poll(() => handler.byBooking.has(held.bookingId), { timeout: DLQ_WAIT_MS })
         .toBe(true);
-      expect(await countProcessed(db, handler.byBooking.get(held.bookingId) ?? '')).toBe(1);
+      expect(await countProcessed(db, handler.byBooking.get(held.bookingId) ?? '')).toBe(EFFECTS);
     } finally {
       await unlock();
     }
+  });
+
+  describe('ticket PDF and confirmation mail', () => {
+    const ADDRESS = 'dora.musterfrau@example.test';
+    const RETRY_WAIT_MS = 15_000;
+
+    /** A confirmed booking and the message that announces it; the relays stay away from its row. */
+    async function confirmedBooking(): Promise<{ message: QueueMessage; userId: string }> {
+      const userId = randomUUID();
+      directory.addresses.set(userId, ADDRESS);
+      const { eventId, seatIds } = await createTestEvent(db, {
+        strategy: BOOKING_STRATEGY.PESSIMISTIC,
+        seats: 1,
+      });
+      const held = await bookings.hold({ eventId, seatId: seatIds[0] ?? '', userId });
+      if (held.outcome !== HOLD_OUTCOME.PLACED) throw new Error('hold was not placed');
+      await bookings.pay({ bookingId: held.bookingId, userId, idempotencyKey: randomUUID() });
+      return {
+        userId,
+        message: { ...confirmed(), bookingId: held.bookingId, eventId, userId },
+      };
+    }
+
+    const ticketReady = async (userId: string): Promise<boolean | undefined> =>
+      (await bookings.listOwn(userId))[0]?.ticketReady;
+
+    async function withRelaysLocked(run: () => Promise<void>): Promise<void> {
+      const unlock = await lockOutboxRelays(db);
+      try {
+        await run();
+      } finally {
+        await unlock();
+      }
+    }
+
+    const realConsumer = (queue: MessageQueue): QueueConsumer =>
+      start(queue, moduleRef.get(TicketPdfHandler), moduleRef.get(ConfirmationMailHandler));
+
+    /** The PDF effect needs the transaction of its dedupe record: run it as the consumer would. */
+    const storePdf = (message: BookingConfirmedMessage): Promise<boolean> =>
+      outbox.processOnce(CONSUMER_NAME.TICKET_PDF, randomUUID(), (tx) =>
+        moduleRef.get(TicketPdfHandler).handle(message, tx)
+      );
+
+    const reset = (): void => {
+      store.objects.clear();
+      store.hidden.clear();
+      store.puts = 0;
+      mailer.sent.length = 0;
+      mailer.failures = 0;
+      directory.failures = 0;
+    };
+
+    it('stores the PDF, marks the ticket ready and mails it once; no log line holds the address', async () => {
+      reset();
+      await withRelaysLocked(async () => {
+        const { queue } = await scratch();
+        const logged = [
+          vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined),
+          vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined),
+          vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined),
+        ];
+        const { message, userId } = await confirmedBooking();
+        const consumer = realConsumer(queue);
+
+        await send(queue, message);
+        await expect.poll(() => mailer.sent.length, { timeout: DLQ_WAIT_MS }).toBe(1);
+
+        const stored = store.objects.get(message.bookingId);
+        expect(
+          Buffer.from(stored ?? [])
+            .subarray(0, 4)
+            .toString()
+        ).toBe('%PDF');
+        expect(mailer.sent[0]).toMatchObject({ to: ADDRESS });
+        expect(mailer.sent[0]?.attachment.content).toEqual(stored);
+        expect(await ticketReady(userId)).toBe(true);
+        const lines = logged.flatMap((spy) => spy.mock.calls.map((call) => String(call[0])));
+        expect(lines.filter((line) => line.includes(ADDRESS))).toEqual([]);
+        expect(await leftOver(queue, consumer)).toEqual([]);
+      });
+    });
+
+    it('a message that arrives twice yields one PDF and one mail', async () => {
+      reset();
+      await withRelaysLocked(async () => {
+        const { queue } = await scratch();
+        const { message } = await confirmedBooking();
+        const consumer = realConsumer(queue);
+
+        await send(queue, message);
+        await send(queue, message);
+        await expect.poll(() => mailer.sent.length, { timeout: DLQ_WAIT_MS }).toBe(1);
+        await sleep(SETTLE_MS);
+
+        expect(store.puts).toBe(1);
+        expect(mailer.sent).toHaveLength(1);
+        expect(await countProcessed(db, message.messageId)).toBe(EFFECTS);
+        expect(await leftOver(queue, consumer)).toEqual([]);
+      });
+    });
+
+    it('a booking that was cancelled before the message is handled gets no PDF and no mail, and the message is deleted', async () => {
+      reset();
+      await withRelaysLocked(async () => {
+        const { queue } = await scratch();
+        const { message, userId } = await confirmedBooking();
+        await bookings.cancel({ bookingId: message.bookingId, userId });
+        const consumer = realConsumer(queue);
+
+        await send(queue, message);
+        await expect
+          .poll(() => countProcessed(db, message.messageId), { timeout: DLQ_WAIT_MS })
+          .toBe(EFFECTS);
+
+        expect(store.puts).toBe(0);
+        expect(mailer.sent).toEqual([]);
+        expect(await ticketReady(userId)).toBe(false);
+        expect(await leftOver(queue, consumer)).toEqual([]);
+      });
+    });
+
+    it(
+      'an address lookup that fails leaves the message in the queue; the retry sends the mail without storing the PDF again',
+      async () => {
+        reset();
+        await withRelaysLocked(async () => {
+          const { queue } = await scratch();
+          const { message } = await confirmedBooking();
+          directory.failures = 1;
+          const consumer = realConsumer(queue);
+
+          await send(queue, message);
+          await expect.poll(() => mailer.sent.length, { timeout: RETRY_WAIT_MS }).toBe(1);
+
+          expect(store.puts).toBe(1);
+          expect(await leftOver(queue, consumer)).toEqual([]);
+        });
+      },
+      SLOW_TEST_MS
+    );
+
+    it(
+      'a mail server that is down leaves the message in the queue; the retry sends one mail without storing the PDF again',
+      async () => {
+        reset();
+        await withRelaysLocked(async () => {
+          const { queue } = await scratch();
+          const { message } = await confirmedBooking();
+          mailer.failures = 1;
+          const consumer = realConsumer(queue);
+
+          await send(queue, message);
+          await expect.poll(() => mailer.sent.length, { timeout: RETRY_WAIT_MS }).toBe(1);
+
+          expect(store.puts).toBe(1);
+          expect(await leftOver(queue, consumer)).toEqual([]);
+        });
+      },
+      SLOW_TEST_MS
+    );
+
+    it('a user without an address gets no mail: the effect fails and records nothing', async () => {
+      reset();
+      await withRelaysLocked(async () => {
+        const { message, userId } = await confirmedBooking();
+        directory.addresses.delete(userId);
+        const mail = moduleRef.get(ConfirmationMailHandler);
+        await storePdf(message);
+
+        await expect(mail.handle(message)).rejects.toThrow(/no email/);
+
+        expect(mailer.sent).toEqual([]);
+      });
+    });
+
+    it('a stored PDF that cannot be read back fails the mail instead of sending it without the attachment', async () => {
+      reset();
+      await withRelaysLocked(async () => {
+        const { message } = await confirmedBooking();
+        await storePdf(message);
+        store.hidden.add(message.bookingId);
+
+        await expect(moduleRef.get(ConfirmationMailHandler).handle(message)).rejects.toThrow(
+          /ticket/
+        );
+
+        expect(mailer.sent).toEqual([]);
+      });
+    });
   });
 });
