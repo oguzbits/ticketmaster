@@ -6,6 +6,7 @@ import { CLOCK, type Clock } from '../../core/clock.js';
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
 import { REDIS, type Redis } from '../../infrastructure/redis/redis.module.js';
 import { OutboxModule, OutboxService } from '../outbox/index.js';
+import { WaitingRoomModule, WaitingRoomService } from '../waiting-room/index.js';
 import { BOOKING_PORTS, type BookingPorts } from './adapters/booking-ports.js';
 import { FakePaymentProvider } from './adapters/fake-payment.provider.js';
 import { RedisSeatChangePublisher } from './adapters/redis-seat-changes.js';
@@ -16,7 +17,7 @@ import { PAYMENT_PROVIDER, type PaymentProvider } from './domain/payment-provide
 import { SEAT_CHANGE_PUBLISHER, type SeatChangePublisher } from './domain/seat-change.js';
 
 @Module({
-  imports: [OutboxModule],
+  imports: [OutboxModule, WaitingRoomModule],
   controllers: [BookingsController],
   providers: [
     BookingsService,
@@ -36,9 +37,10 @@ import { SEAT_CHANGE_PUBLISHER, type SeatChangePublisher } from './domain/seat-c
       useFactory: (
         payments: PaymentProvider,
         seatChanges: SeatChangePublisher,
-        outbox: OutboxService
-      ): BookingPorts => ({ payments, seatChanges, outbox }),
-      inject: [PAYMENT_PROVIDER, SEAT_CHANGE_PUBLISHER, OutboxService],
+        outbox: OutboxService,
+        waitingRoom: WaitingRoomService
+      ): BookingPorts => ({ payments, seatChanges, outbox, waitingRoom }),
+      inject: [PAYMENT_PROVIDER, SEAT_CHANGE_PUBLISHER, OutboxService, WaitingRoomService],
     },
     {
       provide: SEAT_CHANGE_PUBLISHER,

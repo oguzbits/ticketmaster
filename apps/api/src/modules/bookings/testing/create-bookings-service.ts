@@ -4,6 +4,7 @@ import type { Database } from '../../../infrastructure/database/database.module.
 import type { Redis } from '../../../infrastructure/redis/redis.module.js';
 import { OutboxService } from '../../outbox/index.js';
 import { FakeMessageQueue } from '../../outbox/testing/index.js';
+import { RedisWaitingRoomStore, WaitingRoomService } from '../../waiting-room/index.js';
 import { FakePaymentProvider } from '../adapters/fake-payment.provider.js';
 import { RedisSeatChangePublisher } from '../adapters/redis-seat-changes.js';
 import { SeatReservations } from '../adapters/seat-reservations.js';
@@ -23,5 +24,11 @@ export function createBookingsService(
   outbox: OutboxService = new OutboxService(db, clock, new FakeMessageQueue())
 ): BookingsService {
   const reservations = new SeatReservations(db, redis, clock, loadEnv().HOLD_TTL_SECONDS);
-  return new BookingsService(db, reservations, clock, { payments, seatChanges: publisher, outbox });
+  const waitingRoom = new WaitingRoomService(db, clock, new RedisWaitingRoomStore(redis));
+  return new BookingsService(db, reservations, clock, {
+    payments,
+    seatChanges: publisher,
+    outbox,
+    waitingRoom,
+  });
 }

@@ -11,6 +11,7 @@ import {
   IDEMPOTENCY_KEY_HEADER,
   ROLE,
   TRANSITION_REASON,
+  WaitingRoomStatusSchema,
 } from '@app/shared';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -26,8 +27,10 @@ import { CLOCK } from '../../core/clock.js';
 import { bookings } from '../../infrastructure/database/schema.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { fakeTokenVerifier, randomClientAddress } from '../../testing/http.js';
+import { lockSpecs } from '../../testing/spec-lock.js';
 import { SPEC_NOW } from '../../testing/time.js';
 import { TOKEN_VERIFIER } from '../auth/index.js';
+import { WaitingRoomService } from '../waiting-room/index.js';
 import type { PaymentProvider } from './domain/payment-provider.js';
 import { PAYMENT_PROVIDER } from './domain/payment-provider.js';
 
@@ -84,8 +87,11 @@ describe('booking endpoints', () => {
   let now = SPEC_NOW;
   let verifyDelayMs = 0;
   let app: INestApplication;
+  let unlock: () => Promise<void>;
 
   beforeAll(async () => {
+    // admitDue admits the users of every waiting room, so no other file may queue meanwhile.
+    unlock = await lockSpecs(db, 'waiting-room');
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(TOKEN_VERIFIER)
       .useValue({
@@ -104,6 +110,7 @@ describe('booking endpoints', () => {
   });
   afterAll(async () => {
     await app.close();
+    await unlock();
     await database.close();
   });
   beforeEach(() => {
@@ -124,7 +131,11 @@ describe('booking endpoints', () => {
   };
 
   async function freeSeat(
-    input: { sandboxUserId?: string; strategy?: BookingStrategy } = {}
+    input: {
+      sandboxUserId?: string;
+      strategy?: BookingStrategy;
+      waitingRoomCapacity?: number;
+    } = {}
   ): Promise<{ eventId: string; seatId: string }> {
     const { eventId, seatIds } = await createTestEvent(db, {
       strategy: BOOKING_STRATEGY.PESSIMISTIC,
@@ -256,6 +267,54 @@ describe('booking endpoints', () => {
         .from(bookings)
         .where(eq(bookings.id, BookingSchema.parse(response.body).id));
       expect(stored?.userId).toBe(ALICE.id);
+    });
+  });
+
+  describe('hold on a waiting-room event', () => {
+    const CAPACITY = 5;
+    const room = () => freeSeat({ waitingRoomCapacity: CAPACITY });
+    async function admit(eventId: string, caller: Caller) {
+      await call('post', `/events/${eventId}/waiting-room`, caller).expect(200);
+      await app.get(WaitingRoomService).admitDue();
+      const response = await call('get', `/events/${eventId}/waiting-room`, caller).expect(200);
+      return WaitingRoomStatusSchema.parse(response.body);
+    }
+
+    it('answers 403 without an admission and creates no booking', async () => {
+      const seat = await room();
+
+      await call('post', '/bookings', 'alice').send(seat).expect(403);
+
+      const rows = await db.select().from(bookings).where(eq(bookings.seatId, seat.seatId));
+      expect(rows).toEqual([]);
+    });
+
+    it('answers 201 after the admission', async () => {
+      const seat = await room();
+      await admit(seat.eventId, 'alice');
+
+      await call('post', '/bookings', 'alice').send(seat).expect(201);
+    });
+
+    it('answers 403 after the admission ran out', async () => {
+      const seat = await room();
+      const { admittedUntil } = await admit(seat.eventId, 'alice');
+      now = new Date(Date.parse(admittedUntil ?? '') + 1);
+
+      await call('post', '/bookings', 'alice').send(seat).expect(403);
+    });
+
+    it('does not let an admitted customer hold on another waiting-room event', async () => {
+      const [admitted, other] = [await room(), await room()];
+      await admit(admitted.eventId, 'alice');
+
+      await call('post', '/bookings', 'alice').send(other).expect(403);
+    });
+
+    it('keeps a foreign sandbox event at 404, not 403', async () => {
+      const seat = await freeSeat({ sandboxUserId: BOB.id, waitingRoomCapacity: CAPACITY });
+
+      await call('post', '/bookings', 'alice').send(seat).expect(404);
     });
   });
 

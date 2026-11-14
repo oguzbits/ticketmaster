@@ -59,11 +59,16 @@ export class BookingsService {
 
   /**
    * Holds the seat under the strategy of its event; NotFound when the seat is not in the event or
-   * the event is the sandbox of another user.
+   * the event is the sandbox of another user, Forbidden when the event has a waiting room and the
+   * user holds no live admission.
    */
   async hold(input: HoldInput): Promise<HoldResult> {
     const [event] = await this.db
-      .select({ strategy: events.strategy, sandboxUserId: events.sandboxUserId })
+      .select({
+        strategy: events.strategy,
+        sandboxUserId: events.sandboxUserId,
+        waitingRoomCapacity: events.waitingRoomCapacity,
+      })
       .from(seats)
       .innerJoin(events, eq(events.id, seats.eventId))
       .where(and(eq(seats.id, input.seatId), eq(seats.eventId, input.eventId)));
@@ -72,6 +77,9 @@ export class BookingsService {
       (event.sandboxUserId !== null && event.sandboxUserId !== input.userId)
     ) {
       throw new NotFoundException('Seat not found in this event');
+    }
+    if (event.waitingRoomCapacity !== null) {
+      await this.ports.waitingRoom.assertAdmitted(input.eventId, input.userId);
     }
     const result = await this.reservations.hold(event.strategy, input);
     if (result.outcome === HOLD_OUTCOME.PLACED) {
