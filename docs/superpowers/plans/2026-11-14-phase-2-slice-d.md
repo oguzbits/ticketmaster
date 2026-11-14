@@ -238,4 +238,21 @@ Presence heartbeats that drop closed tabs, priority or lottery admission, an adm
 
 ## Ledger
 
-(filled in at the end of the slice)
+Subagent runs (`umsetzer` unless noted), one bundle per row:
+
+| Bundle                                  | Duration | Subagent tokens |
+| --------------------------------------- | -------- | --------------- |
+| Tasks 1, 2 (contract, column, policy)   | 6.7 min  | 114,541         |
+| Tasks 3, 4 (store, service, routes)     | 11.1 min | 178,523         |
+| Tasks 5, 6 (hold gate, worker job)      | 6.3 min  | 91,295          |
+| Task 7 (web panel, browser check)       | 12.0 min | 185,249         |
+| Task 8 (seed, e2e, docs)                | 22.8 min | 125,274         |
+| Whole-slice review (strongest model)    | 4.2 min  | 78,844          |
+| Review fixes (scope test, leave button) | 21.9 min | 84,979          |
+| **Total**                               | 85 min   | **858,705**     |
+
+The review found no critical issue. Two findings were fixed (a missing test for the settings scope,
+no Leave button while admitted); the rest are small and listed in the backlog or accepted. The
+fix run ended before its end-to-end run finished; the last commit and the end-to-end runs were done
+in the main session. `pnpm e2e` ran six times (one failover timeout while the machine was busy, one
+Docker cache error, both fine on a rerun).
