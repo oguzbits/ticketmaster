@@ -15,6 +15,7 @@ export const SEED = {
     PESSIMISTIC: '00000000-0000-4000-8000-0000000000a2',
     OPTIMISTIC: '00000000-0000-4000-8000-0000000000a3',
     REDIS_LOCK: '00000000-0000-4000-8000-0000000000a4',
+    WAITING_ROOM: '00000000-0000-4000-8000-0000000000a5',
   },
   // Owner of the public events: the platform itself, not a user.
   OWNER_ID: '00000000-0000-4000-8000-0000000000ff',
@@ -43,7 +44,13 @@ const CLUB: Layout = { sections: [{ name: 'FLOOR', priceCents: 4500 }], rows: 6,
 // live (phase 5) by deriving the date from the injected clock.
 export const STARTS_AT = new Date('2027-06-01T19:00:00Z');
 
-const PUBLIC_EVENTS: { id: string; name: string; strategy: BookingStrategy; venueId: string }[] = [
+const PUBLIC_EVENTS: {
+  id: string;
+  name: string;
+  strategy: BookingStrategy;
+  venueId: string;
+  waitingRoomCapacity?: number;
+}[] = [
   {
     id: SEED.EVENT_IDS.NAIVE,
     name: 'Club Night (naive)',
@@ -68,6 +75,14 @@ const PUBLIC_EVENTS: { id: string; name: string; strategy: BookingStrategy; venu
     strategy: BOOKING_STRATEGY.REDIS_LOCK,
     venueId: SEED.VENUE_IDS.CLUB,
   },
+  {
+    id: SEED.EVENT_IDS.WAITING_ROOM,
+    name: 'Waiting Room Night',
+    strategy: BOOKING_STRATEGY.PESSIMISTIC,
+    venueId: SEED.VENUE_IDS.HALL,
+    // One admission at a time, so a second customer visibly waits.
+    waitingRoomCapacity: 1,
+  },
 ];
 
 /** Every seat of a layout: section, row and number, with the section's price. */
@@ -84,7 +99,7 @@ export function layoutSeats(layout: Layout) {
   );
 }
 
-/** Two venues with seat templates and four public events, one per strategy. Safe to repeat. */
+/** Two venues with seat templates and five public events: one per strategy and one with a waiting room. Safe to repeat. */
 export async function seed(db: Database): Promise<void> {
   await db.transaction(async (tx) => {
     await tx

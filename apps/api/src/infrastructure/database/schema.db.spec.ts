@@ -111,7 +111,17 @@ describe('booking schema', () => {
     await seed(db);
 
     expect(await seededRows()).toEqual(first);
-    expect(first).toEqual([2, 272, 4, 544]);
+    expect(first).toEqual([2, 272, 5, 744]);
+  });
+
+  it('seed() gives the public waiting-room event its capacity', async () => {
+    await seed(db);
+
+    const [row] = await db
+      .select({ capacity: events.waitingRoomCapacity })
+      .from(events)
+      .where(eq(events.id, SEED.EVENT_IDS.WAITING_ROOM));
+    expect(row?.capacity).toBe(1);
   });
 
   it('seed() fills the price of a venue seat that was stored without one', async () => {
