@@ -1,19 +1,26 @@
 import { type Attributes, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 
-const TRACER_NAME = 'ticketmaster-klon';
+export const TRACER_NAME = 'ticketmaster-klon';
 
 export const SPAN_NAME = {
   OUTBOX_SEND: 'outbox.send',
   QUEUE_PROCESS: 'queue.process',
   QUEUE_EFFECT: 'queue.effect',
   HOLD_STRATEGY: 'booking.hold.strategy',
+  DB_QUERY: 'db.query',
+  REDIS_COMMAND: 'redis.command',
 } as const;
 
 export const SPAN_ATTR = {
   STRATEGY: 'booking.strategy',
   EFFECT: 'queue.effect',
   MESSAGE_ID: 'queue.message_id',
+  DB_SYSTEM: 'db.system',
+  DB_STATEMENT: 'db.statement',
+  DB_OPERATION: 'db.operation',
 } as const;
+
+export const DB_SYSTEM = { POSTGRESQL: 'postgresql', REDIS: 'redis' } as const;
 
 /** Runs `fn` in a new active span; on a throw sets status ERROR with the error name only, ends the span, rethrows. */
 export function withSpan<T>(

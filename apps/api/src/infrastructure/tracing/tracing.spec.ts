@@ -1,3 +1,5 @@
+import { tracingChannel } from 'node:diagnostics_channel';
+
 import { ROOT_CONTEXT, SpanKind, trace } from '@opentelemetry/api';
 import { ExportResultCode } from '@opentelemetry/core';
 import {
@@ -121,5 +123,30 @@ describe('isEventStreamRequest', () => {
     expect(isEventStreamRequest({ headers: { accept: 'text/event-stream' } })).toBe(true);
     expect(isEventStreamRequest({ headers: { accept: 'application/json' } })).toBe(false);
     expect(isEventStreamRequest({ headers: {} })).toBe(false);
+  });
+});
+
+describe('driver channels', () => {
+  const POSTGRES = tracingChannel('postgres:query');
+  let handle: TracingHandle | null = null;
+  afterEach(async () => {
+    await handle?.shutdown();
+    handle = null;
+  });
+
+  it('are subscribed while tracing runs and free again after shutdown', async () => {
+    handle = startTracing(ENV_ON, { serviceName: SERVICE_NAME.API });
+    expect(POSTGRES.hasSubscribers).toBe(true);
+
+    await handle?.shutdown();
+    handle = null;
+
+    expect(POSTGRES.hasSubscribers).toBe(false);
+  });
+
+  it('are not subscribed when tracing is off', () => {
+    handle = startTracing(ENV_OFF, { serviceName: SERVICE_NAME.API });
+
+    expect(POSTGRES.hasSubscribers).toBe(false);
   });
 });

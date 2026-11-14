@@ -32,6 +32,7 @@ import {
 } from '@opentelemetry/sdk-trace';
 
 import type { Env } from '../../config/env.js';
+import { subscribeDriverSpans } from './channel-spans.js';
 
 export const SERVICE_NAME = { API: 'ticketmaster-api', WORKER: 'ticketmaster-worker' } as const;
 export type ServiceName = (typeof SERVICE_NAME)[keyof typeof SERVICE_NAME];
@@ -145,6 +146,7 @@ export function startTracing(
   propagation.setGlobalPropagator(
     new CompositePropagator({ propagators: [new W3CTraceContextPropagator()] })
   );
+  const unsubscribeDrivers = subscribeDriverSpans();
   const unregister = registerInstrumentations({
     instrumentations: [
       new HttpInstrumentation({ ignoreIncomingRequestHook: isEventStreamRequest }),
@@ -162,6 +164,7 @@ export function startTracing(
 
   return {
     async shutdown() {
+      unsubscribeDrivers();
       unregister();
       await provider.shutdown();
       trace.disable();
