@@ -64,6 +64,13 @@
       "when": 1794658575562,
       "tag": "0008_sturdy_kabuki",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794672811638,
+      "tag": "0009_strange_red_ghost",
+      "breakpoints": true
     }
   ]
 }

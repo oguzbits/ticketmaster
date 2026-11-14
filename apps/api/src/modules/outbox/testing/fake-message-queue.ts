@@ -1,6 +1,6 @@
 import type { MessageQueue, ReceivedMessage } from '../domain/message-queue.js';
 
-type SendInput = { body: string; messageId: string };
+type SendInput = { body: string; messageId: string; traceparent: string | null };
 
 /**
  * A queue that only records sends, for the specs of the relay. `behavior` runs on every send and

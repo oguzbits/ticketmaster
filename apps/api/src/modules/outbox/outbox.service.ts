@@ -5,6 +5,12 @@ import { asc, eq, isNull, min, sql } from 'drizzle-orm';
 import { CLOCK, type Clock } from '../../core/clock.js';
 import { type Database, DB, type Tx } from '../../infrastructure/database/database.module.js';
 import { outboxMessages, processedMessages } from '../../infrastructure/database/schema.js';
+import {
+  currentTraceparent,
+  SPAN_NAME,
+  withExtractedContext,
+  withSpan,
+} from '../../infrastructure/tracing/index.js';
 import { MESSAGE_QUEUE, type MessageQueue } from './domain/message-queue.js';
 
 /** The oldest unpublished row may be this old before the ready probe reports the outbox as stuck. */
@@ -40,9 +46,12 @@ export class OutboxService {
    * that change committed. The row ID is the message ID.
    */
   async enqueue(tx: Tx, message: QueueMessage): Promise<void> {
-    await tx
-      .insert(outboxMessages)
-      .values({ id: message.messageId, type: message.type, payload: message });
+    await tx.insert(outboxMessages).values({
+      id: message.messageId,
+      type: message.type,
+      payload: message,
+      traceparent: currentTraceparent(),
+    });
   }
 
   /**
@@ -93,7 +102,7 @@ export class OutboxService {
         for (const row of rows) {
           if (expired) break;
           const failure = await Promise.race([
-            this.send(row.id, JSON.stringify(row.payload)),
+            this.send(row.id, JSON.stringify(row.payload), row.traceparent),
             deadline,
           ]);
           if (failure === null) {
@@ -152,9 +161,18 @@ export class OutboxService {
   }
 
   /** The error name of a failed send, or null. Names only: a message text may hold data. */
-  private async send(messageId: string, body: string): Promise<string | null> {
+  private async send(
+    messageId: string,
+    body: string,
+    traceparent: string | null
+  ): Promise<string | null> {
     try {
-      await this.queue.send({ body, messageId });
+      // The send span continues the trace stored with the row; the queue carries the span's own context.
+      await withExtractedContext(traceparent, () =>
+        withSpan(SPAN_NAME.OUTBOX_SEND, () =>
+          this.queue.send({ body, messageId, traceparent: currentTraceparent() })
+        )
+      );
       return null;
     } catch (error) {
       return error instanceof Error ? error.name : 'UnknownError';

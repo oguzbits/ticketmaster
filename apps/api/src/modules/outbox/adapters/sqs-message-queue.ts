@@ -13,6 +13,9 @@ import type { MessageQueue, ReceivedMessage } from '../domain/message-queue.js';
 
 /** The message attribute that carries the outbox row ID. */
 const MESSAGE_ID_ATTRIBUTE = 'messageId';
+/** The message attribute that carries the W3C trace context. */
+const TRACEPARENT_ATTRIBUTE = 'traceparent';
+const TRACEPARENT_FORMAT = /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/;
 const RECEIVE_COUNT_ATTRIBUTE = 'ApproximateReceiveCount';
 
 /** A send, a delete or a lookup that takes longer fails: the relay holds a transaction meanwhile. */
@@ -57,7 +60,14 @@ const ReceivedSchema = z.object({
   MessageId: z.string(),
   Attributes: z.object({ [RECEIVE_COUNT_ATTRIBUTE]: z.coerce.number().int().positive() }),
   MessageAttributes: z
-    .object({ [MESSAGE_ID_ATTRIBUTE]: z.object({ StringValue: z.string() }) })
+    .object({
+      [MESSAGE_ID_ATTRIBUTE]: z.object({ StringValue: z.string() }),
+      // Parsed apart: a malformed value is a message without trace context, never a failure.
+      [TRACEPARENT_ATTRIBUTE]: z
+        .object({ StringValue: z.string().regex(TRACEPARENT_FORMAT) })
+        .optional()
+        .catch(undefined),
+    })
     .partial()
     .optional(),
 });
@@ -81,13 +91,20 @@ export class SqsMessageQueue implements MessageQueue {
     return new SqsMessageQueue(client, QueueUrl, waitSeconds);
   }
 
-  async send(input: { body: string; messageId: string }): Promise<void> {
+  async send(input: {
+    body: string;
+    messageId: string;
+    traceparent: string | null;
+  }): Promise<void> {
     await this.client.send(
       new SendMessageCommand({
         QueueUrl: this.queueUrl,
         MessageBody: input.body,
         MessageAttributes: {
           [MESSAGE_ID_ATTRIBUTE]: { DataType: 'String', StringValue: input.messageId },
+          ...(input.traceparent === null
+            ? {}
+            : { [TRACEPARENT_ATTRIBUTE]: { DataType: 'String', StringValue: input.traceparent } }),
         },
       })
     );
@@ -99,7 +116,7 @@ export class SqsMessageQueue implements MessageQueue {
         QueueUrl: this.queueUrl,
         MaxNumberOfMessages: max,
         WaitTimeSeconds: this.waitSeconds,
-        MessageAttributeNames: [MESSAGE_ID_ATTRIBUTE],
+        MessageAttributeNames: [MESSAGE_ID_ATTRIBUTE, TRACEPARENT_ATTRIBUTE],
         MessageSystemAttributeNames: [RECEIVE_COUNT_ATTRIBUTE],
       }),
       {
@@ -116,6 +133,7 @@ export class SqsMessageQueue implements MessageQueue {
         // A message that did not come through the outbox has no attribute: the queue's own ID still names it in logs.
         messageId:
           message.MessageAttributes?.[MESSAGE_ID_ATTRIBUTE]?.StringValue ?? message.MessageId,
+        traceparent: message.MessageAttributes?.[TRACEPARENT_ATTRIBUTE]?.StringValue ?? null,
       };
     });
   }

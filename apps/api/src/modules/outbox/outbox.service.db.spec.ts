@@ -7,6 +7,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { Clock } from '../../core/clock.js';
 import type { Database } from '../../infrastructure/database/database.module.js';
 import { outboxMessages } from '../../infrastructure/database/schema.js';
+import { currentTraceparent, SPAN_NAME, withSpan } from '../../infrastructure/tracing/index.js';
+import { startTestTracing } from '../../infrastructure/tracing/testing/index.js';
 import { openTestDatabase } from '../../testing/database.js';
 import { OutboxService, RELAY_DEADLINE_ERROR } from './outbox.service.js';
 import { FakeMessageQueue, lockOutboxRelays } from './testing/index.js';
@@ -20,6 +22,9 @@ const BATCH = 1000;
 const GATE_WAIT_MS = 3000;
 const BACKDATED_SECONDS = 1000;
 const QUERY_CANCELED = '57014';
+const TRACE_ID = '0af7651916cd43dd8448eb211c80319c';
+const STORED_TRACEPARENT = `00-${TRACE_ID}-b7ad6b7169203331-01`;
+const traceIdOf = (traceparent: string | null | undefined) => traceparent?.split('-')[1];
 
 class QueueDown extends Error {
   override name = 'QueueDown';
@@ -44,12 +49,15 @@ describe('OutboxService', () => {
   const clock: Clock = { now: () => CLOCK_TIME };
   const written: string[] = [];
   let unlock: () => Promise<void>;
+  let stopTracing: (() => Promise<void>) | undefined;
 
   // A relay of another spec file (the consumer's full path) would take these rows.
   beforeAll(async () => {
     unlock = await lockOutboxRelays(db);
   });
   afterEach(async () => {
+    await stopTracing?.();
+    stopTracing = undefined;
     if (written.length > 0)
       await db.delete(outboxMessages).where(inArray(outboxMessages.id, written));
     written.length = 0;
@@ -103,6 +111,82 @@ describe('OutboxService', () => {
       .from(outboxMessages)
       .where(eq(outboxMessages.id, rolledBack.messageId));
     expect(rows).toEqual([]);
+  });
+
+  it('enqueue stores the traceparent of the active span, and null outside a span', async () => {
+    const { shutdown } = startTestTracing();
+    stopTracing = shutdown;
+    const service = serviceWith(new FakeMessageQueue());
+    const inside = message();
+    const outside = message();
+    written.push(inside.messageId, outside.messageId);
+    let active: string | null = null;
+
+    await withSpan('probe', async () => {
+      active = currentTraceparent();
+      await db.transaction((tx) => service.enqueue(tx, inside));
+    });
+    await db.transaction((tx) => service.enqueue(tx, outside));
+
+    expect(active).not.toBeNull();
+    expect((await rowOf(inside.messageId)).traceparent).toBe(active);
+    expect((await rowOf(outside.messageId)).traceparent).toBeNull();
+  });
+
+  it('relay sends under the stored trace: the send carries its trace ID and an outbox.send span joins it', async () => {
+    const { exporter, shutdown } = startTestTracing();
+    stopTracing = shutdown;
+    const queue = new FakeMessageQueue();
+    const service = serviceWith(queue);
+    const [only] = await enqueueMessages(service, 1);
+    if (only === undefined) throw new Error('no message');
+    await db
+      .update(outboxMessages)
+      .set({ traceparent: STORED_TRACEPARENT })
+      .where(eq(outboxMessages.id, only.messageId));
+
+    await service.relay(BATCH);
+
+    const sent = queue.sent.find((input) => input.messageId === only.messageId);
+    expect(traceIdOf(sent?.traceparent)).toBe(TRACE_ID);
+    const sendSpans = exporter
+      .getFinishedSpans()
+      .filter((span) => span.name === SPAN_NAME.OUTBOX_SEND);
+    expect(sendSpans.map((span) => span.spanContext().traceId)).toContain(TRACE_ID);
+  });
+
+  it('a row without a stored traceparent is sent in the trace of its own send span and does not fail', async () => {
+    const { exporter, shutdown } = startTestTracing();
+    stopTracing = shutdown;
+    const queue = new FakeMessageQueue();
+    const service = serviceWith(queue);
+    const [only] = await enqueueMessages(service, 1);
+    if (only === undefined) throw new Error('no message');
+
+    const result = await service.relay(BATCH);
+
+    expect(result.failed).toBe(0);
+    const sent = queue.sent.find((input) => input.messageId === only.messageId);
+    const traceId = traceIdOf(sent?.traceparent);
+    expect(traceId).toMatch(/^[0-9a-f]{32}$/);
+    expect(
+      exporter
+        .getFinishedSpans()
+        .some(
+          (span) => span.name === SPAN_NAME.OUTBOX_SEND && span.spanContext().traceId === traceId
+        )
+    ).toBe(true);
+  });
+
+  it('with tracing off a row is sent with a null traceparent', async () => {
+    const queue = new FakeMessageQueue();
+    const service = serviceWith(queue);
+    const [only] = await enqueueMessages(service, 1);
+    if (only === undefined) throw new Error('no message');
+
+    await service.relay(BATCH);
+
+    expect(queue.sent.find((input) => input.messageId === only.messageId)?.traceparent).toBeNull();
   });
 
   it('relay sends each unpublished row once with the row ID and marks it published', async () => {

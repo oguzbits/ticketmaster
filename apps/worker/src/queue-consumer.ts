@@ -1,6 +1,7 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import { MESSAGE_QUEUE, type MessageQueue, OutboxService } from '@app/api/outbox';
+import { SPAN_ATTR, SPAN_NAME, SpanKind, withExtractedContext, withSpan } from '@app/api/tracing';
 import { OUTBOX_MESSAGE_TYPE, type QueueMessage, QueueMessageSchema } from '@app/shared';
 import {
   Inject,
@@ -85,7 +86,14 @@ export class QueueConsumer implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(`message ${received.messageId} is not a known queue message`);
       throw new UnparsableMessageError();
     }
-    await this.dispatch(message);
+    // The span ends on every path: withSpan ends it after the handlers, whether they return or throw.
+    // Only the message ID is an attribute, never a body or a field of the message.
+    await withExtractedContext(received.traceparent, () =>
+      withSpan(SPAN_NAME.QUEUE_PROCESS, () => this.dispatch(message), {
+        kind: SpanKind.CONSUMER,
+        attributes: { [SPAN_ATTR.MESSAGE_ID]: received.messageId },
+      })
+    );
     await this.queue.delete(received.receiptHandle);
   }
 
@@ -108,8 +116,13 @@ export class QueueConsumer implements OnModuleInit, OnModuleDestroy {
     switch (message.type) {
       case OUTBOX_MESSAGE_TYPE.BOOKING_CONFIRMED:
         for (const effect of [this.ticketPdf, this.confirmationMail]) {
-          await this.outbox.processOnce(effect.consumer, message.messageId, (tx) =>
-            effect.handle(message, tx)
+          await withSpan(
+            SPAN_NAME.QUEUE_EFFECT,
+            () =>
+              this.outbox.processOnce(effect.consumer, message.messageId, (tx) =>
+                effect.handle(message, tx)
+              ),
+            { attributes: { [SPAN_ATTR.EFFECT]: effect.consumer } }
           );
         }
         return;

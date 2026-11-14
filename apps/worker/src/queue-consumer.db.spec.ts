@@ -15,6 +15,8 @@ import {
 } from '@app/api/outbox/testing';
 import { MAIL_SENDER, TICKET_STORE, USER_DIRECTORY } from '@app/api/tickets';
 import { FakeMailSender, FakeTicketStore, FakeUserDirectory } from '@app/api/tickets/testing';
+import { SPAN_ATTR, SPAN_NAME } from '@app/api/tracing';
+import { SpanStatusCode, startTestTracing } from '@app/api/tracing/testing';
 import {
   BOOKING_STATUS,
   BOOKING_STRATEGY,
@@ -46,6 +48,8 @@ const DLQ_WAIT_MS = 20_000;
 const SLOW_TEST_MS = 30_000;
 const PROMPT_MS = 2000;
 const SECRET = 'top-secret-payload';
+const TRACE_ID = '0af7651916cd43dd8448eb211c80319c';
+const TRACEPARENT = `00-${TRACE_ID}-b7ad6b7169203331-01`;
 
 /** Every message takes effect once per effect, under the name of each. */
 const EFFECTS = 2;
@@ -91,6 +95,7 @@ describe('QueueConsumer against the local emulator', () => {
   let outbox: OutboxService;
   let bookings: BookingsService;
   let moduleQueue: MessageQueue;
+  let stopTracing: (() => Promise<void>) | undefined;
   const store = new FakeTicketStore();
   const mailer = new FakeMailSender();
   const directory = new FakeUserDirectory();
@@ -128,6 +133,8 @@ describe('QueueConsumer against the local emulator', () => {
     bookings = moduleRef.get(BookingsService, { strict: false });
   });
   afterEach(async () => {
+    await stopTracing?.();
+    stopTracing = undefined;
     await Promise.all(running.splice(0).map((consumer) => consumer.onModuleDestroy()));
     vi.restoreAllMocks();
   });
@@ -149,8 +156,8 @@ describe('QueueConsumer against the local emulator', () => {
     return consumer;
   }
 
-  const send = (queue: MessageQueue, message: QueueMessage) =>
-    queue.send({ body: JSON.stringify(message), messageId: message.messageId });
+  const send = (queue: MessageQueue, message: QueueMessage, traceparent: string | null = null) =>
+    queue.send({ body: JSON.stringify(message), messageId: message.messageId, traceparent });
 
   /** The message IDs that reach the dead-letter queue, until `count` of them have. */
   async function inDlq(dlq: MessageQueue, count: number): Promise<string[]> {
@@ -220,10 +227,11 @@ describe('QueueConsumer against the local emulator', () => {
       const consumer = start(queue, handler);
       const notJson = randomUUID();
       const wrongShape = randomUUID();
-      await queue.send({ body: `not json ${SECRET}`, messageId: notJson });
+      await queue.send({ body: `not json ${SECRET}`, messageId: notJson, traceparent: null });
       await queue.send({
         body: JSON.stringify({ type: OUTBOX_MESSAGE_TYPE.BOOKING_CONFIRMED, secret: SECRET }),
         messageId: wrongShape,
+        traceparent: null,
       });
       const next = confirmed();
       await send(queue, next);
@@ -255,6 +263,90 @@ describe('QueueConsumer against the local emulator', () => {
       .poll(() => countProcessed(db, message.messageId), { timeout: DLQ_WAIT_MS })
       .toBe(EFFECTS);
     expect(await leftOver(queue, consumer)).toEqual([]);
+  });
+
+  describe('trace context', () => {
+    const spansOf = (exporter: ReturnType<typeof startTestTracing>['exporter'], name: string) =>
+      exporter.getFinishedSpans().filter((span) => span.name === name);
+
+    it('continues the trace of the message: one queue.process span and one queue.effect span per effect', async () => {
+      const traced = startTestTracing();
+      stopTracing = traced.shutdown;
+      const { queue } = await scratch();
+      const handler = new RecordingHandler();
+      const second = new RecordingHandler(CONSUMER_NAME.CONFIRMATION_MAIL);
+      const message = confirmed();
+      start(queue, handler, second);
+
+      await send(queue, message, TRACEPARENT);
+      await expect
+        .poll(() => spansOf(traced.exporter, SPAN_NAME.QUEUE_EFFECT), {
+          timeout: DLQ_WAIT_MS,
+        })
+        .toHaveLength(EFFECTS);
+
+      const [process] = spansOf(traced.exporter, SPAN_NAME.QUEUE_PROCESS);
+      expect(process?.spanContext().traceId).toBe(TRACE_ID);
+      expect(process?.attributes[SPAN_ATTR.MESSAGE_ID]).toBe(message.messageId);
+      const effects = spansOf(traced.exporter, SPAN_NAME.QUEUE_EFFECT);
+      expect(effects.map((span) => span.attributes[SPAN_ATTR.EFFECT]).sort()).toEqual(
+        [CONSUMER_NAME.TICKET_PDF, CONSUMER_NAME.CONFIRMATION_MAIL].sort()
+      );
+      expect(effects.every((span) => span.spanContext().traceId === TRACE_ID)).toBe(true);
+      // Nothing of the body reaches an attribute.
+      const attributes = traced.exporter
+        .getFinishedSpans()
+        .flatMap((span) => Object.values(span.attributes).map(String));
+      expect(attributes.filter((value) => value.includes(message.userId))).toEqual([]);
+    });
+
+    it('a message without a traceparent is handled and starts a trace of its own', async () => {
+      const traced = startTestTracing();
+      stopTracing = traced.shutdown;
+      const { queue } = await scratch();
+      const handler = new RecordingHandler();
+      const message = confirmed();
+      start(queue, handler);
+
+      await send(queue, message);
+      await expect
+        .poll(() => handler.handled, { timeout: DLQ_WAIT_MS })
+        .toEqual([message.messageId]);
+      await expect
+        .poll(() => spansOf(traced.exporter, SPAN_NAME.QUEUE_EFFECT), {
+          timeout: DLQ_WAIT_MS,
+        })
+        .toHaveLength(EFFECTS);
+
+      const [process] = spansOf(traced.exporter, SPAN_NAME.QUEUE_PROCESS);
+      expect(process?.spanContext().traceId).toMatch(/^[0-9a-f]{32}$/);
+      expect(process?.spanContext().traceId).not.toBe(TRACE_ID);
+      expect(process?.parentSpanContext).toBeUndefined();
+    });
+
+    it('a failing effect ends its span with ERROR and the message stays in the queue', async () => {
+      const traced = startTestTracing();
+      stopTracing = traced.shutdown;
+      const { queue } = await scratch();
+      const handler = new RecordingHandler();
+      const message = confirmed();
+      handler.failures.set(message.messageId, Infinity);
+      const consumer = start(queue, handler);
+
+      await send(queue, message, TRACEPARENT);
+      await expect.poll(() => handler.attempted.length, { timeout: DLQ_WAIT_MS }).toBe(1);
+      await expect
+        .poll(() => spansOf(traced.exporter, SPAN_NAME.QUEUE_PROCESS), {
+          timeout: DLQ_WAIT_MS,
+        })
+        .not.toHaveLength(0);
+
+      const [effect] = spansOf(traced.exporter, SPAN_NAME.QUEUE_EFFECT);
+      expect(effect?.status).toEqual({ code: SpanStatusCode.ERROR, message: 'Error' });
+      const [process] = spansOf(traced.exporter, SPAN_NAME.QUEUE_PROCESS);
+      expect(process?.status.code).toBe(SpanStatusCode.ERROR);
+      expect(await leftOver(queue, consumer)).toHaveLength(1);
+    });
   });
 
   it('stops promptly while a long poll is open', async () => {

@@ -7,12 +7,19 @@ export interface ReceivedMessage {
   receiveCount: number;
   /** The ID the sender gave it (the outbox row ID). */
   messageId: string;
+  /** The W3C trace context the sender attached; null when the message had none or a malformed one. */
+  traceparent: string | null;
 }
 
 /** The queue behind the outbox: the relay sends, a consumer receives and deletes. */
 export interface MessageQueue {
   /** Resolves once the queue has accepted the message; rejects otherwise. */
-  send(input: { body: string; messageId: string }): Promise<void>;
+  send(input: {
+    body: string;
+    messageId: string;
+    /** W3C `traceparent` to carry in a message attribute; null sends none. */
+    traceparent: string | null;
+  }): Promise<void>;
   /**
    * Long-polls: waits for a message up to the queue's poll time, then returns at most `max` (1..10).
    * Aborting `signal` ends the wait at once and rejects with an AbortError.

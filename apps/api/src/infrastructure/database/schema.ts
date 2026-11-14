@@ -201,6 +201,9 @@ export const outboxMessages = pgTable(
     // Failed sends so far; `last_error` holds the error name of the latest one, never a message text.
     attempts: integer('attempts').notNull().default(0),
     lastError: text('last_error'),
+    // W3C trace context of the change that wrote the row; null for rows older than the column or
+    // written outside a trace. The relay continues it so a booking is one trace through the queue.
+    traceparent: text('traceparent'),
   },
   // Serves the relay (oldest unpublished first) and the readiness check; stays small however many
   // rows are published.

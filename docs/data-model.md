@@ -94,6 +94,7 @@ erDiagram
         timestamptz published_at "null until the relay has sent it"
         int attempts "failed sends"
         text last_error "error name of the latest failed send"
+        text traceparent "W3C trace context of the change, null if none"
     }
     processed_messages {
         text consumer PK
@@ -115,7 +116,10 @@ run. `metrics` is a JSON document of the shape `SimulationMetricsSchema`, null u
 active and started within the timeout.
 
 `outbox_messages` holds the queue messages of state changes. A row is written in the transaction of
-the change it announces, so it exists if and only if the change committed. The relay in the worker
+the change it announces, so it exists if and only if the change committed; it also stores the
+`traceparent` of the span that wrote it (null outside a trace, and on rows older than the column).
+The relay continues that trace while it sends and hands the send span's context to the queue as a
+message attribute, so a booking is one trace through the queue. The relay in the worker
 selects unpublished rows oldest first with `FOR UPDATE SKIP LOCKED`, sends them and sets
 `published_at`; a failed send raises `attempts` and stores the error name in `last_error`. The row
 ID is the message ID. `outbox_messages(created_at)` is a partial index on the unpublished rows, so

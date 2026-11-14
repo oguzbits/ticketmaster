@@ -8,6 +8,9 @@ import {
 
 import { SERVICE_NAME, startTracing } from '../tracing.js';
 
+/** Re-exported for the specs of packages that do not depend on the API themselves. */
+export { SpanStatusCode } from '@opentelemetry/api';
+
 /** Registers the tracing SDK with an in-memory exporter; call `shutdown` in `afterEach`. */
 export function startTestTracing(): {
   exporter: InMemorySpanExporter;
