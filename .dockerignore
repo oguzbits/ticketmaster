@@ -11,3 +11,4 @@ reports
 **/test-results
 **/playwright-report
 architecture.mmd
+scripts/k6

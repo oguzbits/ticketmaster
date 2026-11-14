@@ -1,0 +1,41 @@
+# Overrides for load runs (`pnpm load`), used together with docker-compose.yml, see docs/load-tests.md.
+# Never use it for anything but the local stack: it switches off the protections a load run would
+# otherwise measure (rate limits) or trip over (failing payments).
+services:
+  api:
+    environment:
+      # The default payment fails 10 % of the time; the scenarios count every 5xx as an error.
+      PAYMENT_FAILURE_RATE: '0'
+      # Every limit is multiplied; a 429 in a run is a setup bug, not a result.
+      RATE_LIMIT_SCALE: '1000'
+      # The demo login is capped at 200 live users and a run logs in up to 190. The cleanup runs
+      # this TTL plus the 300 s token grace after the login, so a run does not outlive its users.
+      DEMO_USER_TTL_SECONDS: '60'
+      # The run never traces, whatever the shell has set.
+      TRACING_ENABLED: 'false'
+  worker:
+    environment:
+      TRACING_ENABLED: 'false'
+  # Only the stack's own network is used, so the run does not collide with a development stack.
+  web:
+    ports: !reset []
+  postgres:
+    ports: !reset []
+  pgbouncer:
+    ports: !reset []
+  redis:
+    ports: !reset []
+  keycloak:
+    ports: !reset []
+  aws:
+    ports: !reset []
+  mailpit:
+    ports: !reset []
+
+  k6:
+    image: grafana/k6:2.4.0
+    profiles: [loadtest]
+    environment:
+      BASE_URL: http://web:8080
+    volumes:
+      - ./scripts/k6:/scripts:ro

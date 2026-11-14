@@ -155,6 +155,13 @@ export default defineConfig([
     },
   },
   {
+    // k6 scripts run in the k6 runtime (Go, not Node), which provides these globals.
+    files: ['scripts/k6/*.js'],
+    languageOptions: {
+      globals: { __ENV: 'readonly', __VU: 'readonly', __ITER: 'readonly', crypto: 'readonly' },
+    },
+  },
+  {
     // Logs are structured lines with IDs only (pino), never `console`. The environment is read in
     // one place per app.
     files: ['apps/*/src/**/*.ts'],

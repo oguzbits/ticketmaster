@@ -34,6 +34,7 @@
     "aws:init": "pnpm --filter @app/shared build && node scripts/aws-init.mjs",
     "aws:smoke": "pnpm --filter @app/shared build && node scripts/aws-smoke.mjs",
     "e2e": "node scripts/e2e.mjs",
+    "load": "node scripts/k6/run.mjs",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -64,7 +65,11 @@
     "workspaces": {
       ".": {
         "entry": [
-          ".claude/hooks/guard-*.mjs"
+          ".claude/hooks/guard-*.mjs",
+          "scripts/k6/{browse,booking-flow,rush,waiting-room}.js"
+        ],
+        "ignoreDependencies": [
+          "k6"
         ]
       },
       "apps/web": {
