@@ -16,6 +16,7 @@ export const PUBLIC = 'public';
 
 /** Every schema the document names, by its component name. */
 export const SCHEMAS = {
+  AuditLogPage: shared.AuditLogPageSchema,
   Booking: shared.BookingSchema,
   BookingList: shared.BookingListResponseSchema,
   CreateEventRequest: shared.CreateEventRequestSchema,

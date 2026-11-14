@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { UNPREFIXED_ROUTES } from '../app.setup.js';
 import { ZodPipe } from '../infrastructure/http/zod.pipe.js';
 import { IS_PUBLIC_KEY, ROLES_KEY } from '../modules/auth/index.js';
+import { AUDIT_ROUTES } from './audit-routes.js';
 import { buildOpenApi } from './build.js';
 import { PUBLIC, ROUTES as BASE_ROUTES, SCHEMAS } from './routes.js';
 import { WAITING_ROOM_ROUTES } from './waiting-room-routes.js';
@@ -45,7 +46,7 @@ const METHODS: Record<number, string> = {
 };
 const MODULES_DIR = path.resolve(import.meta.dirname, '../modules');
 const reflector = new Reflector();
-const ROUTES = { ...BASE_ROUTES, ...WAITING_ROOM_ROUTES };
+const ROUTES = { ...BASE_ROUTES, ...WAITING_ROOM_ROUTES, ...AUDIT_ROUTES };
 
 function controllerFiles(): string[] {
   return fs

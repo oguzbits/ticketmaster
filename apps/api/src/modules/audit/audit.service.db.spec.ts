@@ -16,7 +16,7 @@ describe('AuditService.record', () => {
   const database = openTestDatabase();
   const { db } = database;
   const clock: Clock = { now: () => NOW };
-  const audit = new AuditService(clock);
+  const audit = new AuditService(db, clock);
   const rowsOf = async (actorId: string) =>
     (await auditRows(db)).filter((row) => row.actorId === actorId);
 
