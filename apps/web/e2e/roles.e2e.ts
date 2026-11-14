@@ -1,3 +1,5 @@
+import { AUDIT_ACTION } from '@app/shared';
+
 import { expect, loginAs, test } from './fixtures';
 
 test('an organizer reaches the organizer screen with the events they own', async ({ page }) => {
@@ -32,6 +34,16 @@ test('an admin switches the booking strategy of an event', async ({ page }) => {
   await page.getByRole('button', { name: 'Switch strategy' }).click();
   await page.getByRole('button', { name: 'Confirm' }).click();
   await expect(page.getByText(`The strategy is now ${next}.`)).toBeVisible();
+
+  // Same session: the demo login allows five a minute, so the audit log is checked here.
+  await page
+    .getByRole('navigation', { name: 'Main' })
+    .getByRole('link', { name: 'Audit log' })
+    .click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Audit log' })).toBeVisible();
+  await expect(
+    page.getByRole('rowheader', { name: AUDIT_ACTION.EVENT_STRATEGY_SWITCHED }).first()
+  ).toBeVisible();
 });
 
 test('a customer is sent away from the organizer screen', async ({ customerContext }) => {
