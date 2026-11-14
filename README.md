@@ -109,6 +109,7 @@ OpenAPI 3.1 description is [docs/api/openapi.json](docs/api/openapi.json).
 | `POST /api/bookings/:id/payment`   | customer  | pay (header `Idempotency-Key`)                            |
 | `POST /api/bookings/:id/cancel`    | customer  | cancel a held or confirmed booking                        |
 | `GET /api/bookings`                | customer  | the caller's bookings with their transitions              |
+| `GET /api/bookings/:id/ticket`     | customer  | the ticket of a confirmed booking as a PDF                |
 | `GET /api/venues`                  | organizer | venue templates                                           |
 | `POST /api/events`                 | organizer | create an event from a venue template                     |
 | `GET /api/organizer/events`        | organizer | own events with sold and held counts                      |

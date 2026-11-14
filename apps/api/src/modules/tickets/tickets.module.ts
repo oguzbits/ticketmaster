@@ -8,13 +8,17 @@ import { DemoModule, KEYCLOAK_ADMIN } from '../demo/index.js';
 import { createS3Client, S3TicketStore } from './adapters/s3-ticket-store.js';
 import { createSmtpMailSender } from './adapters/smtp-mail-sender.js';
 import { MAIL_SENDER, TICKET_STORE, USER_DIRECTORY } from './domain/ticket.js';
+import { TicketsController } from './tickets.controller.js';
+import { TicketsService } from './tickets.service.js';
 
 const S3_CLIENT = Symbol('S3_CLIENT');
 
 /** The ports of the ticket and its mail with their adapters: S3, SMTP and the Keycloak directory. */
 @Module({
   imports: [DemoModule],
+  controllers: [TicketsController],
   providers: [
+    TicketsService,
     {
       provide: S3_CLIENT,
       useFactory: (env: Env): S3Client => createS3Client(env),

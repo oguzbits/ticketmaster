@@ -7,59 +7,36 @@
  * packages, no relative file, and no non-erasable syntax.
  */
 
-import {
-  BookingListResponseSchema,
-  BookingSchema,
-  CreateEventRequestSchema,
-  DemoLoginRequestSchema,
-  EventDetailSchema,
-  EventListResponseSchema,
-  EventSummarySchema,
-  HealthResponseSchema,
-  HoldRequestSchema,
-  IdempotencyKeySchema,
-  OrganizerEventListResponseSchema,
-  RefreshRequestSchema,
-  ROLE,
-  type Role,
-  SEAT_STREAM_EVENT,
-  SeatChangeSchema,
-  SeatSnapshotSchema,
-  SetStrategyRequestSchema,
-  SimulationListResponseSchema,
-  SimulationProgressSchema,
-  SimulationRunSchema,
-  StartSimulationRequestSchema,
-  TokenResponseSchema,
-  VenueListResponseSchema,
-} from '@app/shared';
+import * as shared from '@app/shared';
+
+const { ROLE, SEAT_STREAM_EVENT } = shared;
 
 /** Marks a route that needs no token (a token that is sent is still verified). */
 export const PUBLIC = 'public';
 
 /** Every schema the document names, by its component name. */
 export const SCHEMAS = {
-  Booking: BookingSchema,
-  BookingList: BookingListResponseSchema,
-  CreateEventRequest: CreateEventRequestSchema,
-  DemoLoginRequest: DemoLoginRequestSchema,
-  EventDetail: EventDetailSchema,
-  EventList: EventListResponseSchema,
-  EventSummary: EventSummarySchema,
-  HealthResponse: HealthResponseSchema,
-  HoldRequest: HoldRequestSchema,
-  IdempotencyKey: IdempotencyKeySchema,
-  OrganizerEventList: OrganizerEventListResponseSchema,
-  RefreshRequest: RefreshRequestSchema,
-  SeatChange: SeatChangeSchema,
-  SeatSnapshot: SeatSnapshotSchema,
-  SetStrategyRequest: SetStrategyRequestSchema,
-  SimulationList: SimulationListResponseSchema,
-  SimulationProgress: SimulationProgressSchema,
-  SimulationRun: SimulationRunSchema,
-  StartSimulationRequest: StartSimulationRequestSchema,
-  TokenResponse: TokenResponseSchema,
-  VenueList: VenueListResponseSchema,
+  Booking: shared.BookingSchema,
+  BookingList: shared.BookingListResponseSchema,
+  CreateEventRequest: shared.CreateEventRequestSchema,
+  DemoLoginRequest: shared.DemoLoginRequestSchema,
+  EventDetail: shared.EventDetailSchema,
+  EventList: shared.EventListResponseSchema,
+  EventSummary: shared.EventSummarySchema,
+  HealthResponse: shared.HealthResponseSchema,
+  HoldRequest: shared.HoldRequestSchema,
+  IdempotencyKey: shared.IdempotencyKeySchema,
+  OrganizerEventList: shared.OrganizerEventListResponseSchema,
+  RefreshRequest: shared.RefreshRequestSchema,
+  SeatChange: shared.SeatChangeSchema,
+  SeatSnapshot: shared.SeatSnapshotSchema,
+  SetStrategyRequest: shared.SetStrategyRequestSchema,
+  SimulationList: shared.SimulationListResponseSchema,
+  SimulationProgress: shared.SimulationProgressSchema,
+  SimulationRun: shared.SimulationRunSchema,
+  StartSimulationRequest: shared.StartSimulationRequestSchema,
+  TokenResponse: shared.TokenResponseSchema,
+  VenueList: shared.VenueListResponseSchema,
 } as const;
 
 export type SchemaName = keyof typeof SCHEMAS;
@@ -71,7 +48,7 @@ export interface RouteDoc {
   /** The URL as a client sends it (global prefix included), parameters as `{name}`. */
   path: string;
   summary: string;
-  access: typeof PUBLIC | readonly Role[];
+  access: typeof PUBLIC | readonly shared.Role[];
   /** A public route that also reads the token, to show the caller's own sandbox events. */
   optionalToken?: true;
   body?: SchemaName;
@@ -213,6 +190,21 @@ export const ROUTES: Record<string, RouteDoc> = {
       status: 200,
       description: 'Newest first, each with its stored transitions newest first.',
       schema: 'BookingList',
+    },
+  },
+  'TicketsController.download': {
+    method: 'get',
+    path: '/api/bookings/{id}/ticket',
+    summary: 'Download the ticket of a confirmed booking',
+    access: [ROLE.CUSTOMER],
+    success: {
+      status: 200,
+      description:
+        'The ticket as `application/pdf`, an attachment named `ticket-<id>.pdf`. Not JSON: the response has no schema.',
+    },
+    errors: {
+      403: FOREIGN_BOOKING,
+      404: 'Unknown booking, a ticket the worker has not stored yet (`ticketReady` is false), or a booking that is no longer CONFIRMED.',
     },
   },
   'OrganizerController.venues': {

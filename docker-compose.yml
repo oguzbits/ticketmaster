@@ -129,6 +129,8 @@ services:
       AWS_ENDPOINT_URL: http://aws:4566
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
+      # The API only serves tickets, but the tickets module builds the sender at start.
+      SMTP_URL: smtp://mailpit:1025
     depends_on:
       migrate:
         condition: service_completed_successfully
