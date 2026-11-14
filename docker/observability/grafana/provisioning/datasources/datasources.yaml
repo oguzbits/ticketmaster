@@ -34,3 +34,9 @@ datasources:
           matcherRegex: '"trace_id":"(\w+)"'
           url: '$${__value.raw}'
           urlDisplayLabel: Open trace
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    editable: false

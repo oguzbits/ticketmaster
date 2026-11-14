@@ -8,20 +8,21 @@ project; the stack below is local only and part of no deployment.
 
 ## Start
 
-The four services (Tempo, Loki, Alloy, Grafana) live in the Compose profile `observability`. The
-default `docker compose up` and `pnpm e2e` start none of them and never trace.
+The five services (Tempo, Loki, Alloy, Prometheus, Grafana) live in the Compose profile `observability`. The
+default `docker compose up` and `pnpm e2e` start none of them, never trace and serve no metrics.
 
 ```sh
-TRACING_ENABLED=true docker compose --profile observability up --build -d
+TRACING_ENABLED=true METRICS_ENABLED=true docker compose --profile observability up --build -d
 docker compose --profile observability down   # stop it again (add -v to drop the stored traces and logs)
 ```
 
-| Service | Host port (127.0.0.1) | Role                                                                                            |
-| ------- | --------------------- | ----------------------------------------------------------------------------------------------- |
-| grafana | 3000                  | UI; login `admin`, password `GRAFANA_ADMIN_PASSWORD` (default `admin`); anonymous access is off |
-| tempo   | 3200                  | trace store and query API; OTLP/HTTP on 4318 inside the network                                 |
-| loki    | 3100                  | log store and query API                                                                         |
-| alloy   | none                  | reads the container logs and ships them to Loki                                                 |
+| Service    | Host port (127.0.0.1) | Role                                                                                            |
+| ---------- | --------------------- | ----------------------------------------------------------------------------------------------- |
+| grafana    | 3000                  | UI; login `admin`, password `GRAFANA_ADMIN_PASSWORD` (default `admin`); anonymous access is off |
+| tempo      | 3200                  | trace store and query API; OTLP/HTTP on 4318 inside the network                                 |
+| loki       | 3100                  | log store and query API                                                                         |
+| prometheus | 9090                  | metric store and query UI; scrapes the API replicas and the worker every 10 s, keeps 2 days     |
+| alloy      | none                  | reads the container logs and ships them to Loki                                                 |
 
 `api` and `worker` send spans to `http://tempo:4318` (`TRACING_OTLP_ENDPOINT` in the Compose file)
 when `TRACING_ENABLED=true`. Their Docker command is
@@ -36,6 +37,7 @@ The Grafana data sources are provisioned from `docker/observability/grafana/prov
   before and two seconds after the trace.
 - `loki` (uid `loki`): a derived field on `trace_id` adds an "Open trace" link to every log line that
   has one.
+- `prometheus` (uid `prometheus`): the metrics of the next section.
 
 ## What a trace contains
 
@@ -85,7 +87,11 @@ With `METRICS_ENABLED=true` the API and the worker each serve `/metrics` from th
 `METRICS_PORT` (default 9464) on the interface `METRICS_HOST` (default `127.0.0.1`; Compose sets
 `0.0.0.0` so the scraper can reach it, and does not publish the port; no personal data in it). A port that cannot be bound stops the process, so two processes on one host
 need different ports. The flags are independent of `TRACING_ENABLED`; either one makes the preload
-register the HTTP instrumentation, once. The decision and the spike are in
+register the HTTP instrumentation, once. In the profile, Prometheus (`docker/observability/prometheus.yml`)
+scrapes port 9464 inside the Compose network: the job `api` resolves the service name `api` through
+DNS (`dns_sd_configs`, type `A`), so each replica is a target, and the job `worker` scrapes
+`worker:9464`. Port 9464 is not published; `http://localhost:9090/targets` shows three targets, all
+up, when the stack was started with `METRICS_ENABLED=true` (without it every target is down). The decision and the spike are in
 [ADR 0008](adr/0008-metrics-with-opentelemetry.md).
 
 The request histogram is `http_server_request_duration_bucket` (with `_sum` and `_count`, seconds)

@@ -40,9 +40,9 @@ the dead-letter queue, visibility timeout, long polling, message attributes, buc
 with throw-away resources; it takes about 15 seconds and can run at any time while the emulator
 is up. The choice of emulator is in [ADR 0004](docs/adr/0004-local-aws-emulator.md).
 
-Tracing and log correlation run in the Compose profile `observability` (Tempo, Loki, Alloy, Grafana on
-127.0.0.1:3000, 3100, 3200). `docker compose up` and `pnpm e2e` do not start it:
-`TRACING_ENABLED=true docker compose --profile observability up --build -d` does, and
+Tracing, log correlation and metrics run in the Compose profile `observability` (Tempo, Loki, Alloy,
+Prometheus, Grafana on 127.0.0.1:3000, 3100, 3200, 9090). `docker compose up` and `pnpm e2e` do not start it:
+`TRACING_ENABLED=true METRICS_ENABLED=true docker compose --profile observability up --build -d` does, and
 `GRAFANA_ADMIN_PASSWORD` (default `admin`) sets the Grafana login. How to read a trace, what it
 contains and the Docker socket risk of Alloy: [docs/observability.md](docs/observability.md).
 

@@ -167,6 +167,11 @@ services:
       # see docs/observability.md.
       TRACING_ENABLED: ${TRACING_ENABLED:-false}
       TRACING_OTLP_ENDPOINT: http://tempo:4318
+      # Off unless started with METRICS_ENABLED=true (see docs/observability.md). Prometheus scrapes
+      # port 9464 inside the network; it is never published to the host.
+      METRICS_ENABLED: ${METRICS_ENABLED:-false}
+      METRICS_HOST: 0.0.0.0
+      METRICS_PORT: 9464
       # The trace link of a simulator run, as the admin's browser reaches Grafana; shown only when
       # tracing is on.
       GRAFANA_URL: ${GRAFANA_URL:-http://localhost:3000}
@@ -198,6 +203,11 @@ services:
       # see docs/observability.md.
       TRACING_ENABLED: ${TRACING_ENABLED:-false}
       TRACING_OTLP_ENDPOINT: http://tempo:4318
+      # Off unless started with METRICS_ENABLED=true (see docs/observability.md). Prometheus scrapes
+      # port 9464 inside the network; it is never published to the host.
+      METRICS_ENABLED: ${METRICS_ENABLED:-false}
+      METRICS_HOST: 0.0.0.0
+      METRICS_PORT: 9464
       SMTP_URL: smtp://mailpit:1025
     depends_on:
       pgbouncer:
@@ -223,7 +233,7 @@ services:
 
   # Observability profile (local only): `docker compose --profile observability up`, see
   # docs/observability.md and docs/adr/0007-tracing-with-opentelemetry.md. The ports are bound to
-  # localhost; none of the four services starts without the profile.
+  # localhost; none of the five services starts without the profile.
   tempo:
     image: grafana/tempo:3.1.1
     profiles: [observability]
@@ -281,6 +291,26 @@ services:
       timeout: 3s
       retries: 30
 
+  # Scrapes the API replicas and the worker (see docker/observability/prometheus.yml); keeps two
+  # days. Needs METRICS_ENABLED=true on api and worker, else every target is down.
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    profiles: [observability]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=2d
+    ports:
+      - '127.0.0.1:9090:9090'
+    volumes:
+      - ./docker/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1:9090/-/ready']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
   grafana:
     image: grafana/grafana:13.3.1
     profiles: [observability]
@@ -300,6 +330,8 @@ services:
         condition: service_healthy
       loki:
         condition: service_started
+      prometheus:
+        condition: service_healthy
     healthcheck:
       test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1:3000/api/health']
       interval: 5s
@@ -310,5 +342,6 @@ volumes:
   postgres-data:
   tempo-data:
   loki-data:
+  prometheus-data:
   alloy-data:
   grafana-data:
