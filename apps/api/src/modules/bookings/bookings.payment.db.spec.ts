@@ -327,6 +327,22 @@ describe('payment and cancel', () => {
     expect((await rowOf(bookingId)).paymentClaimedAt).toEqual(NOW);
   });
 
+  it('a claimed key without a claim time (claimed before the column existed) plans at the time of the retry', async () => {
+    const { bookingId, userId } = await heldBooking();
+    const idempotencyKey = key('legacy-claim');
+    await db
+      .update(bookings)
+      .set({ paymentIdempotencyKey: idempotencyKey, paymentClaimedAt: null })
+      .where(eq(bookings.id, bookingId));
+    now = new Date(NOW.getTime() + 5000);
+
+    const view = await service.pay({ bookingId, userId, idempotencyKey });
+
+    expect(view.status).toBe(BOOKING_STATUS.CONFIRMED);
+    const [row] = await outboxRowsOf(bookingId);
+    expect(row?.payload).toMatchObject({ occurredAt: now.toISOString() });
+  });
+
   it('ten parallel payments with one key charge once and all answer CONFIRMED', async () => {
     const { bookingId, userId } = await heldBooking();
     const idempotencyKey = key('ten');
