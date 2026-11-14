@@ -57,6 +57,10 @@ not requests: `SQS.GetQueueUrl` of the API and of the worker (the queue lookup a
 PgBouncer sits between the processes and PostgreSQL, so the `server.address` of a `db.query` span is
 the pooler.
 
+Outgoing client spans keep `url.full`. That is safe only because no outgoing URL carries a query
+string (checked: Keycloak, SQS and S3 paths). If one ever does, strip `url.full` in the span
+processor in `apps/api/src/infrastructure/tracing/tracing.ts`.
+
 ## Trace link of a simulator run
 
 A run started with tracing on stores the `traceparent` of its start request

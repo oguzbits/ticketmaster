@@ -203,13 +203,18 @@ Metrics, dashboards, alert rules (slice B), the audit log (C), k6 and the cache 
 
 Subagent runs, one bundle per row (duration and subagent tokens from the Agent result):
 
-| Bundle                                | Duration | Subagent tokens |
-| ------------------------------------- | -------- | --------------- |
-| Task 1 (spike, ADR)                   |          |                 |
-| Tasks 2, 3 (bootstrap, channel spans) |          |                 |
-| Tasks 4, 6 (log mixin, hold span)     |          |                 |
-| Task 5 (queue context)                |          |                 |
-| Task 7 (observability profile)        |          |                 |
-| Task 8 (trace link)                   |          |                 |
-| Whole-slice review (strongest model)  |          |                 |
-| **Total**                             |          |                 |
+| Bundle                                | Duration               | Subagent tokens |
+| ------------------------------------- | ---------------------- | --------------- |
+| Task 1 (spike, ADR)                   | 738 s                  | 180,903         |
+| Tasks 2, 3 (bootstrap, channel spans) | 994 s                  | 156,814         |
+| Tasks 4, 6 (log mixin, hold span)     | 259 s                  | 86,388          |
+| Task 5 (queue context)                | 755 s                  | 142,762         |
+| Task 5 review (pruefer)               | 62 s                   | 64,904          |
+| Task 7 (observability profile)        | 1,312 s                | 184,826         |
+| Task 8 (trace link)                   | 1,197 s                | 185,351         |
+| Verification run                      | 344 s                  | 57,900          |
+| Whole-slice review (strongest model)  | 288 s                  | 128,754         |
+| Fix wave                              | not measured           | not measured    |
+| **Total** (without the fix wave)      | 5,949 s (about 99 min) | 1,188,602       |
+
+Task 5 was resumed once after a rate limit.
