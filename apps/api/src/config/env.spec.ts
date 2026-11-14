@@ -8,6 +8,8 @@ const LOCAL_KEYCLOAK_URL = 'http://localhost:8081';
 const LOCAL_KEYCLOAK_SECRET = 'local-demo-client-secret';
 const LOCAL_AWS_ENDPOINT_URL = 'http://localhost:45660';
 const LOCAL_AWS_CREDENTIAL = 'test';
+const LOCAL_SMTP_URL = 'smtp://localhost:1025';
+const DEFAULT_MAIL_FROM = 'tickets@ticketmaster-klon.invalid';
 
 const PRODUCTION_BASE = {
   NODE_ENV: 'production',
@@ -15,6 +17,7 @@ const PRODUCTION_BASE = {
   REDIS_URL: 'redis://cache:6379',
   AWS_ACCESS_KEY_ID: 'prod-key-id',
   AWS_SECRET_ACCESS_KEY: 'prod-secret-key',
+  SMTP_URL: 'smtp://mail:1025',
 };
 
 const KEYCLOAK_PRODUCTION = {
@@ -41,6 +44,8 @@ describe('parseEnv', () => {
       AWS_REGION: 'us-east-1',
       AWS_ACCESS_KEY_ID: LOCAL_AWS_CREDENTIAL,
       AWS_SECRET_ACCESS_KEY: LOCAL_AWS_CREDENTIAL,
+      SMTP_URL: LOCAL_SMTP_URL,
+      MAIL_FROM: DEFAULT_MAIL_FROM,
     });
   });
 
@@ -174,5 +179,20 @@ describe('parseEnv', () => {
     expect(() => parseEnv({ AWS_ENDPOINT_URL: 'not a url' })).toThrow(
       /^(?!.*not a url).*AWS_ENDPOINT_URL/s
     );
+  });
+
+  it('uses the local mail sink outside production', () => {
+    expect(parseEnv({ NODE_ENV: 'test' }).SMTP_URL).toBe(LOCAL_SMTP_URL);
+  });
+
+  it('production without SMTP_URL throws and names the variable', () => {
+    const { SMTP_URL: _omitted, ...raw } = PRODUCTION_BASE;
+
+    expect(() => parseEnv({ ...raw, ...KEYCLOAK_PRODUCTION })).toThrow(/SMTP_URL/);
+  });
+
+  it('SMTP_URL must be a URL and MAIL_FROM an address', () => {
+    expect(() => parseEnv({ SMTP_URL: 'not a url' })).toThrow(/SMTP_URL/);
+    expect(() => parseEnv({ MAIL_FROM: 'nobody' })).toThrow(/MAIL_FROM/);
   });
 });

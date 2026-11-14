@@ -24,6 +24,7 @@ Ports of the local stack (`docker-compose.yml`):
 | postgres | 54330     | databases `app` and `keycloak`, user `app`        |
 | redis    | 63790     |                                                   |
 | aws      | 45660     | local AWS emulator (SQS and S3), any credentials, region `us-east-1` |
+| mailpit  | 1025, 8025 | mail sink: SMTP on 1025, UI and REST API on 8025; the worker's confirmation mails arrive here |
 
 `docker compose up` also starts three processes without a host port: `aws-init`, a one-shot service
 that creates the queues (`booking-events` with its dead-letter queue `booking-events-dlq`) and the
@@ -41,7 +42,7 @@ The credentials in the Compose file are for these local containers only.
 
 Outside production the API falls back to the local containers: `DATABASE_URL`
 `postgres://app:app@localhost:54330/app`, `REDIS_URL` `redis://localhost:63790`, `KEYCLOAK_URL`
-`http://localhost:8081`, the local demo client secret, `AWS_ENDPOINT_URL` `http://localhost:45660` and
+`http://localhost:8081`, the local demo client secret, `SMTP_URL` `smtp://localhost:1025`, `AWS_ENDPOINT_URL` `http://localhost:45660` and
 the dummy credentials `test` / `test`. To change a
 value, export it or put it in an `.env` file in `apps/api` (never committed); the `dev` and `start`
 scripts of the API load that file when it exists. With `NODE_ENV=production` the connection URLs, the Keycloak URL and secret and the two AWS
@@ -73,6 +74,8 @@ variable with a comment; the table is generated (`pnpm docs:generate`).
 | `AWS_REGION` | default `us-east-1` |
 | `AWS_ACCESS_KEY_ID` | required |
 | `AWS_SECRET_ACCESS_KEY` | required |
+| `SMTP_URL` | required |
+| `MAIL_FROM` | default `tickets@ticketmaster-klon.invalid` |
 <!-- /generated -->
 
 ## Commands

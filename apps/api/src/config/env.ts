@@ -8,6 +8,7 @@ const DEFAULT_KEYCLOAK_REALM = 'ticketmaster';
 const DEFAULT_KEYCLOAK_DEMO_CLIENT_ID = 'api-demo';
 const DEFAULT_DEMO_USER_TTL_SECONDS = 3600;
 const DEFAULT_AWS_REGION = 'us-east-1';
+const DEFAULT_MAIL_FROM = 'tickets@ticketmaster-klon.invalid';
 
 export const NODE_ENV = {
   DEVELOPMENT: 'development',
@@ -28,6 +29,8 @@ const LOCAL_DEFAULTS = {
   AWS_ENDPOINT_URL: 'http://localhost:45660',
   AWS_ACCESS_KEY_ID: 'test',
   AWS_SECRET_ACCESS_KEY: 'test',
+  // Mailpit of docker-compose.yml.
+  SMTP_URL: 'smtp://localhost:1025',
 };
 
 export const EnvSchema = z.object({
@@ -51,9 +54,19 @@ export const EnvSchema = z.object({
   AWS_REGION: z.string().min(1).default(DEFAULT_AWS_REGION),
   AWS_ACCESS_KEY_ID: z.string().min(1),
   AWS_SECRET_ACCESS_KEY: z.string().min(1),
+  // Required here; parseEnv fills the local mail sink when NODE_ENV is not production.
+  SMTP_URL: z.url(),
+  MAIL_FROM: z.email().default(DEFAULT_MAIL_FROM),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
+
+/** Each variable of LOCAL_DEFAULTS that the environment leaves unset takes its local default. */
+function fillLocalDefaults(raw: Record<string, string | undefined>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(LOCAL_DEFAULTS).map(([name, fallback]) => [name, raw[name] ?? fallback])
+  );
+}
 
 /**
  * Validates a raw environment. On failure the message lists variable names and reasons only,
@@ -62,19 +75,7 @@ export type Env = z.infer<typeof EnvSchema>;
  */
 export function parseEnv(raw: Record<string, string | undefined>): Env {
   const withDefaults =
-    raw.NODE_ENV === NODE_ENV.PRODUCTION
-      ? raw
-      : {
-          ...raw,
-          DATABASE_URL: raw.DATABASE_URL ?? LOCAL_DEFAULTS.DATABASE_URL,
-          REDIS_URL: raw.REDIS_URL ?? LOCAL_DEFAULTS.REDIS_URL,
-          KEYCLOAK_URL: raw.KEYCLOAK_URL ?? LOCAL_DEFAULTS.KEYCLOAK_URL,
-          KEYCLOAK_DEMO_CLIENT_SECRET:
-            raw.KEYCLOAK_DEMO_CLIENT_SECRET ?? LOCAL_DEFAULTS.KEYCLOAK_DEMO_CLIENT_SECRET,
-          AWS_ENDPOINT_URL: raw.AWS_ENDPOINT_URL ?? LOCAL_DEFAULTS.AWS_ENDPOINT_URL,
-          AWS_ACCESS_KEY_ID: raw.AWS_ACCESS_KEY_ID ?? LOCAL_DEFAULTS.AWS_ACCESS_KEY_ID,
-          AWS_SECRET_ACCESS_KEY: raw.AWS_SECRET_ACCESS_KEY ?? LOCAL_DEFAULTS.AWS_SECRET_ACCESS_KEY,
-        };
+    raw.NODE_ENV === NODE_ENV.PRODUCTION ? raw : { ...raw, ...fillLocalDefaults(raw) };
   const result = EnvSchema.safeParse(withDefaults);
   if (result.success) return result.data;
   const problems = result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);

@@ -7,7 +7,7 @@ export const QUEUE_NAME = {
 /** Redrive and polling policy of the queues: a message is received at most MAX_RECEIVE_COUNT times. */
 export const QUEUE_POLICY = {
   MAX_RECEIVE_COUNT: 5,
-  VISIBILITY_TIMEOUT_SECONDS: 30,
+  VISIBILITY_TIMEOUT_SECONDS: 120,
   LONG_POLL_SECONDS: 20,
 } as const;
 

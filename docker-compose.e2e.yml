@@ -13,3 +13,5 @@ services:
     ports: !reset []
   aws:
     ports: !reset []
+  mailpit:
+    ports: !reset []

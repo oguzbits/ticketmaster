@@ -53,6 +53,19 @@ services:
       aws:
         condition: service_healthy
 
+  # Mail sink for the confirmation mail: accepts every message, shows it in a UI (8025) and a REST
+  # API. SMTP on 1025. Nothing leaves the machine.
+  mailpit:
+    image: axllent/mailpit:v1.33.1
+    ports:
+      - '1025:1025'
+      - '8025:8025'
+    healthcheck:
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
   keycloak:
     image: quay.io/keycloak/keycloak:26.8.2
     command: ['start-dev', '--import-realm']
@@ -136,6 +149,7 @@ services:
       AWS_ENDPOINT_URL: http://aws:4566
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
+      SMTP_URL: smtp://mailpit:1025
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -143,6 +157,8 @@ services:
         condition: service_healthy
       aws-init:
         condition: service_completed_successfully
+      mailpit:
+        condition: service_healthy
 
   web:
     build:
