@@ -19,7 +19,8 @@ docker compose up --build   # the whole stack; open http://localhost:8080
 
 For development with reload: `pnpm dev` (API on port 3000, web on port 4200).
 
-Traces and correlated logs (Tempo, Loki, Grafana) are an opt-in Compose profile: see
+Traces, correlated logs and metrics with dashboards and alerts (Tempo, Loki, Prometheus, Grafana) are an
+opt-in Compose profile: see
 [docs/observability.md](docs/observability.md).
 
 The start page has no registration: one click logs in as a **customer**, an **organizer** or an
@@ -149,7 +150,7 @@ OpenAPI 3.1 description is [docs/api/openapi.json](docs/api/openapi.json).
 
 - [docs/PLAN.md](docs/PLAN.md): goal, requirements, stack, architecture overview, phases.
 - [docs/adr/](docs/adr/): architecture decisions.
-- [docs/observability.md](docs/observability.md): tracing and log correlation, the local Grafana stack.
+- [docs/observability.md](docs/observability.md): tracing, log correlation, metrics, SLOs and alerts, the local Grafana stack.
 - [CONTRIBUTING.md](CONTRIBUTING.md): local setup, commands, tests, commits.
 - [AGENTS.md](AGENTS.md): layers, invariants and workflow rules, enforced by tools.
 - [SECURITY.md](SECURITY.md): how to report a vulnerability.

@@ -149,6 +149,24 @@ Phase 3, slice A (tracing and correlated logs) is complete
 - A simulator run stores the `traceparent` of its start request (`simulation_runs.traceparent`) and
   runs inside that trace; with `GRAFANA_URL` set, a finished run shows a "Trace" link.
 
+Phase 3, slice B (metrics, dashboards, alerts) is complete
+([ADR 0008](adr/0008-metrics-with-opentelemetry.md), [observability.md](observability.md)):
+
+- `METRICS_ENABLED`, `METRICS_PORT` and `METRICS_HOST` start a Prometheus exporter on its own
+  listener in the API and the worker; the RED histogram of the HTTP instrumentation labels by route
+  template (`UNMATCHED` for a request no route matched).
+- Business counters through one port (`BusinessMetrics`): holds by strategy and outcome, settled
+  bookings by status, queue effects by outcome; each counted after the commit.
+- Worker-only gauges: oldest outbox row age, queue depth (booking queue and dead-letter queue) and
+  waiting room length; `tm_db_queries_active` in API and worker.
+- Prometheus in the `observability` profile, four provisioned Grafana dashboards and seven alert
+  rules (booking error ratio, hold and payment latency, stuck outbox, dead-letter queue, missing
+  worker gauge, scrape target down). Start it with
+  `TRACING_ENABLED=true METRICS_ENABLED=true docker compose --profile observability up --build -d`.
+- A spec checks the dashboards and rules against the metric names in the code and the thresholds
+  against `OUTBOX_STUCK_SECONDS`, the pool size and the written SLOs, and that this document names
+  every instrument.
+
 ## Deviations from the plan
 
 - **No SWC for NestJS decorators.** Vitest (Vite 8, Oxc) reads `experimentalDecorators` and
@@ -259,6 +277,22 @@ Phase 3, slice A:
 - **`/health/*` requests are ignored** (polled by the container health checks).
 - **The preload path is `./dist/tracing.preload.js`** in the Docker command.
 
+Phase 3, slice B:
+
+- **Alert rules are Prometheus rule files,** not Grafana-managed rules: plain PromQL, checked with
+  `promtool`.
+- **Pool saturation is in-flight queries.** postgres.js exposes no pool statistics, so an up-down
+  counter of queries in flight is compared with the pool size on the dashboard.
+- **`METRICS_ENABLED` is separate from `TRACING_ENABLED`;** the profile needs both.
+- **The exporter writes gauges as deltas** (`ScrapeExporter`), so a gauge whose source is down is
+  absent from the scrape instead of 0 or stale. `GaugeSourceMissing` watches for it.
+- **`METRICS_HOST` defaults to `127.0.0.1`;** Compose sets `0.0.0.0` so Prometheus can reach the
+  listener, and does not publish the port.
+- **`startTelemetry` is shared by both preloads** (API and worker), so tracing and metrics start
+  through one function.
+- **Prometheus names differ from the plan:** no `_seconds`, and the HTTP labels are the semconv
+  names (`http_route`, `http_request_method`, `http_response_status_code`).
+
 ## Open points for the owner
 
 - **Server and domain** for the live demo (Hetzner size, DNS name for HTTPS). Needed only for
@@ -269,8 +303,7 @@ Phase 3, slice A:
 
 ## Next
 
-Phase 3, slice A is done. Slices B (metrics, dashboards, alerts), C (audit log) and D (k6 and
-cache) remain, per
+Phase 3, slices A and B are done. Slices C (audit log) and D (k6 and cache) remain, per
 [the phase 3 design](superpowers/specs/2026-11-14-phase-3-observability-and-measuring-design.md).
 Still open from earlier notes:
 
@@ -444,6 +477,24 @@ Phase 3, slice A:
   `tickets.controller.db.spec.ts` ("streams the stored PDF"), and two specs failed once with the
   observability stack running and passed with it down. They passed on rerun and in the final run;
   not investigated.
+
+Phase 3, slice B:
+
+- **No alert delivery.** There is no Alertmanager; alerts show in the Prometheus UI only.
+- **No burn-rate rules.** The 30-day availability budget is not computed; the 5 % short-window rule
+  is its stand-in. Prometheus keeps 2 days.
+- **`tm_db_queries_active` is in-flight queries, not pool usage,** and `tm_waiting_room_waiting` and
+  `tm_db_queries_active` have no alert.
+- **`tm_waiting_room_waiting` keeps a queue counted for up to 24 hours** after an event drops its
+  waiting room.
+- **A rate of a new counter shows no data until it has increased twice** (expired holds).
+- **The observability profile is not in CI;** `promtool` was run by hand against the rule file and
+  the config.
+- **`bookings.service.ts` is at the 300-line lint limit;** the next addition there needs a split.
+- **A host `pnpm dev` worker competes** with the container worker for the queue and the outbox, so
+  its effects are not counted by the container worker's metrics.
+- **`docker compose --profile observability stop` or `down` also stops the `pnpm db:up` containers**
+  (same Compose project).
 
 ## Deliberately left out
 

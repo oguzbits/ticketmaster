@@ -7,5 +7,7 @@
   "deploy/": "docs/runbooks/",
   "apps/api/src/infrastructure/database/": "docs/data-model.md",
   "apps/api/src/infrastructure/metrics/": "docs/observability.md",
-  "docker/observability/": "docs/observability.md"
+  "docker/observability/": "docs/observability.md",
+  "apps/api/src/infrastructure/telemetry/": "docs/observability.md",
+  "apps/worker/src/operational-gauges.ts": "docs/observability.md"
 }

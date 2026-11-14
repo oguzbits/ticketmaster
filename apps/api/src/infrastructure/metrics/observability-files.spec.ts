@@ -12,6 +12,7 @@ const OBSERVABILITY_DIR = join(import.meta.dirname, '../../../../../docker/obser
 const DASHBOARD_DIR = join(OBSERVABILITY_DIR, 'grafana/provisioning/dashboards');
 const PROMETHEUS_DATASOURCE_UID = 'prometheus';
 const COMPOSE_FILE = join(OBSERVABILITY_DIR, '../../docker-compose.yml');
+const DOC_FILE = join(OBSERVABILITY_DIR, '../../docs/observability.md');
 const RUNBOOK = 'docs/observability.md#alerts';
 
 const KIND = { COUNTER: 'counter', GAUGE: 'gauge', HISTOGRAM: 'histogram' } as const;
@@ -101,6 +102,12 @@ describe('metricNames', () => {
         'histogram_quantile(0.95, sum by (le, http_route) (rate(a_bucket{x="b_c"}[$__rate_interval]))) / on () b[5m] or vector(0)'
       )
     ).toEqual(['a_bucket', 'b']);
+  });
+});
+
+describe('docs/observability.md', () => {
+  it.each(Object.values(METRIC))('names the instrument %s', (name) => {
+    expect(readFileSync(DOC_FILE, 'utf8')).toContain(`\`${name}\``);
   });
 });
 

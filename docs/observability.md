@@ -83,39 +83,59 @@ Tempo's per-trace size limit, and the trace is then cut off.
 ## Metrics
 
 Prometheus-format metrics are off by default and in every test project (`METRICS_ENABLED=false`).
-With `METRICS_ENABLED=true` the API and the worker each serve `/metrics` from their own listener on
-`METRICS_PORT` (default 9464) on the interface `METRICS_HOST` (default `127.0.0.1`; Compose sets
-`0.0.0.0` so the scraper can reach it, and does not publish the port; no personal data in it). A port that cannot be bound stops the process, so two processes on one host
-need different ports. The flags are independent of `TRACING_ENABLED`; either one makes the preload
-register the HTTP instrumentation, once. In the profile, Prometheus (`docker/observability/prometheus.yml`)
-scrapes port 9464 inside the Compose network: the job `api` resolves the service name `api` through
-DNS (`dns_sd_configs`, type `A`), so each replica is a target, and the job `worker` scrapes
-`worker:9464`. Port 9464 is not published; `http://localhost:9090/targets` shows three targets, all
-up, when the stack was started with `METRICS_ENABLED=true` (without it every target is down). The decision and the spike are in
+Start the profile with `TRACING_ENABLED=true METRICS_ENABLED=true` (the command in
+[Start](#start)); the two flags are independent, but the profile needs both. With
+`METRICS_ENABLED=true` the API and the worker each serve `/metrics` from their own listener:
+
+| Variable          | Default     | Meaning                                                                                   |
+| ----------------- | ----------- | ----------------------------------------------------------------------------------------- |
+| `METRICS_ENABLED` | `false`     | starts the meter provider and the listener                                                |
+| `METRICS_PORT`    | `9464`      | port of `/metrics`; a port that cannot be bound stops the process                         |
+| `METRICS_HOST`    | `127.0.0.1` | interface of the listener; Compose sets `0.0.0.0` so the scraper can reach it (see below) |
+
+Port 9464 is never published to the host and the output holds no personal data. Two processes on
+one host need different ports. Either flag makes the preload register the HTTP instrumentation,
+once. Prometheus (`docker/observability/prometheus.yml`) scrapes port 9464 inside the Compose
+network: the job `api` resolves the service name `api` through DNS (`dns_sd_configs`, type `A`), so
+each replica is a target, and the job `worker` scrapes `worker:9464`.
+`http://localhost:9090/targets` shows three targets, all up, when the stack was started with
+`METRICS_ENABLED=true` (without it every target is down). The decision and the spike are in
 [ADR 0008](adr/0008-metrics-with-opentelemetry.md).
 
-The request histogram is `http_server_request_duration_bucket` (with `_sum` and `_count`, seconds)
-with the labels `http_request_method`, `http_route` and `http_response_status_code`. `http_route` is
-the route template (`/api/bookings/:id/payment`), `/api*path` for an unknown path below `/api`, and
-`UNMATCHED` for any other request no route matched, so a URL never becomes a series. Health probes,
-event streams and the scrape itself are not counted.
+| OpenTelemetry name             | Prometheus series                                                 | Kind             | Labels                                                           | Emitted by                                 |
+| ------------------------------ | ----------------------------------------------------------------- | ---------------- | ---------------------------------------------------------------- | ------------------------------------------ |
+| `http.server.request.duration` | `http_server_request_duration_bucket`, `_sum`, `_count` (seconds) | histogram        | `http_request_method`, `http_route`, `http_response_status_code` | API (HTTP instrumentation)                 |
+| `tm.holds`                     | `tm_holds_total`                                                  | counter          | `strategy`, `outcome`                                            | API, once per hold attempt                 |
+| `tm.bookings.settled`          | `tm_bookings_settled_total`                                       | counter          | `status`                                                         | API (payment, cancel), worker (expiry job) |
+| `tm.queue.effects`             | `tm_queue_effects_total`                                          | counter          | `effect`, `outcome`                                              | worker                                     |
+| `tm.db.queries.active`         | `tm_db_queries_active`                                            | up-down counter  | none                                                             | API, worker                                |
+| `tm.outbox.oldest_age`         | `tm_outbox_oldest_age` (seconds, 0 when no row waits)             | observable gauge | none                                                             | worker only                                |
+| `tm.queue.depth`               | `tm_queue_depth`                                                  | observable gauge | `queue` (`booking-events`, `booking-events-dlq`)                 | worker only                                |
+| `tm.waiting_room.waiting`      | `tm_waiting_room_waiting`                                         | observable gauge | none                                                             | worker only; users waiting in all rooms    |
 
-Two counters come from the booking service, each increased only after the database transaction
-committed, so a rolled-back or refused action counts nothing: `tm_holds_total{strategy,outcome}`
-(one per hold attempt, outcome `PLACED`, `SEAT_TAKEN` or `CONSTRAINT_VIOLATION`) and
-`tm_bookings_settled_total{status}` (`CONFIRMED` or `CANCELLED` after a payment, `CANCELLED` after a
-cancel, `EXPIRED` by the expiry job once per batch). No ID of a user, booking, event or
-seat is ever a label.
+The exporter turns the dots into underscores, adds `_total` to counters and never appends the unit.
 
-The worker adds `tm_queue_effects_total{effect,outcome}` (one per queue effect that took effect,
-`SUCCEEDED`, or whose handler threw, `FAILED`; a message handled before counts nothing) and three
-gauges that only the worker registers, so replicas of the API do not report shared state twice:
-`tm_outbox_oldest_age` (seconds, 0 when no row waits), `tm_queue_depth{queue}` (the booking queue
-and its dead-letter queue) and `tm_waiting_room_waiting` (users waiting in all rooms). A gauge
-whose source fails or does not answer within 3 seconds is left out of that scrape and logged by
-error name, never reported as 0 or repeated with its last value (gauges are exported as deltas for
-this). `tm_db_queries_active` (API and worker) is the number of database queries in flight; it
-needs only `METRICS_ENABLED`.
+**Cardinality rule.** A label value comes from a closed set: the route template, a strategy, a
+booking status, a hold outcome, an effect, a queue name. No ID of a user, booking, event, seat or
+message and no raw URL is ever a label. `http_route` is the route template
+(`/api/bookings/:id/payment`), `/api*path` for an unknown path below `/api`, and `UNMATCHED` for any
+other request no route matched, so a URL never becomes a series. Health probes, event streams and
+the scrape itself are not counted.
+
+**Counters.** `tm_holds_total` and `tm_bookings_settled_total` are increased only after the database
+transaction committed, so a rolled-back or refused action counts nothing. Hold outcomes are
+`PLACED`, `SEAT_TAKEN` and `CONSTRAINT_VIOLATION`. A booking is settled as `CONFIRMED` or `CANCELLED`
+after a payment, `CANCELLED` after a cancel and `EXPIRED` by the expiry job, once per batch.
+`tm_queue_effects_total` counts one per queue effect that took effect (`SUCCEEDED`) or whose handler
+threw (`FAILED`); a message handled before counts nothing.
+
+**Gauges.** Outbox age, queue depth and waiting room are registered by the worker only, so replicas
+of the API do not report shared state twice. A gauge whose source fails or does not answer within 3
+seconds is left out of that scrape and logged by error name, never reported as 0 or repeated with its
+last value (the exporter writes gauges as deltas for this); [GaugeSourceMissing](#alerts) watches
+for that. `tm_db_queries_active` needs only `METRICS_ENABLED` and is the number of database queries
+in flight, not the pool usage: postgres.js exposes no pool statistics. The dashboard compares it with
+the pool size of 20.
 
 ## Dashboards
 
@@ -127,9 +147,61 @@ PgBouncer), `Bookings` (holds per second by strategy and outcome, `SEAT_TAKEN` r
 settled bookings by status, expired holds), `Queue and outbox` (age of the oldest outbox row with a
 line at `OUTBOX_STUCK_SECONDS`, depth of the booking queue and its dead-letter queue, queue effects
 by outcome) and `Waiting room`. A panel shows a gap, not 0, while the process that reports its
-metric is down; a counter series starts with its first event. `observability-files.spec.ts` checks
-that every metric a panel reads is one the services emit and that the two threshold lines equal
-`OUTBOX_STUCK_SECONDS` and the pool size.
+metric is down; a counter series starts with its first event, so a rate panel such as expired holds
+shows no data until the counter has increased twice. `observability-files.spec.ts` checks that every
+metric a panel reads is one the services emit, that the two threshold lines equal
+`OUTBOX_STUCK_SECONDS` and the pool size, and that every instrument is named in this document.
+
+## SLOs
+
+The booking routes are `POST /api/bookings` (hold), `POST /api/bookings/:id/payment` and
+`POST /api/bookings/:id/cancel`.
+
+| Objective    | Target                                                         |
+| ------------ | -------------------------------------------------------------- |
+| Availability | 99.5 % of booking-route requests answer below 500 over 30 days |
+| Hold latency | p95 of the hold route at most 500 ms                           |
+| Payment      | p95 of the payment route at most 1 s                           |
+
+The rules in `docker/observability/alerts.yml` encode them as short-window checks, not as a 30-day
+budget: the error ratio over 5 minutes above 5 % pages, and each p95 over 5 minutes above its limit
+warns after 10 minutes. `observability-files.spec.ts` keeps the thresholds equal to these numbers.
+
+## Alerts
+
+Prometheus evaluates `docker/observability/alerts.yml` every evaluation interval and shows the state
+of each rule at `http://localhost:9090/alerts`. Every rule links here from its `runbook` annotation.
+The rules are Prometheus rule files, not Grafana-managed rules.
+
+| Alert                     | Severity | Condition (for)                                                            | Check first                                                                                                                                                                                                                    |
+| ------------------------- | -------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `BookingErrorRatioHigh`   | page     | 5xx share of the three booking routes above 5 % over 5 min (5 min)         | The `API` dashboard: which route template and status. Then the API log lines of that time in Loki and a failing request's trace in Tempo; a failing `db.query` or `redis.command` span names the dependency.                   |
+| `HoldLatencyHigh`         | warning  | p95 of `POST /api/bookings` above 500 ms over 5 min (10 min)               | The `API` dashboard: queries in flight against the pool size of 20 (saturation), then the `Bookings` dashboard for the strategy in use; open a slow request's trace and read its `booking.hold.strategy` and `db.query` spans. |
+| `PaymentLatencyHigh`      | warning  | p95 of `POST /api/bookings/:id/payment` above 1 s over 5 min (10 min)      | The same panels, then the spans of a slow payment trace: the transaction and the outbox write happen in the request, the effects run later in the worker.                                                                      |
+| `OutboxStuck`             | warning  | `tm_outbox_oldest_age` above `OUTBOX_STUCK_SECONDS` (300 s) (1 min)        | Is the worker up (`ScrapeTargetDown`)? Then the worker log of the outbox relay and the reachability of SQS; the `Queue and outbox` dashboard shows the age and the queue depth.                                                |
+| `DeadLetterQueueNotEmpty` | warning  | `tm_queue_depth{queue="booking-events-dlq"}` above 0 (1 min)               | `tm_queue_effects_total{outcome="FAILED"}` on the `Queue and outbox` dashboard for the failing effect, then the worker log line and trace of that message.                                                                     |
+| `GaugeSourceMissing`      | warning  | the worker is up but reports no outbox age or no dead-letter depth (2 min) | The worker log for the gauge error (PostgreSQL or SQS unreachable, or no answer within 3 s). Until fixed, `OutboxStuck` and `DeadLetterQueueNotEmpty` cannot fire.                                                             |
+| `ScrapeTargetDown`        | warning  | `up == 0` for any target (1 min)                                           | `http://localhost:9090/targets` for the target and its error. Every target is down when the stack was started without `METRICS_ENABLED=true`; a stopped container is down too.                                                 |
+
+`GaugeSourceMissing` exists because a gauge whose source is down is absent from the scrape instead
+of 0, so the two rules on worker gauges would go silent. It requires `up{job="worker"} == 1`, so a
+worker that is down is `ScrapeTargetDown` alone. A target that is down for a few seconds during
+start shows as pending first.
+
+Known limits:
+
+- **No burn-rate rules.** The 30-day availability budget is not computed; the 5 % short-window rule
+  is its coarse stand-in.
+- **No alert delivery.** There is no Alertmanager, mail or pager; an alert is visible in the
+  Prometheus UI only.
+- **Gauges without an alert:** `tm_waiting_room_waiting` and `tm_db_queries_active`; they are on
+  the dashboards only.
+- **Retention is 2 days** (`--storage.tsdb.retention.time`), so a 30-day window cannot be queried
+  locally.
+- **`tm_db_queries_active` is in-flight queries, not pool usage.** The 20 on the `API` dashboard is
+  the pool size of one API process, a hint, not a measured saturation.
+- **`tm_waiting_room_waiting` keeps a queue counted for up to 24 hours** after an event drops its
+  waiting room, until the Redis key of that queue expires.
 
 ## Check it by hand
 
