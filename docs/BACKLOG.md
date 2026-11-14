@@ -58,6 +58,24 @@ Phase 1, slice D (rush simulator) is complete:
 
 Phase 1 (core) was accepted by the owner.
 
+Phase 2, slice A (outbox, queue, dead-letter queue, idempotent consumers) is complete:
+
+- A local AWS emulator (Floci, [ADR 0004](adr/0004-local-aws-emulator.md)) runs in Compose and in
+  the test setup; a one-shot service creates the queue `booking-events`, its dead-letter queue
+  (redrive after 5 receives) and the bucket `tickets`.
+- The payment is claimed (transaction 1, the idempotency key and claim time are stored), charged
+  outside any transaction and applied (transaction 2, which also writes the `BOOKING_CONFIRMED`
+  outbox row). A retry with the same key finishes the booking after a crash at either point.
+- The worker's relay sends unpublished outbox rows to the queue; its consumer handles each message
+  ID once (`processed_messages`), deletes a message only after the handler succeeded, and leaves a
+  failing or unparsable message to the dead-letter queue. The handler only logs the booking ID.
+- `GET /health/ready` reports `signals.outbox` (`stuck` when the oldest unpublished outbox row is older than 300 s).
+- Specs: outbox row if and only if the booking is `CONFIRMED`, parallel payments (one process and
+  two instances), a crash at each payment step, two relays at once, a relay with a hanging send,
+  the consumer against the emulator (duplicate, failure, dead-letter queue, shutdown) and the full
+  path from `BookingsService.pay` to the recorded message; `pnpm e2e` runs the booking flow on
+  the new payment path.
+
 ## Deviations from the plan
 
 - **No SWC for NestJS decorators.** Vitest (Vite 8, Oxc) reads `experimentalDecorators` and
@@ -115,6 +133,20 @@ Slice D:
 - **Test helpers live in `@app/api/simulations/testing`**, not in the module barrel, so the
   production code does not export them.
 
+Phase 2, slice A:
+
+- **Readiness stays 200 when the outbox is stuck.** The signal is a field (`ok` or `stuck`), not a
+  status change: a worker outage must not make Caddy drop the API instances.
+- **The fake payment provider decides by its key.** The result is a pure function of the
+  idempotency key and the failure rate, so a retry with the same key gets the same answer; the
+  injected random source is gone.
+- **The consumer handler only logs the booking ID.** It exists to prove dedupe, delete after
+  success and the dead-letter queue; slice B adds mail and PDF.
+- **A failed payment and a cancel emit no message.** `BOOKING_CONFIRMED` is the only type.
+- **The relay bounds itself.** The plan had a job-level time limit; an abandoned run kept going
+  and could overlap with the next, so the deadline moved into `OutboxService.relay` and the job
+  never gives a run up.
+
 ## Open points for the owner
 
 - **Server and domain** for the live demo (Hetzner size, DNS name for HTTPS). Needed only for
@@ -125,8 +157,8 @@ Slice D:
 
 ## Next
 
-Slice D is done. The phase 1 definition-of-done check against [PLAN.md](PLAN.md#phase-1-core)
-follows, then phase 2. Still open from earlier notes:
+Phase 2, slice A is done; the final review of the branch and slice B (confirmation email and
+ticket PDF) follow. Still open from earlier notes:
 
 - Write the runbooks the docs-map entry for the deploy folder points to (`docs/runbooks/`).
 - Images are pinned by tag; pin by digest and add resource limits with the container hardening.
@@ -156,6 +188,9 @@ follows, then phase 2. Still open from earlier notes:
   for 120 s. The job never abandons a run, so runs of one process never overlap. A send that was
   made but not marked is repeated (at least once, consumers dedupe). Selecting, sending outside the
   transaction and marking afterwards would need a claim state on the row.
+- **Queue ordering is not guaranteed.** The queue is standard, not FIFO, and the relay may send
+  rows out of order after a failure; a consumer must not rely on the order of messages. A mail
+  that repeats after a crash between its send and the dedupe commit is slice B's to handle.
 - **Published outbox rows are never deleted.** The table grows with every confirmed booking; a
   retention job (like the simulation retention) is needed before it matters.
 - **The queue consumer takes one message at a time** (`receive(1)`, one loop per worker), so its

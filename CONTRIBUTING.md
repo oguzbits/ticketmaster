@@ -30,7 +30,7 @@ that creates the queues (`booking-events` with its dead-letter queue `booking-ev
 bucket `tickets` in the emulator and exits (`pnpm aws:init` does the same from the host, and
 running it again changes nothing); `migrate`, a one-shot service
 that applies the migrations and the seed with the API image and exits, and `worker`, the scheduled
-jobs (hold expiry every two seconds, the simulation reaper every 30 seconds, the simulation retention every minute) and the consumer of the rush simulator runs. `api` and `worker` start only after `migrate` and `aws-init` have completed.
+jobs (hold expiry every two seconds, the simulation reaper every 30 seconds, the simulation retention every minute, the outbox relay every second), the consumer of the rush simulator and the consumer of the queue `booking-events` run. `api` and `worker` start only after `migrate` and `aws-init` have completed.
 
 `pnpm aws:smoke` checks the emulator against the features the async chain relies on (redrive to
 the dead-letter queue, visibility timeout, long polling, message attributes, bucket round trip)
