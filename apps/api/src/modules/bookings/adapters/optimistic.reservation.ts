@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 
 import type { Database } from '../../../infrastructure/database/database.module.js';
 import { seats } from '../../../infrastructure/database/schema.js';
+import type { AuditService } from '../../audit/index.js';
 import {
   HOLD_OUTCOME,
   type HoldInput,
@@ -17,7 +18,10 @@ import { insertHold, isSeatTaken } from './insert-hold.js';
  * taken and no retry is needed.
  */
 export class OptimisticReservation implements SeatReservation {
-  constructor(private readonly db: Database) {}
+  constructor(
+    private readonly db: Database,
+    private readonly audit: AuditService
+  ) {}
 
   hold(input: HoldInput & { now: Date; ttlSeconds: number }): Promise<HoldResult> {
     return this.db.transaction(async (tx) => {
@@ -33,7 +37,7 @@ export class OptimisticReservation implements SeatReservation {
         .where(and(eq(seats.id, input.seatId), eq(seats.version, seat.version)))
         .returning({ id: seats.id });
       if (bumped.length === 0) return { outcome: HOLD_OUTCOME.SEAT_TAKEN };
-      return insertHold(tx, input, input.now, input.ttlSeconds);
+      return insertHold(tx, input, this.audit);
     });
   }
 }

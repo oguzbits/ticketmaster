@@ -20,6 +20,7 @@ import {
 } from '@nestjs/common';
 import { z } from 'zod';
 
+import { RequestId } from '../../infrastructure/http/request-id.decorator.js';
 import { ZodPipe } from '../../infrastructure/http/zod.pipe.js';
 import { type AuthUser, CurrentUser, Roles } from '../auth/index.js';
 import { BookingsService } from './bookings.service.js';
@@ -44,9 +45,10 @@ export class BookingsController {
   @Post()
   async hold(
     @Body(new ZodPipe(HoldRequestSchema)) body: HoldRequest,
-    @CurrentUser() user: AuthUser
+    @CurrentUser() user: AuthUser,
+    @RequestId() requestId: string
   ): Promise<Booking> {
-    const result = await this.bookings.hold({ ...body, userId: user.id });
+    const result = await this.bookings.hold({ ...body, userId: user.id, requestId });
     if (result.outcome !== HOLD_OUTCOME.PLACED)
       throw new ConflictException('Seat is not available');
     return this.bookings.getOwn(result.bookingId, user.id);
@@ -58,9 +60,10 @@ export class BookingsController {
   async pay(
     @Param('id', BookingId) id: string,
     @IdempotencyKey(undefined, new ZodPipe(IdempotencyKeySchema)) idempotencyKey: string,
-    @CurrentUser() user: AuthUser
+    @CurrentUser() user: AuthUser,
+    @RequestId() requestId: string
   ): Promise<Booking> {
-    await this.bookings.pay({ bookingId: id, userId: user.id, idempotencyKey });
+    await this.bookings.pay({ bookingId: id, userId: user.id, idempotencyKey, requestId });
     return this.bookings.getOwn(id, user.id);
   }
 
@@ -69,9 +72,10 @@ export class BookingsController {
   @HttpCode(HttpStatus.OK)
   async cancel(
     @Param('id', BookingId) id: string,
-    @CurrentUser() user: AuthUser
+    @CurrentUser() user: AuthUser,
+    @RequestId() requestId: string
   ): Promise<Booking> {
-    await this.bookings.cancel({ bookingId: id, userId: user.id });
+    await this.bookings.cancel({ bookingId: id, userId: user.id, requestId });
     return this.bookings.getOwn(id, user.id);
   }
 

@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  AUDIT_ACTION,
+  AUDIT_SUBJECT,
   type Booking,
   BOOKING_STATUS,
   type BookingStatus,
@@ -8,18 +10,11 @@ import {
   TRANSITION_REASON,
   type TransitionReason,
 } from '@app/shared';
-import {
-  ConflictException,
-  ForbiddenException,
-  Inject,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { and, count, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 
 import { CLOCK, type Clock } from '../../core/clock.js';
-import { type Database, DB, type Tx } from '../../infrastructure/database/database.module.js';
+import { type Database, DB } from '../../infrastructure/database/database.module.js';
 import { bookings, events, seats } from '../../infrastructure/database/schema.js';
 import { SPAN_ATTR, SPAN_NAME, withSpan } from '../../infrastructure/tracing/index.js';
 import { BOOKING_PORTS, type BookingPorts } from './adapters/booking-ports.js';
@@ -30,6 +25,7 @@ import {
   storeTransition,
 } from './adapters/booking-transitions.js';
 import { loadOwnBookings } from './adapters/load-own-bookings.js';
+import { lockOwnBooking } from './adapters/lock-own-booking.js';
 import { publishSeatChange } from './adapters/publish-seat-change.js';
 import { SeatReservations } from './adapters/seat-reservations.js';
 import { type BookingState, SYSTEM_ACTOR_ID } from './domain/booking-state-machine.js';
@@ -38,6 +34,13 @@ import { HOLD_OUTCOME, type HoldInput, type HoldResult } from './domain/seat-res
 import { ACTIVE_BOOKING_STATUSES } from './domain/seat-status.js';
 
 type SeatRef = { eventId: string; seatId: string };
+
+interface PayInput {
+  bookingId: string;
+  userId: string;
+  idempotencyKey: string;
+  requestId: string;
+}
 
 /** Bookings the expiry job locks and expires per transaction. */
 const EXPIRY_BATCH_SIZE = 500;
@@ -133,11 +136,7 @@ export class BookingsService {
    * A crash after step 1 or 2 leaves the key claimed on a HELD booking: the retry with the same key
    * repeats the charge (the provider answers a repeated key alike) and applies the result.
    */
-  async pay(input: {
-    bookingId: string;
-    userId: string;
-    idempotencyKey: string;
-  }): Promise<BookingState> {
+  async pay(input: PayInput): Promise<BookingState> {
     const claim = await this.claimPayment(input);
     if (claim.settled !== null) return claim.settled;
     // Single flight per process: parallel requests with one key (ownership is checked above) share
@@ -159,17 +158,15 @@ export class BookingsService {
   }
 
   /** Step 1: either the stored result of a settled payment, or the claim to charge. */
-  private claimPayment(input: {
-    bookingId: string;
-    userId: string;
-    idempotencyKey: string;
-  }): Promise<
+  private claimPayment(
+    input: PayInput
+  ): Promise<
     | { settled: BookingState }
     | { settled: null; amountCents: number; seat: SeatRef; claimedAt: Date }
   > {
     return this.db.transaction(async (tx) => {
       const { booking, paymentIdempotencyKey, paymentClaimedAt, priceCents, seat } =
-        await this.lockOwnBooking(tx, input.bookingId, input.userId);
+        await lockOwnBooking(tx, input.bookingId, input.userId);
       const sameKey = paymentIdempotencyKey === input.idempotencyKey;
       if (sameKey && booking.status !== BOOKING_STATUS.HELD) {
         // The same key on a booking that left HELD: its stored result, or 409 if it was never paid.
@@ -192,7 +189,7 @@ export class BookingsService {
 
   /** Steps 2 and 3. */
   private async chargeAndApply(
-    input: { bookingId: string; userId: string; idempotencyKey: string },
+    input: PayInput,
     claim: { amountCents: number; seat: SeatRef; claimedAt: Date }
   ): Promise<{ state: BookingState; seat: SeatRef | null }> {
     const { succeeded } = await this.ports.payments.charge({
@@ -202,7 +199,7 @@ export class BookingsService {
     });
     return this.db.transaction(async (tx) => {
       // Locked and read again: the booking may have changed while the provider was working.
-      const { booking } = await this.lockOwnBooking(tx, input.bookingId, input.userId);
+      const { booking } = await lockOwnBooking(tx, input.bookingId, input.userId);
       if (booking.status !== BOOKING_STATUS.HELD) {
         // A parallel request of this key applied the result first: its answer stands.
         if (await paymentApplied(tx, booking.id)) return { state: booking, seat: null };
@@ -221,7 +218,14 @@ export class BookingsService {
       }
       const paid = await storeTransition(tx, plan(booking, TRANSITION_REASON.PAYMENT_SUCCEEDED));
       const confirmed = await storeTransition(tx, plan(paid, TRANSITION_REASON.CONFIRMED));
-      // In this transaction: the row exists if and only if the booking is CONFIRMED.
+      // In this transaction: the rows exist if and only if the booking is CONFIRMED.
+      await this.ports.audit.record(tx, {
+        actorId: input.userId,
+        action: AUDIT_ACTION.BOOKING_PAID,
+        subjectType: AUDIT_SUBJECT.BOOKING,
+        subjectId: booking.id,
+        requestId: input.requestId,
+      });
       await this.ports.outbox.enqueue(tx, {
         messageId: randomUUID(),
         type: OUTBOX_MESSAGE_TYPE.BOOKING_CONFIRMED,
@@ -234,9 +238,13 @@ export class BookingsService {
     });
   }
 
-  async cancel(input: { bookingId: string; userId: string }): Promise<BookingState> {
+  async cancel(input: {
+    bookingId: string;
+    userId: string;
+    requestId: string;
+  }): Promise<BookingState> {
     const { state, seat } = await this.db.transaction(async (tx) => {
-      const { booking, paymentIdempotencyKey, seat } = await this.lockOwnBooking(
+      const { booking, paymentIdempotencyKey, seat } = await lockOwnBooking(
         tx,
         input.bookingId,
         input.userId
@@ -251,7 +259,15 @@ export class BookingsService {
         input.userId,
         this.clock.now()
       );
-      return { state: await storeTransition(tx, cancelled), seat };
+      const stored = await storeTransition(tx, cancelled);
+      await this.ports.audit.record(tx, {
+        actorId: input.userId,
+        action: AUDIT_ACTION.BOOKING_CANCELLED,
+        subjectType: AUDIT_SUBJECT.BOOKING,
+        subjectId: stored.id,
+        requestId: input.requestId,
+      });
+      return { state: stored, seat };
     });
     this.ports.metrics.bookingSettled(state.status);
     await this.announce(state.id, seat);
@@ -303,46 +319,6 @@ export class BookingsService {
       expired += batch.length;
       if (batch.length < EXPIRY_BATCH_SIZE) return expired;
     }
-  }
-
-  /** Locks the booking row for the transaction; unknown is NotFound, someone else's is Forbidden. */
-  private async lockOwnBooking(
-    tx: Tx,
-    bookingId: string,
-    userId: string
-  ): Promise<{
-    booking: BookingState;
-    paymentIdempotencyKey: string | null;
-    paymentClaimedAt: Date | null;
-    priceCents: number;
-    seat: { eventId: string; seatId: string };
-  }> {
-    const [row] = await tx
-      .select({
-        id: bookings.id,
-        status: bookings.status,
-        holdExpiresAt: bookings.holdExpiresAt,
-        paymentIdempotencyKey: bookings.paymentIdempotencyKey,
-        paymentClaimedAt: bookings.paymentClaimedAt,
-        ownerId: bookings.userId,
-        eventId: bookings.eventId,
-        seatId: bookings.seatId,
-        priceCents: seats.priceCents,
-      })
-      .from(bookings)
-      .innerJoin(seats, eq(seats.id, bookings.seatId))
-      .where(eq(bookings.id, bookingId))
-      .for('update', { of: bookings });
-    if (row === undefined) throw new NotFoundException('Booking not found');
-    if (row.ownerId !== userId) throw new ForbiddenException('Booking belongs to another user');
-    const { id, status, holdExpiresAt, priceCents, eventId, seatId } = row;
-    return {
-      booking: { id, status, holdExpiresAt },
-      paymentIdempotencyKey: row.paymentIdempotencyKey,
-      paymentClaimedAt: row.paymentClaimedAt,
-      priceCents,
-      seat: { eventId, seatId },
-    };
   }
 
   /** Called after the commit: tells the viewers of the event which status the seat has now. */

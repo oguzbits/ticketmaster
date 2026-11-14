@@ -1,13 +1,16 @@
 import { randomUUID } from 'node:crypto';
 
-import { BOOKING_STRATEGY } from '@app/shared';
+import { AUDIT_ACTION, BOOKING_STRATEGY } from '@app/shared';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { Clock } from '../../core/clock.js';
+import { bookings } from '../../infrastructure/database/schema.js';
 import type { Redis } from '../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
 import { SPEC_NOW } from '../../testing/time.js';
+import { auditRows } from '../audit/testing/index.js';
 import type { BookingsService } from './bookings.service.js';
 import { HOLD_OUTCOME } from './domain/seat-reservation.js';
 import { createBookingsService } from './testing/create-bookings-service.js';
@@ -37,11 +40,23 @@ describe.each(Object.values(BOOKING_STRATEGY))('%s: parallel holds of one seat',
 
     const results = await Promise.all(
       Array.from({ length: PARALLEL_HOLDS }, () =>
-        service.hold({ eventId, seatId, userId: randomUUID() })
+        service.hold({ eventId, seatId, userId: randomUUID(), requestId: randomUUID() })
       )
     );
 
     const doubles = await service.countDoubleBookings(eventId);
+    const bookingIds = new Set(
+      (
+        await db.select({ id: bookings.id }).from(bookings).where(eq(bookings.eventId, eventId))
+      ).map(({ id }) => id)
+    );
+    const held = (await auditRows(db)).filter(
+      (row) => row.action === AUDIT_ACTION.BOOKING_HELD && bookingIds.has(row.subjectId)
+    );
+    expect(held).toHaveLength(bookingIds.size);
+    expect(bookingIds.size).toBe(
+      results.filter((result) => result.outcome === HOLD_OUTCOME.PLACED).length
+    );
     if (strategy === BOOKING_STRATEGY.NAIVE) {
       expect(doubles).toBeGreaterThan(0);
       return;

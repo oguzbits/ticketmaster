@@ -91,6 +91,8 @@ export class SimulationRunner {
         eventId: input.eventId,
         seatId,
         userId: input.buyerId,
+        // A simulated buyer has no request; the start of the run is audited instead.
+        requestId: null,
       });
       const latencyMs = this.deps.clock.now().getTime() - started;
       recorder.record(COUNTER_OF_OUTCOME[result.outcome], latencyMs, attempt > 0);

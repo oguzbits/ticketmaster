@@ -26,24 +26,19 @@ export function createBookingsService(
   publisher: SeatChangePublisher = new RedisSeatChangePublisher(redis),
   outbox: OutboxService = new OutboxService(db, clock, new FakeMessageQueue()),
   metrics: BusinessMetrics = new RecordingMetrics(),
-  reservations: SeatReservations = new SeatReservations(
-    db,
-    redis,
-    clock,
-    loadEnv().HOLD_TTL_SECONDS
-  )
+  reservations: SeatReservations = new SeatReservations(db, redis, clock, {
+    ttlSeconds: loadEnv().HOLD_TTL_SECONDS,
+    audit: new AuditService(db, clock),
+  })
 ): BookingsService {
-  const waitingRoom = new WaitingRoomService(
-    db,
-    clock,
-    new RedisWaitingRoomStore(redis),
-    new AuditService(db, clock)
-  );
+  const audit = new AuditService(db, clock);
+  const waitingRoom = new WaitingRoomService(db, clock, new RedisWaitingRoomStore(redis), audit);
   return new BookingsService(db, reservations, clock, {
     payments,
     seatChanges: publisher,
     outbox,
     waitingRoom,
     metrics,
+    audit,
   });
 }

@@ -6,6 +6,8 @@ export interface HoldInput {
   eventId: string;
   seatId: string;
   userId: string;
+  /** The request that asked for the hold; null for a hold nobody requested (not audited). */
+  requestId: string | null;
 }
 
 export type HoldResult =

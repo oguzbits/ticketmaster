@@ -4,6 +4,7 @@ import { Logger } from '@nestjs/common';
 
 import type { Database } from '../../../infrastructure/database/database.module.js';
 import type { Redis } from '../../../infrastructure/redis/redis.module.js';
+import type { AuditService } from '../../audit/index.js';
 import {
   HOLD_OUTCOME,
   type HoldInput,
@@ -29,7 +30,8 @@ export class RedisLockReservation implements SeatReservation {
 
   constructor(
     private readonly db: Database,
-    private readonly redis: Redis
+    private readonly redis: Redis,
+    private readonly audit: AuditService
   ) {}
 
   async hold(input: HoldInput & { now: Date; ttlSeconds: number }): Promise<HoldResult> {
@@ -44,7 +46,7 @@ export class RedisLockReservation implements SeatReservation {
       return await this.db.transaction(async (tx) =>
         (await isSeatTaken(tx, input.seatId))
           ? { outcome: HOLD_OUTCOME.SEAT_TAKEN }
-          : insertHold(tx, input, input.now, input.ttlSeconds)
+          : insertHold(tx, input, this.audit)
       );
     } finally {
       // A failed release must not replace a committed hold; the lock expires by itself after its TTL.

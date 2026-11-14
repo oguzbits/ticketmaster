@@ -80,13 +80,23 @@ describe('one booking is one trace', () => {
         strategy: BOOKING_STRATEGY.PESSIMISTIC,
         seats: 1,
       });
-      const held = await bookings.hold({ eventId, seatId: seatIds[0] ?? '', userId });
+      const held = await bookings.hold({
+        eventId,
+        seatId: seatIds[0] ?? '',
+        userId,
+        requestId: null,
+      });
       if (held.outcome !== HOLD_OUTCOME.PLACED) throw new Error('hold was not placed');
       const traced = startTestTracing();
       stopTracing = traced.shutdown;
 
       const view = await withSpan(ROOT_SPAN, () =>
-        bookings.pay({ bookingId: held.bookingId, userId, idempotencyKey: randomUUID() })
+        bookings.pay({
+          bookingId: held.bookingId,
+          userId,
+          idempotencyKey: randomUUID(),
+          requestId: 'spec',
+        })
       );
       await outbox.relay(1000);
       const seen = new Set<string>();

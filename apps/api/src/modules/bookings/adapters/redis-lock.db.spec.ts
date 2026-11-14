@@ -7,6 +7,7 @@ import type { Redis } from '../../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../../testing/database.js';
 import { openTestRedis } from '../../../testing/redis.js';
 import { SPEC_NOW } from '../../../testing/time.js';
+import { AuditService } from '../../audit/index.js';
 import { HOLD_OUTCOME } from '../domain/seat-reservation.js';
 import { RedisLockReservation, releaseLock } from './redis-lock.reservation.js';
 
@@ -47,12 +48,17 @@ describe('releaseLock', () => {
       if (seatId === undefined) throw new Error('test event has no seat');
       const release = vi.spyOn(redis, 'eval').mockRejectedValue(new Error('redis down'));
 
-      const result = await new RedisLockReservation(database.db, redis).hold({
+      const result = await new RedisLockReservation(
+        database.db,
+        redis,
+        new AuditService(database.db, { now: () => SPEC_NOW })
+      ).hold({
         eventId,
         seatId,
         userId: randomUUID(),
         now: SPEC_NOW,
         ttlSeconds: 600,
+        requestId: null,
       });
 
       expect(release).toHaveBeenCalledOnce();

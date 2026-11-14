@@ -1,4 +1,5 @@
 import type { Database } from '../../../infrastructure/database/database.module.js';
+import type { AuditService } from '../../audit/index.js';
 import {
   HOLD_OUTCOME,
   type HoldInput,
@@ -9,13 +10,16 @@ import { insertHold, isSeatTaken } from './insert-hold.js';
 
 /** Comparison baseline: check, then insert, with nothing between the two. It double-books. */
 export class NaiveReservation implements SeatReservation {
-  constructor(private readonly db: Database) {}
+  constructor(
+    private readonly db: Database,
+    private readonly audit: AuditService
+  ) {}
 
   hold(input: HoldInput & { now: Date; ttlSeconds: number }): Promise<HoldResult> {
     return this.db.transaction(async (tx) =>
       (await isSeatTaken(tx, input.seatId))
         ? { outcome: HOLD_OUTCOME.SEAT_TAKEN }
-        : insertHold(tx, input, input.now, input.ttlSeconds)
+        : insertHold(tx, input, this.audit)
     );
   }
 }

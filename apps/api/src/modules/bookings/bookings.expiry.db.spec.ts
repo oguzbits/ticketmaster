@@ -64,7 +64,7 @@ describe('expireHolds', () => {
     });
     const ids: string[] = [];
     for (const seatId of seatIds) {
-      const result = await service.hold({ eventId, seatId, userId: randomUUID() });
+      const result = await service.hold({ eventId, seatId, userId: randomUUID(), requestId: null });
       if (result.outcome !== HOLD_OUTCOME.PLACED) throw new Error('hold was not placed');
       ids.push(result.bookingId);
     }
@@ -128,7 +128,7 @@ describe('expireHolds', () => {
       [later, new Date(START.getTime() + ttlMs / 2)],
     ] as const) {
       now = heldAt;
-      await service.hold({ eventId, seatId: seatId ?? '', userId: randomUUID() });
+      await service.hold({ eventId, seatId: seatId ?? '', userId: randomUUID(), requestId: null });
     }
     const watch = await watchSeatChanges(redis, eventId);
 
@@ -149,7 +149,7 @@ describe('expireHolds', () => {
     });
     const seat = { eventId, seatId: seatIds[0] ?? '' };
     now = START;
-    await service.hold({ ...seat, userId: randomUUID() });
+    await service.hold({ ...seat, userId: randomUUID(), requestId: null });
     // NAIVE refuses a second hold only after it read the first; a race leaves two active
     // bookings, which this row stands for.
     await db.insert(bookings).values({
@@ -229,7 +229,12 @@ describe('expireHolds', () => {
         strategy: BOOKING_STRATEGY.PESSIMISTIC,
         seats: 1,
       });
-      const held = await service.hold({ eventId, seatId: seatIds[0] ?? '', userId });
+      const held = await service.hold({
+        eventId,
+        seatId: seatIds[0] ?? '',
+        userId,
+        requestId: null,
+      });
       if (held.outcome !== HOLD_OUTCOME.PLACED) throw new Error('hold was not placed');
       const dying = createBookingsService(
         db,
@@ -240,7 +245,7 @@ describe('expireHolds', () => {
         }
       );
       await expect(
-        dying.pay({ bookingId: held.bookingId, userId, idempotencyKey })
+        dying.pay({ bookingId: held.bookingId, userId, idempotencyKey, requestId: 'spec' })
       ).rejects.toThrow('provider down');
       return held.bookingId;
     }
@@ -265,9 +270,9 @@ describe('expireHolds', () => {
       const bookingId = await claimedHold(userId, idempotencyKey);
       await service.expireHolds(new Date(START.getTime() + ttlMs + graceMs));
 
-      await expect(service.pay({ bookingId, userId, idempotencyKey })).rejects.toBeInstanceOf(
-        ConflictException
-      );
+      await expect(
+        service.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' })
+      ).rejects.toBeInstanceOf(ConflictException);
     });
 
     it('a charge that succeeds after the hold expired stores nothing: conflict, EXPIRED, logged with the booking ID', async () => {
@@ -277,7 +282,12 @@ describe('expireHolds', () => {
         seats: 1,
       });
       now = START;
-      const held = await service.hold({ eventId, seatId: seatIds[0] ?? '', userId });
+      const held = await service.hold({
+        eventId,
+        seatId: seatIds[0] ?? '',
+        userId,
+        requestId: null,
+      });
       if (held.outcome !== HOLD_OUTCOME.PLACED) throw new Error('hold was not placed');
       const { bookingId } = held;
       const slow: PaymentProvider = {
@@ -291,7 +301,7 @@ describe('expireHolds', () => {
       const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
 
       await expect(
-        paying.pay({ bookingId, userId, idempotencyKey: randomUUID() })
+        paying.pay({ bookingId, userId, idempotencyKey: randomUUID(), requestId: 'spec' })
       ).rejects.toBeInstanceOf(ConflictException);
 
       expect(await statusOf([bookingId])).toEqual([BOOKING_STATUS.EXPIRED]);

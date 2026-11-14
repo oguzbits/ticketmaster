@@ -84,7 +84,7 @@ describe('seat changes published after the booking commits', () => {
   }
 
   async function held(seat: { eventId: string; seatId: string; userId: string }) {
-    const result = await service.hold(seat);
+    const result = await service.hold({ ...seat, requestId: null });
     if (result.outcome !== HOLD_OUTCOME.PLACED) throw new Error('hold was not placed');
     return result.bookingId;
   }
@@ -113,7 +113,7 @@ describe('seat changes published after the booking commits', () => {
     await seat.watch.settle();
     const before = seat.watch.changes.length;
 
-    const second = await service.hold({ ...seat, userId: randomUUID() });
+    const second = await service.hold({ ...seat, userId: randomUUID(), requestId: null });
     await seat.watch.settle();
 
     expect(second.outcome).not.toBe(HOLD_OUTCOME.PLACED);
@@ -125,7 +125,12 @@ describe('seat changes published after the booking commits', () => {
     const seat = await watchedSeat();
     const bookingId = await held(seat);
 
-    await service.pay({ bookingId, userId: seat.userId, idempotencyKey: randomUUID() });
+    await service.pay({
+      bookingId,
+      userId: seat.userId,
+      idempotencyKey: randomUUID(),
+      requestId: 'spec',
+    });
     await seat.watch.settle();
 
     expect(seat.watch.changes.map(({ status }) => status)).toEqual([
@@ -141,7 +146,12 @@ describe('seat changes published after the booking commits', () => {
     const bookingId = await held(seat);
     paymentSucceeds = false;
 
-    await service.pay({ bookingId, userId: seat.userId, idempotencyKey: randomUUID() });
+    await service.pay({
+      bookingId,
+      userId: seat.userId,
+      idempotencyKey: randomUUID(),
+      requestId: 'spec',
+    });
     await seat.watch.settle();
 
     expect(seat.watch.changes.map(({ status }) => status)).toEqual([
@@ -156,11 +166,11 @@ describe('seat changes published after the booking commits', () => {
     const seat = await watchedSeat();
     const bookingId = await held(seat);
     const idempotencyKey = randomUUID();
-    await service.pay({ bookingId, userId: seat.userId, idempotencyKey });
+    await service.pay({ bookingId, userId: seat.userId, idempotencyKey, requestId: 'spec' });
     await seat.watch.settle();
     const before = seat.watch.changes.length;
 
-    await service.pay({ bookingId, userId: seat.userId, idempotencyKey });
+    await service.pay({ bookingId, userId: seat.userId, idempotencyKey, requestId: 'spec' });
     await seat.watch.settle();
 
     expect(seat.watch.changes).toHaveLength(before);
@@ -170,12 +180,17 @@ describe('seat changes published after the booking commits', () => {
   it('a payment the state machine refuses publishes nothing', async () => {
     const seat = await watchedSeat();
     const bookingId = await held(seat);
-    await service.cancel({ bookingId, userId: seat.userId });
+    await service.cancel({ bookingId, userId: seat.userId, requestId: 'spec' });
     await seat.watch.settle();
     const before = seat.watch.changes.length;
 
     await expect(
-      service.pay({ bookingId, userId: seat.userId, idempotencyKey: randomUUID() })
+      service.pay({
+        bookingId,
+        userId: seat.userId,
+        idempotencyKey: randomUUID(),
+        requestId: 'spec',
+      })
     ).rejects.toBeInstanceOf(ConflictException);
     await seat.watch.settle();
 
@@ -187,7 +202,7 @@ describe('seat changes published after the booking commits', () => {
     const seat = await watchedSeat();
     const bookingId = await held(seat);
 
-    await service.cancel({ bookingId, userId: seat.userId });
+    await service.cancel({ bookingId, userId: seat.userId, requestId: 'spec' });
     await seat.watch.settle();
 
     expect(seat.watch.changes.map(({ status }) => status)).toEqual([
@@ -227,7 +242,7 @@ describe('seat changes published after the booking commits', () => {
     it('cancelling one of two holds publishes HELD, the seat is still occupied', async () => {
       const { watch, a, bookingA } = await twoHolds();
 
-      await service.cancel({ bookingId: bookingA, userId: a });
+      await service.cancel({ bookingId: bookingA, userId: a, requestId: 'spec' });
       await watch.settle();
 
       expect(watch.changes.map(({ status }) => status)).toEqual([
@@ -239,9 +254,14 @@ describe('seat changes published after the booking commits', () => {
 
     it('cancelling a hold of a seat that another user has bought publishes SOLD', async () => {
       const { watch, a, b, bookingA, bookingB } = await twoHolds();
-      await service.pay({ bookingId: bookingB, userId: b, idempotencyKey: randomUUID() });
+      await service.pay({
+        bookingId: bookingB,
+        userId: b,
+        idempotencyKey: randomUUID(),
+        requestId: 'spec',
+      });
 
-      await service.cancel({ bookingId: bookingA, userId: a });
+      await service.cancel({ bookingId: bookingA, userId: a, requestId: 'spec' });
       await watch.settle();
 
       expect(watch.changes.map(({ status }) => status)).toEqual([

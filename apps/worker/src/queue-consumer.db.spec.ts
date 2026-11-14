@@ -415,12 +415,13 @@ describe('QueueConsumer against the local emulator', () => {
       });
       const [seatId] = seatIds;
       if (seatId === undefined) throw new Error('test event has no seat');
-      const held = await bookings.hold({ eventId, seatId, userId });
+      const held = await bookings.hold({ eventId, seatId, userId, requestId: null });
       if (held.outcome !== HOLD_OUTCOME.PLACED) throw new Error('hold was not placed');
       const view = await bookings.pay({
         bookingId: held.bookingId,
         userId,
         idempotencyKey: randomUUID(),
+        requestId: 'spec',
       });
       const handler = new RecordingHandler();
       start(moduleQueue, handler);
@@ -453,9 +454,19 @@ describe('QueueConsumer against the local emulator', () => {
         strategy: BOOKING_STRATEGY.PESSIMISTIC,
         seats: 1,
       });
-      const held = await bookings.hold({ eventId, seatId: seatIds[0] ?? '', userId });
+      const held = await bookings.hold({
+        eventId,
+        seatId: seatIds[0] ?? '',
+        userId,
+        requestId: null,
+      });
       if (held.outcome !== HOLD_OUTCOME.PLACED) throw new Error('hold was not placed');
-      await bookings.pay({ bookingId: held.bookingId, userId, idempotencyKey: randomUUID() });
+      await bookings.pay({
+        bookingId: held.bookingId,
+        userId,
+        idempotencyKey: randomUUID(),
+        requestId: 'spec',
+      });
       return {
         userId,
         message: { ...confirmed(), bookingId: held.bookingId, eventId, userId },
@@ -546,7 +557,7 @@ describe('QueueConsumer against the local emulator', () => {
       await withRelaysLocked(async () => {
         const { queue } = await scratch();
         const { message, userId } = await confirmedBooking();
-        await bookings.cancel({ bookingId: message.bookingId, userId });
+        await bookings.cancel({ bookingId: message.bookingId, userId, requestId: 'spec' });
         const consumer = realConsumer(queue);
 
         await send(queue, message);

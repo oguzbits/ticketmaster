@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import {
+  AUDIT_ACTION,
+  AUDIT_SUBJECT,
   BOOKING_STATUS,
   BOOKING_STRATEGY,
   OUTBOX_MESSAGE_TYPE,
@@ -24,6 +26,7 @@ import type { Redis } from '../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
 import { SPEC_NOW } from '../../testing/time.js';
+import { auditRowsOfSubject } from '../audit/testing/index.js';
 import { OutboxService } from '../outbox/index.js';
 import { FakeMessageQueue } from '../outbox/testing/index.js';
 import type { BookingsService } from './bookings.service.js';
@@ -114,10 +117,14 @@ describe('payment and cancel', () => {
     const [seatId] = seatIds;
     if (seatId === undefined) throw new Error('test event has no seat');
     const userId = randomUUID();
-    const result = await service.hold({ eventId, seatId, userId });
+    const result = await service.hold({ eventId, seatId, userId, requestId: null });
     if (result.outcome !== HOLD_OUTCOME.PLACED) throw new Error('hold was not placed');
     return { bookingId: result.bookingId, userId, eventId, seatId };
   }
+
+  /** The actions audited for the booking, in order. */
+  const auditedActions = async (bookingId: string): Promise<string[]> =>
+    (await auditRowsOfSubject(db, bookingId)).map((row) => row.action);
 
   async function transitionsOf(bookingId: string): Promise<string[]> {
     const rows = await db
@@ -130,7 +137,12 @@ describe('payment and cancel', () => {
   it('pays a held booking and confirms it with HELD→PAID→CONFIRMED transitions', async () => {
     const { bookingId, userId } = await heldBooking();
 
-    const view = await service.pay({ bookingId, userId, idempotencyKey: key('1') });
+    const view = await service.pay({
+      bookingId,
+      userId,
+      idempotencyKey: key('1'),
+      requestId: 'spec',
+    });
 
     expect(view.status).toBe(BOOKING_STATUS.CONFIRMED);
     expect(provider.calls).toEqual([
@@ -145,12 +157,31 @@ describe('payment and cancel', () => {
     );
   });
 
-  it('a confirmed payment writes one outbox row with IDs only, a failed one writes none', async () => {
+  it('a confirmed payment writes one BOOKING_PAID audit row with the payer and the request ID, a failed one writes none', async () => {
     const paid = await heldBooking();
-    await service.pay({ ...paid, idempotencyKey: key('row-ok') });
+    await service.pay({ ...paid, idempotencyKey: key('audit-ok'), requestId: 'req-pay-1' });
     const failed = await heldBooking();
     provider.succeed = false;
-    await service.pay({ ...failed, idempotencyKey: key('row-fail') });
+    await service.pay({ ...failed, idempotencyKey: key('audit-fail'), requestId: 'req-pay-2' });
+
+    expect(await auditRowsOfSubject(db, paid.bookingId)).toMatchObject([
+      {
+        actorId: paid.userId,
+        action: AUDIT_ACTION.BOOKING_PAID,
+        subjectType: AUDIT_SUBJECT.BOOKING,
+        subjectId: paid.bookingId,
+        requestId: 'req-pay-1',
+      },
+    ]);
+    expect(await auditedActions(failed.bookingId)).toEqual([]);
+  });
+
+  it('a confirmed payment writes one outbox row with IDs only, a failed one writes none', async () => {
+    const paid = await heldBooking();
+    await service.pay({ ...paid, idempotencyKey: key('row-ok'), requestId: 'spec' });
+    const failed = await heldBooking();
+    provider.succeed = false;
+    await service.pay({ ...failed, idempotencyKey: key('row-fail'), requestId: 'spec' });
 
     const [row, ...more] = await outboxRowsOf(paid.bookingId);
 
@@ -173,31 +204,39 @@ describe('payment and cancel', () => {
     const idempotencyKey = key('crash-apply');
     outbox.crashNext = true;
 
-    await expect(service.pay({ bookingId, userId, idempotencyKey })).rejects.toThrow(
-      'apply crashed'
-    );
+    await expect(
+      service.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' })
+    ).rejects.toThrow('apply crashed');
     const afterCrash = {
       status: (await rowOf(bookingId)).status,
       transitions: await transitionsOf(bookingId),
       rows: await outboxRowsOf(bookingId),
+      audited: await auditedActions(bookingId),
     };
-    const retried = await service.pay({ bookingId, userId, idempotencyKey });
+    const retried = await service.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' });
 
     expect(afterCrash).toEqual({
       status: BOOKING_STATUS.HELD,
       transitions: [`null>${BOOKING_STATUS.HELD}`],
       rows: [],
+      audited: [],
     });
     expect(retried.status).toBe(BOOKING_STATUS.CONFIRMED);
     expect(provider.calls).toHaveLength(2);
     expect(await outboxRowsOf(bookingId)).toHaveLength(1);
+    expect(await auditedActions(bookingId)).toEqual([AUDIT_ACTION.BOOKING_PAID]);
   });
 
   it('a failed charge cancels with PAYMENT_FAILED', async () => {
     const { bookingId, userId } = await heldBooking();
     provider.succeed = false;
 
-    const view = await service.pay({ bookingId, userId, idempotencyKey: key('2') });
+    const view = await service.pay({
+      bookingId,
+      userId,
+      idempotencyKey: key('2'),
+      requestId: 'spec',
+    });
 
     expect(view.status).toBe(BOOKING_STATUS.CANCELLED);
     const [record] = await db
@@ -218,12 +257,12 @@ describe('payment and cancel', () => {
 
   it('a key another booking already used is a conflict and is not charged', async () => {
     const first = await heldBooking();
-    await service.pay({ ...first, idempotencyKey: key('shared') });
+    await service.pay({ ...first, idempotencyKey: key('shared'), requestId: 'spec' });
     const second = await heldBooking();
 
-    await expect(service.pay({ ...second, idempotencyKey: key('shared') })).rejects.toBeInstanceOf(
-      ConflictException
-    );
+    await expect(
+      service.pay({ ...second, idempotencyKey: key('shared'), requestId: 'spec' })
+    ).rejects.toBeInstanceOf(ConflictException);
     expect(provider.calls).toHaveLength(0);
     const [row] = await db.select().from(bookings).where(eq(bookings.id, second.bookingId));
     expect(row?.status).toBe(BOOKING_STATUS.HELD);
@@ -265,7 +304,7 @@ describe('payment and cancel', () => {
       seen.push({ claimedKey, lockError });
     };
 
-    await service.pay({ bookingId, userId, idempotencyKey });
+    await service.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' });
 
     expect(seen).toEqual([{ claimedKey: idempotencyKey, lockError: null }]);
   });
@@ -275,11 +314,11 @@ describe('payment and cancel', () => {
     const idempotencyKey = key('crash-charge');
     provider.failNext = true;
 
-    await expect(service.pay({ bookingId, userId, idempotencyKey })).rejects.toThrow(
-      'provider down'
-    );
+    await expect(
+      service.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' })
+    ).rejects.toThrow('provider down');
     const afterCrash = await rowOf(bookingId);
-    const retried = await service.pay({ bookingId, userId, idempotencyKey });
+    const retried = await service.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' });
 
     expect(afterCrash).toMatchObject({
       status: BOOKING_STATUS.HELD,
@@ -294,13 +333,13 @@ describe('payment and cancel', () => {
     const { bookingId, userId } = await heldBooking();
     const idempotencyKey = key('grace-retry');
     provider.failNext = true;
-    await expect(service.pay({ bookingId, userId, idempotencyKey })).rejects.toThrow(
-      'provider down'
-    );
+    await expect(
+      service.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' })
+    ).rejects.toThrow('provider down');
     now = new Date(NOW.getTime() + (env.HOLD_TTL_SECONDS + 1) * 1000);
 
-    const retried = await service.pay({ bookingId, userId, idempotencyKey });
-    const again = await service.pay({ bookingId, userId, idempotencyKey });
+    const retried = await service.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' });
+    const again = await service.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' });
 
     expect(retried.status).toBe(BOOKING_STATUS.CONFIRMED);
     expect(again.status).toBe(BOOKING_STATUS.CONFIRMED);
@@ -317,14 +356,14 @@ describe('payment and cancel', () => {
     const { bookingId, userId } = await heldBooking();
     const idempotencyKey = key('claim-time');
     provider.failNext = true;
-    await expect(service.pay({ bookingId, userId, idempotencyKey })).rejects.toThrow(
-      'provider down'
-    );
+    await expect(
+      service.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' })
+    ).rejects.toThrow('provider down');
     now = new Date(NOW.getTime() + 5000);
     provider.failNext = true;
-    await expect(service.pay({ bookingId, userId, idempotencyKey })).rejects.toThrow(
-      'provider down'
-    );
+    await expect(
+      service.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' })
+    ).rejects.toThrow('provider down');
 
     expect((await rowOf(bookingId)).paymentClaimedAt).toEqual(NOW);
   });
@@ -338,7 +377,7 @@ describe('payment and cancel', () => {
       .where(eq(bookings.id, bookingId));
     now = new Date(NOW.getTime() + 5000);
 
-    const view = await service.pay({ bookingId, userId, idempotencyKey });
+    const view = await service.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' });
 
     expect(view.status).toBe(BOOKING_STATUS.CONFIRMED);
     const [row] = await outboxRowsOf(bookingId);
@@ -351,13 +390,16 @@ describe('payment and cancel', () => {
     provider.chargeDelayMs = PARALLEL_CHARGE_MS;
 
     const views = await Promise.all(
-      Array.from({ length: 10 }, () => service.pay({ bookingId, userId, idempotencyKey }))
+      Array.from({ length: 10 }, () =>
+        service.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' })
+      )
     );
 
     expect(new Set(views.map((view) => view.status))).toEqual(new Set([BOOKING_STATUS.CONFIRMED]));
     expect(provider.calls).toHaveLength(1);
     expect(await transitionsOf(bookingId)).toHaveLength(3);
     expect(await outboxRowsOf(bookingId)).toHaveLength(1);
+    expect(await auditedActions(bookingId)).toEqual([AUDIT_ACTION.BOOKING_PAID]);
   });
 
   it('two instances paying with one key at once apply the result once and answer alike', async () => {
@@ -367,8 +409,8 @@ describe('payment and cancel', () => {
     const other = createBookingsService(db, redis, { now: () => now }, provider, undefined, outbox);
 
     const views = await Promise.all([
-      service.pay({ bookingId, userId, idempotencyKey }),
-      other.pay({ bookingId, userId, idempotencyKey }),
+      service.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' }),
+      other.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' }),
     ]);
 
     // Each instance may call the provider; a real one answers a repeated key with the first result.
@@ -378,6 +420,7 @@ describe('payment and cancel', () => {
     ]);
     expect(await transitionsOf(bookingId)).toHaveLength(3);
     expect(await outboxRowsOf(bookingId)).toHaveLength(1);
+    expect(await auditedActions(bookingId)).toEqual([AUDIT_ACTION.BOOKING_PAID]);
   });
 
   it('ten parallel payments with different keys on one booking: one wins, the others conflict', async () => {
@@ -386,7 +429,7 @@ describe('payment and cancel', () => {
 
     const results = await Promise.allSettled(
       Array.from({ length: 10 }, (_, i) =>
-        service.pay({ bookingId, userId, idempotencyKey: key(`many-${i}`) })
+        service.pay({ bookingId, userId, idempotencyKey: key(`many-${i}`), requestId: 'spec' })
       )
     );
 
@@ -404,10 +447,17 @@ describe('payment and cancel', () => {
     const { bookingId, userId } = await heldBooking();
     const cancels: PromiseSettledResult<BookingState>[] = [];
     provider.duringCharge = async () => {
-      cancels.push(...(await Promise.allSettled([service.cancel({ bookingId, userId })])));
+      cancels.push(
+        ...(await Promise.allSettled([service.cancel({ bookingId, userId, requestId: 'spec' })]))
+      );
     };
 
-    const view = await service.pay({ bookingId, userId, idempotencyKey: key('cancel-during') });
+    const view = await service.pay({
+      bookingId,
+      userId,
+      idempotencyKey: key('cancel-during'),
+      requestId: 'spec',
+    });
 
     expect(cancels.map((c) => c.status === 'rejected' && c.reason)).toEqual([
       expect.any(ConflictException),
@@ -420,12 +470,14 @@ describe('payment and cancel', () => {
     const claimed = await heldBooking();
     provider.failNext = true;
     await expect(
-      service.pay({ ...claimed, idempotencyKey: key('cancel-claimed') })
+      service.pay({ ...claimed, idempotencyKey: key('cancel-claimed'), requestId: 'spec' })
     ).rejects.toThrow('provider down');
     const unclaimed = await heldBooking();
 
-    await expect(service.cancel(claimed)).rejects.toBeInstanceOf(ConflictException);
-    const view = await service.cancel(unclaimed);
+    await expect(service.cancel({ ...claimed, requestId: 'spec' })).rejects.toBeInstanceOf(
+      ConflictException
+    );
+    const view = await service.cancel({ ...unclaimed, requestId: 'spec' });
 
     expect((await rowOf(claimed.bookingId)).status).toBe(BOOKING_STATUS.HELD);
     expect(view.status).toBe(BOOKING_STATUS.CANCELLED);
@@ -434,10 +486,15 @@ describe('payment and cancel', () => {
   it('the same key after a failed charge returns CANCELLED and does not charge again', async () => {
     const { bookingId, userId } = await heldBooking();
     provider.succeed = false;
-    await service.pay({ bookingId, userId, idempotencyKey: key('3') });
+    await service.pay({ bookingId, userId, idempotencyKey: key('3'), requestId: 'spec' });
     provider.succeed = true;
 
-    const again = await service.pay({ bookingId, userId, idempotencyKey: key('3') });
+    const again = await service.pay({
+      bookingId,
+      userId,
+      idempotencyKey: key('3'),
+      requestId: 'spec',
+    });
 
     expect(again.status).toBe(BOOKING_STATUS.CANCELLED);
     expect(provider.calls).toHaveLength(1);
@@ -445,9 +502,14 @@ describe('payment and cancel', () => {
 
   it('the same key after success returns CONFIRMED without a second charge', async () => {
     const { bookingId, userId } = await heldBooking();
-    await service.pay({ bookingId, userId, idempotencyKey: key('4') });
+    await service.pay({ bookingId, userId, idempotencyKey: key('4'), requestId: 'spec' });
 
-    const again = await service.pay({ bookingId, userId, idempotencyKey: key('4') });
+    const again = await service.pay({
+      bookingId,
+      userId,
+      idempotencyKey: key('4'),
+      requestId: 'spec',
+    });
 
     expect(again.status).toBe(BOOKING_STATUS.CONFIRMED);
     expect(provider.calls).toHaveLength(1);
@@ -456,10 +518,10 @@ describe('payment and cancel', () => {
 
   it('another key on a confirmed booking is a conflict', async () => {
     const { bookingId, userId } = await heldBooking();
-    await service.pay({ bookingId, userId, idempotencyKey: key('5') });
+    await service.pay({ bookingId, userId, idempotencyKey: key('5'), requestId: 'spec' });
 
     await expect(
-      service.pay({ bookingId, userId, idempotencyKey: key('6') })
+      service.pay({ bookingId, userId, idempotencyKey: key('6'), requestId: 'spec' })
     ).rejects.toBeInstanceOf(ConflictException);
     expect(provider.calls).toHaveLength(1);
   });
@@ -469,7 +531,7 @@ describe('payment and cancel', () => {
     now = new Date(NOW.getTime() + (env.HOLD_TTL_SECONDS + 1) * 1000);
 
     await expect(
-      service.pay({ bookingId, userId, idempotencyKey: key('7') })
+      service.pay({ bookingId, userId, idempotencyKey: key('7'), requestId: 'spec' })
     ).rejects.toBeInstanceOf(ConflictException);
     expect(provider.calls).toHaveLength(0);
   });
@@ -478,13 +540,18 @@ describe('payment and cancel', () => {
     const { bookingId } = await heldBooking();
 
     await expect(
-      service.pay({ bookingId, userId: randomUUID(), idempotencyKey: key('8') })
+      service.pay({ bookingId, userId: randomUUID(), idempotencyKey: key('8'), requestId: 'spec' })
     ).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(service.cancel({ bookingId, userId: randomUUID() })).rejects.toBeInstanceOf(
-      ForbiddenException
-    );
     await expect(
-      service.pay({ bookingId: randomUUID(), userId: randomUUID(), idempotencyKey: key('9') })
+      service.cancel({ bookingId, userId: randomUUID(), requestId: 'spec' })
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      service.pay({
+        bookingId: randomUUID(),
+        userId: randomUUID(),
+        idempotencyKey: key('9'),
+        requestId: 'spec',
+      })
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(provider.calls).toHaveLength(0);
     const [row] = await db.select().from(bookings).where(eq(bookings.id, bookingId));
@@ -493,20 +560,58 @@ describe('payment and cancel', () => {
 
   it('cancel of a confirmed booking frees the seat', async () => {
     const { bookingId, userId, eventId, seatId } = await heldBooking();
-    await service.pay({ bookingId, userId, idempotencyKey: key('10') });
+    await service.pay({ bookingId, userId, idempotencyKey: key('10'), requestId: 'spec' });
 
-    const view = await service.cancel({ bookingId, userId });
-    const next = await service.hold({ eventId, seatId, userId: randomUUID() });
+    const view = await service.cancel({ bookingId, userId, requestId: 'spec' });
+    const next = await service.hold({ eventId, seatId, userId: randomUUID(), requestId: null });
 
     expect(view.status).toBe(BOOKING_STATUS.CANCELLED);
     expect(next.outcome).toBe(HOLD_OUTCOME.PLACED);
   });
 
+  it('a cancel writes one BOOKING_CANCELLED audit row with the user and the request ID', async () => {
+    const { bookingId, userId } = await heldBooking();
+
+    await service.cancel({ bookingId, userId, requestId: 'req-cancel-1' });
+
+    expect(await auditRowsOfSubject(db, bookingId)).toMatchObject([
+      {
+        actorId: userId,
+        action: AUDIT_ACTION.BOOKING_CANCELLED,
+        subjectType: AUDIT_SUBJECT.BOOKING,
+        subjectId: bookingId,
+        requestId: 'req-cancel-1',
+      },
+    ]);
+  });
+
+  it('a cancel the state machine or a claimed payment refuses writes no audit row', async () => {
+    const cancelled = await heldBooking();
+    await service.cancel({ ...cancelled, requestId: 'req-cancel-2' });
+    const claimed = await heldBooking();
+    provider.failNext = true;
+    await service
+      .pay({ ...claimed, idempotencyKey: key('audit-claimed'), requestId: 'spec' })
+      .catch(() => undefined);
+
+    await expect(
+      service.cancel({ ...cancelled, requestId: 'req-cancel-3' })
+    ).rejects.toBeInstanceOf(ConflictException);
+    await expect(service.cancel({ ...claimed, requestId: 'req-cancel-4' })).rejects.toBeInstanceOf(
+      ConflictException
+    );
+
+    expect(await auditedActions(cancelled.bookingId)).toEqual([AUDIT_ACTION.BOOKING_CANCELLED]);
+    expect(await auditedActions(claimed.bookingId)).toEqual([]);
+  });
+
   it('cancel of a booking that cannot be cancelled is a conflict', async () => {
     const { bookingId, userId } = await heldBooking();
-    await service.cancel({ bookingId, userId });
+    await service.cancel({ bookingId, userId, requestId: 'spec' });
 
-    await expect(service.cancel({ bookingId, userId })).rejects.toBeInstanceOf(ConflictException);
+    await expect(service.cancel({ bookingId, userId, requestId: 'spec' })).rejects.toBeInstanceOf(
+      ConflictException
+    );
   });
 
   describe('metrics', () => {
@@ -522,8 +627,12 @@ describe('payment and cancel', () => {
       const { bookingId, userId } = await heldBooking();
       const idempotencyKey = key('metrics-ok');
 
-      const first = await recordedDuring(() => service.pay({ bookingId, userId, idempotencyKey }));
-      const again = await recordedDuring(() => service.pay({ bookingId, userId, idempotencyKey }));
+      const first = await recordedDuring(() =>
+        service.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' })
+      );
+      const again = await recordedDuring(() =>
+        service.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' })
+      );
 
       expect(first).toEqual([settled(BOOKING_STATUS.CONFIRMED)]);
       expect(again).toEqual([]);
@@ -536,7 +645,9 @@ describe('payment and cancel', () => {
 
       const recorded = await recordedDuring(() =>
         Promise.all(
-          Array.from({ length: 10 }, () => service.pay({ bookingId, userId, idempotencyKey }))
+          Array.from({ length: 10 }, () =>
+            service.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' })
+          )
         )
       );
 
@@ -559,8 +670,8 @@ describe('payment and cancel', () => {
 
       const recorded = await recordedDuring(() =>
         Promise.all([
-          service.pay({ bookingId, userId, idempotencyKey }),
-          other.pay({ bookingId, userId, idempotencyKey }),
+          service.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' }),
+          other.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' }),
         ])
       );
 
@@ -572,7 +683,7 @@ describe('payment and cancel', () => {
       provider.succeed = false;
 
       const recorded = await recordedDuring(() =>
-        service.pay({ bookingId, userId, idempotencyKey: key('metrics-fail') })
+        service.pay({ bookingId, userId, idempotencyKey: key('metrics-fail'), requestId: 'spec' })
       );
 
       expect(recorded).toEqual([settled(BOOKING_STATUS.CANCELLED)]);
@@ -584,10 +695,12 @@ describe('payment and cancel', () => {
       outbox.crashNext = true;
 
       const crashed = await recordedDuring(() =>
-        expect(service.pay({ bookingId, userId, idempotencyKey })).rejects.toThrow('apply crashed')
+        expect(
+          service.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' })
+        ).rejects.toThrow('apply crashed')
       );
       const retried = await recordedDuring(() =>
-        service.pay({ bookingId, userId, idempotencyKey })
+        service.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' })
       );
 
       expect(crashed).toEqual([]);
@@ -605,7 +718,12 @@ describe('payment and cancel', () => {
 
       const recorded = await recordedDuring(() =>
         expect(
-          service.pay({ bookingId, userId, idempotencyKey: key('metrics-conflict') })
+          service.pay({
+            bookingId,
+            userId,
+            idempotencyKey: key('metrics-conflict'),
+            requestId: 'spec',
+          })
         ).rejects.toBeInstanceOf(ConflictException)
       );
 
@@ -615,9 +733,13 @@ describe('payment and cancel', () => {
     it('a cancel counts CANCELLED once; a refused cancel counts nothing', async () => {
       const { bookingId, userId } = await heldBooking();
 
-      const cancelled = await recordedDuring(() => service.cancel({ bookingId, userId }));
+      const cancelled = await recordedDuring(() =>
+        service.cancel({ bookingId, userId, requestId: 'spec' })
+      );
       const refused = await recordedDuring(() =>
-        expect(service.cancel({ bookingId, userId })).rejects.toBeInstanceOf(ConflictException)
+        expect(service.cancel({ bookingId, userId, requestId: 'spec' })).rejects.toBeInstanceOf(
+          ConflictException
+        )
       );
 
       expect(cancelled).toEqual([settled(BOOKING_STATUS.CANCELLED)]);
