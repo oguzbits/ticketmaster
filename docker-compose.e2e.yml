@@ -5,6 +5,11 @@ services:
   api:
     environment:
       PAYMENT_FAILURE_RATE: '0'
+      # The run never traces, whatever the shell has set.
+      TRACING_ENABLED: 'false'
+  worker:
+    environment:
+      TRACING_ENABLED: 'false'
   postgres:
     ports: !reset []
   pgbouncer:

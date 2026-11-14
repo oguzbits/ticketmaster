@@ -1,0 +1,36 @@
+apiVersion: 1
+
+datasources:
+  - name: Tempo
+    type: tempo
+    uid: tempo
+    access: proxy
+    url: http://tempo:3200
+    editable: false
+    jsonData:
+      # "Logs for this span": the api and worker lines that carry the trace ID (the span's
+      # service.name is ticketmaster-api, the Loki label is the Compose service name).
+      tracesToLogsV2:
+        datasourceUid: loki
+        customQuery: true
+        query: '{service=~"api|worker"} | json | trace_id="$${__trace.traceId}"'
+        # The trace's own time range is a hair too tight for lines written just after its last span.
+        spanStartTimeShift: '-1s'
+        spanEndTimeShift: '2s'
+        filterByTraceID: false
+        filterBySpanID: false
+  - name: Loki
+    type: loki
+    uid: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      # Turns the trace_id field of a pino line into a link to the trace in Tempo.
+      derivedFields:
+        - name: trace_id
+          datasourceUid: tempo
+          matcherType: regex
+          matcherRegex: '"trace_id":"(\w+)"'
+          url: '$${__value.raw}'
+          urlDisplayLabel: Open trace

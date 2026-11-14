@@ -12,7 +12,13 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { withSpan } from './span.js';
 import { startTestTracing } from './testing/index.js';
-import { isEventStreamRequest, SERVICE_NAME, startTracing, type TracingHandle } from './tracing.js';
+import {
+  isEventStreamRequest,
+  isHealthProbe,
+  SERVICE_NAME,
+  startTracing,
+  type TracingHandle,
+} from './tracing.js';
 
 const ENV_ON = { TRACING_ENABLED: true, TRACING_OTLP_ENDPOINT: 'http://localhost:4318' };
 const ENV_OFF = { TRACING_ENABLED: false, TRACING_OTLP_ENDPOINT: 'http://localhost:4318' };
@@ -123,6 +129,16 @@ describe('isEventStreamRequest', () => {
     expect(isEventStreamRequest({ headers: { accept: 'text/event-stream' } })).toBe(true);
     expect(isEventStreamRequest({ headers: { accept: 'application/json' } })).toBe(false);
     expect(isEventStreamRequest({ headers: {} })).toBe(false);
+  });
+});
+
+describe('isHealthProbe', () => {
+  it('is true for the health routes and false for other paths', () => {
+    expect(isHealthProbe({ url: '/health/live' })).toBe(true);
+    expect(isHealthProbe({ url: '/health/ready?x=1' })).toBe(true);
+    expect(isHealthProbe({ url: '/api/health/live' })).toBe(false);
+    expect(isHealthProbe({ url: '/healthy' })).toBe(false);
+    expect(isHealthProbe({})).toBe(false);
   });
 });
 

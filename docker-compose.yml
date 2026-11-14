@@ -163,6 +163,10 @@ services:
       AWS_ENDPOINT_URL: http://aws:4566
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
+      # Off unless started as `TRACING_ENABLED=true docker compose --profile observability up`,
+      # see docs/observability.md.
+      TRACING_ENABLED: ${TRACING_ENABLED:-false}
+      TRACING_OTLP_ENDPOINT: http://tempo:4318
       # The API only serves tickets, but the tickets module builds the sender at start.
       SMTP_URL: smtp://mailpit:1025
     depends_on:
@@ -187,6 +191,10 @@ services:
       AWS_ENDPOINT_URL: http://aws:4566
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
+      # Off unless started as `TRACING_ENABLED=true docker compose --profile observability up`,
+      # see docs/observability.md.
+      TRACING_ENABLED: ${TRACING_ENABLED:-false}
+      TRACING_OTLP_ENDPOINT: http://tempo:4318
       SMTP_URL: smtp://mailpit:1025
     depends_on:
       pgbouncer:
@@ -210,5 +218,94 @@ services:
       api:
         condition: service_healthy
 
+  # Observability profile (local only): `docker compose --profile observability up`, see
+  # docs/observability.md and docs/adr/0007-tracing-with-opentelemetry.md. The ports are bound to
+  # localhost; none of the four services starts without the profile.
+  tempo:
+    image: grafana/tempo:3.1.1
+    profiles: [observability]
+    command: ['-target=all', '-config.file=/etc/tempo.yaml']
+    ports:
+      - '127.0.0.1:3200:3200'
+    volumes:
+      - ./docker/observability/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    healthcheck:
+      # The image has no shell or curl; the binary checks its own /ready.
+      test: ['CMD', '/tempo', '-health']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  # The image has no shell either, so there is no health check; Alloy retries its pushes until Loki is up.
+  loki:
+    image: grafana/loki:3.7.10
+    profiles: [observability]
+    command: ['-config.file=/etc/loki/loki.yaml']
+    ports:
+      - '127.0.0.1:3100:3100'
+    volumes:
+      - ./docker/observability/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+
+  # Reads the container logs through the Docker socket and ships them to Loki. The socket gives
+  # read access to every container on the host: see the risk note in docs/observability.md.
+  alloy:
+    image: grafana/alloy:v1.22.0
+    profiles: [observability]
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+      - --server.http.listen-addr=0.0.0.0:12345
+    volumes:
+      - ./docker/observability/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy-data:/var/lib/alloy/data
+    depends_on:
+      - loki
+    healthcheck:
+      # The image has no curl or wget, and its /bin/sh (dash) has no /dev/tcp: ask through bash.
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/12345 &&
+          printf 'GET /-/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '200 OK' <&3
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  grafana:
+    image: grafana/grafana:13.3.1
+    profiles: [observability]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+    ports:
+      - '127.0.0.1:3000:3000'
+    volumes:
+      - ./docker/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      tempo:
+        condition: service_healthy
+      loki:
+        condition: service_started
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1:3000/api/health']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
 volumes:
   postgres-data:
+  tempo-data:
+  loki-data:
+  alloy-data:
+  grafana-data:

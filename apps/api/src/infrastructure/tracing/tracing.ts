@@ -48,6 +48,7 @@ const EXPORT_TIMEOUT_MS = 2000;
 const EXPORT_DELAY_MS = 2000;
 const MAX_QUEUE_SIZE = 512;
 const EVENT_STREAM = 'text/event-stream';
+const HEALTH_PATH = /^\/health(\/|\?|$)/;
 
 /** Personal data under invariant 6: the client's address and agent, and the query string. */
 const PERSONAL_ATTRIBUTES = [
@@ -107,6 +108,11 @@ export function isEventStreamRequest(request: Pick<IncomingMessage, 'headers'>):
   return request.headers.accept?.includes(EVENT_STREAM) ?? false;
 }
 
+/** Container health checks and probes hit `/health/*` every few seconds: one-span traces, no signal. */
+export function isHealthProbe(request: Pick<IncomingMessage, 'url'>): boolean {
+  return HEALTH_PATH.test(request.url ?? '');
+}
+
 function otlpProcessor(endpoint: string): SpanProcessor {
   // Every option is explicit: the exporter would otherwise fall back to OTEL_EXPORTER_OTLP_*.
   const exporter = new OTLPTraceExporter({
@@ -149,7 +155,10 @@ export function startTracing(
   const unsubscribeDrivers = subscribeDriverSpans();
   const unregister = registerInstrumentations({
     instrumentations: [
-      new HttpInstrumentation({ ignoreIncomingRequestHook: isEventStreamRequest }),
+      new HttpInstrumentation({
+        ignoreIncomingRequestHook: (request) =>
+          isEventStreamRequest(request) || isHealthProbe(request),
+      }),
       // Layer spans would bury the request: the server span keeps the route template as its name.
       new ExpressInstrumentation({
         ignoreLayersType: [

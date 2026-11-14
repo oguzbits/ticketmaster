@@ -5,5 +5,6 @@
   "docker-compose.e2e.yml": "CONTRIBUTING.md",
   "packages/shared/src/": "docs/api/",
   "deploy/": "docs/runbooks/",
-  "apps/api/src/infrastructure/database/": "docs/data-model.md"
+  "apps/api/src/infrastructure/database/": "docs/data-model.md",
+  "docker/observability/": "docs/observability.md"
 }

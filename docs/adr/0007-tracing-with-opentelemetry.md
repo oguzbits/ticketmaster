@@ -87,11 +87,11 @@ The hook must run before the application imports Express; the preload is loaded 
 before `dist/main.js`, and with the module imported dynamically after `register()`. With tracing
 off the preload returns before it registers or imports anything.
 
-**Docker `CMD` for Task 7** (API and worker, working directory `/app`, preload path decided in
-Task 2):
+**Docker `CMD`** (API and worker, working directory `/app`; each app has its own preload,
+`dist/tracing.preload.js`):
 
 ```text
-CMD ["node", "--import", "./dist/infrastructure/tracing/preload.js", "dist/main.js"]
+CMD ["node", "--import", "./dist/tracing.preload.js", "dist/main.js"]
 ```
 
 No `--experimental-loader`, no `NODE_OPTIONS`.
@@ -250,8 +250,7 @@ Tempo, Loki, Alloy and Grafana run in the Compose profile `observability`; the d
 `pnpm e2e` do not start it. pino keeps writing JSON lines to stdout. Alloy reads the Docker socket
 mounted read-only and ships the container logs to Loki, because Promtail is end of life (a statement of the phase plan, checked again in Task 7). The socket
 gives read access to every container's metadata and logs, so the profile is for local use only and
-is not part of any deployment. Image tags and the Alloy configuration are verified against the
-registries and docs in Task 7.
+is not part of any deployment. The profile is described in [docs/observability.md](../observability.md), including the risk of the socket mount.
 
 ### Consequences
 

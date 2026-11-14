@@ -1,0 +1,47 @@
+// Ships the container logs of this Compose project to Loki. Only the containers of the project
+// `ticketmaster-klon` are read (the e2e stack has its own project name and is left out).
+discovery.docker "project" {
+  host = "unix:///var/run/docker.sock"
+
+  filter {
+    name   = "label"
+    values = ["com.docker.compose.project=ticketmaster-klon"]
+  }
+}
+
+// `service` is the Compose service (api, worker, web, ...), the label the queries use.
+discovery.relabel "project" {
+  targets = discovery.docker.project.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+}
+
+loki.source.docker "project" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.project.output
+  forward_to = [loki.process.json.receiver]
+}
+
+// api and worker write pino JSON lines: `level` becomes a label (a small, fixed set). Other
+// containers write plain text; the stage skips lines that are not JSON. trace_id and span_id stay
+// in the line (never labels: one value per request would explode the label index).
+loki.process "json" {
+  stage.json {
+    expressions = { level = "level" }
+  }
+
+  stage.labels {
+    values = { level = "" }
+  }
+
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

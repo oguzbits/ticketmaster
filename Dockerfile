@@ -17,7 +17,7 @@ USER node
 EXPOSE 3000
 HEALTHCHECK --interval=5s --timeout=3s --start-period=10s --retries=5 \
   CMD ["node", "-e", "fetch(`http://127.0.0.1:${process.env.PORT ?? 3000}/health/live`).then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
-CMD ["node", "dist/main.js"]
+CMD ["node", "--import", "./dist/tracing.preload.js", "dist/main.js"]
 
 # The worker has no HTTP server, so no port and no HTTP health check.
 FROM node:26.13.1-slim AS worker
@@ -25,7 +25,7 @@ ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build /out/worker .
 USER node
-CMD ["node", "dist/main.js"]
+CMD ["node", "--import", "./dist/tracing.preload.js", "dist/main.js"]
 
 # One-shot scripts of the local stack (aws-init): the build stage already has the root dependencies
 # and the built shared package.
