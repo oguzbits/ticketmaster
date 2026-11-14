@@ -15,6 +15,8 @@ const ASYNC_MS = 30_000;
  * of its own, so the REST answers are searched as text.
  */
 async function mailsWithAttachment(fileName: string): Promise<number> {
+  // Loopback address of the throwaway e2e stack: there is no TLS to use.
+  // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
   const list = await (await fetch(`${MAILPIT}/messages`)).text();
   const ids = [...list.matchAll(/"ID":"([^"]+)"/g)].map((match) => match[1]);
   const details = await Promise.all(

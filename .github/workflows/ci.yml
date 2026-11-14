@@ -87,6 +87,14 @@ jobs:
         image: floci/floci:2.4.0
         ports:
           - 45660:4566
+      # The mail sink of the ticket mail specs: SMTP on 1025, REST API on 8025.
+      mailpit:
+        image: axllent/mailpit:v1.33.1
+        ports:
+          - 1025:1025
+          - 8025:8025
+        options: >-
+          --health-cmd "/mailpit readyz" --health-interval 2s --health-timeout 3s --health-retries 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
