@@ -18,6 +18,7 @@ import {
 } from '../../infrastructure/database/schema.js';
 import { AuditService } from '../audit/index.js';
 import { ACTIVE_BOOKING_STATUSES, seatStatusOf } from '../bookings/index.js';
+import { EventCache, type EventLayout } from '../event-cache/index.js';
 
 /** Public events, plus the sandbox events of the caller. */
 function visibleTo(userId: string | null): SQL | undefined {
@@ -39,15 +40,28 @@ const summaryColumns = {
 export class EventsService {
   constructor(
     @Inject(DB) private readonly db: Database,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    private readonly eventCache: EventCache
   ) {}
 
+  /** Public events from the cache, plus the caller's own sandbox events straight from the database. */
   async list(userId: string | null): Promise<EventSummary[]> {
+    const publicEvents = await this.eventCache.list(() =>
+      this.summaries(isNull(events.sandboxUserId))
+    );
+    if (userId === null) return publicEvents;
+    const own = await this.summaries(eq(events.sandboxUserId, userId));
+    return [...publicEvents, ...own].sort(
+      (a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt)
+    );
+  }
+
+  private async summaries(scope: SQL): Promise<EventSummary[]> {
     const rows = await this.db
       .select(summaryColumns)
       .from(events)
       .innerJoin(venues, eq(venues.id, events.venueId))
-      .where(visibleTo(userId))
+      .where(scope)
       .orderBy(asc(events.startsAt));
     return rows.map((row) => ({ ...row, startsAt: row.startsAt.toISOString() }));
   }
@@ -93,6 +107,7 @@ export class EventsService {
         requestId,
       });
     });
+    await this.eventCache.invalidate(id);
     const [event] = await this.db
       .select(summaryColumns)
       .from(events)
@@ -102,17 +117,44 @@ export class EventsService {
     return { ...event, startsAt: event.startsAt.toISOString() };
   }
 
-  /** A sandbox event is private to its demo user, so for anyone else it does not exist. */
+  /**
+   * A sandbox event is private to its demo user, so for anyone else it does not exist. The layout
+   * of a public event comes from the cache; a sandbox event and every seat status are read live.
+   */
   async detail(id: string, userId: string | null): Promise<EventDetail> {
+    const layout =
+      (await this.eventCache.detail(id, () => this.layout(id, isNull(events.sandboxUserId)))) ??
+      (userId === null ? null : await this.layout(id, eq(events.sandboxUserId, userId)));
+    if (layout === null) throw new NotFoundException('Event not found');
+
+    // One row per seat with an active booking: the NAIVE comparison strategy can hold several, so
+    // the furthest one wins (enum order: HELD < PAID < CONFIRMED).
+    const active = await this.db
+      .select({
+        seatId: bookings.seatId,
+        status: sql<(typeof ACTIVE_BOOKING_STATUSES)[number]>`max(${bookings.status})`,
+      })
+      .from(bookings)
+      .where(and(eq(bookings.eventId, id), inArray(bookings.status, [...ACTIVE_BOOKING_STATUSES])))
+      .groupBy(bookings.seatId);
+    const statusOf = new Map(active.map(({ seatId, status }) => [seatId, status]));
+    return {
+      ...layout,
+      seats: layout.seats.map((seat) => ({
+        ...seat,
+        status: seatStatusOf(statusOf.get(seat.id) ?? null),
+      })),
+    };
+  }
+
+  /** The event with its seats, without status; null when no event matches `scope`. */
+  private async layout(id: string, scope: SQL): Promise<EventLayout | null> {
     const [event] = await this.db
       .select(summaryColumns)
       .from(events)
       .innerJoin(venues, eq(venues.id, events.venueId))
-      .where(and(eq(events.id, id), visibleTo(userId)));
-    if (event === undefined) throw new NotFoundException('Event not found');
-
-    // One row per seat: the NAIVE comparison strategy can hold several active bookings of a seat,
-    // so the scalar subquery picks the furthest one (enum order: HELD < PAID < CONFIRMED).
+      .where(and(eq(events.id, id), scope));
+    if (event === undefined) return null;
     const rows = await this.db
       .select({
         id: seats.id,
@@ -120,21 +162,10 @@ export class EventsService {
         row: seats.row,
         number: seats.number,
         priceCents: seats.priceCents,
-        activeStatus: sql<
-          (typeof ACTIVE_BOOKING_STATUSES)[number] | null
-        >`(select ${bookings.status} from ${bookings} where ${eq(bookings.seatId, seats.id)} and ${inArray(bookings.status, [...ACTIVE_BOOKING_STATUSES])} order by ${bookings.status} desc limit 1)`,
       })
       .from(seats)
       .where(eq(seats.eventId, id))
       .orderBy(asc(seats.section), asc(seats.row), asc(seats.number));
-
-    return {
-      ...event,
-      startsAt: event.startsAt.toISOString(),
-      seats: rows.map(({ activeStatus, ...seat }) => ({
-        ...seat,
-        status: seatStatusOf(activeStatus),
-      })),
-    };
+    return { ...event, startsAt: event.startsAt.toISOString(), seats: rows };
   }
 }

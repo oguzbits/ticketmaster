@@ -28,7 +28,12 @@ export default defineConfig({
           include: ['apps/{api,worker}/src/**/*.db.spec.ts'],
           // Own database: the specs write events and bookings that must not reach the dev data.
           globalSetup: ['./apps/api/src/testing/db-global-setup.ts'],
-          env: { DATABASE_URL: testDatabaseUrl(parseEnv(process.env).DATABASE_URL) },
+          env: {
+            DATABASE_URL: testDatabaseUrl(parseEnv(process.env).DATABASE_URL),
+            // The specs write events straight into the tables; a cache would hide them. Only
+            // event-cache.db.spec.ts switches it on.
+            EVENT_CACHE_TTL_SECONDS: '0',
+          },
         },
       },
       project('hooks', './.claude/hooks'),

@@ -20,6 +20,7 @@ import { type Database, DB } from '../../infrastructure/database/database.module
 import { demoUsers, events, venues } from '../../infrastructure/database/schema.js';
 import { AuditService } from '../audit/index.js';
 import type { AuthUser } from '../auth/index.js';
+import { EventCache } from '../event-cache/index.js';
 import {
   ADMISSION_BATCH_SIZE,
   ADMISSION_TTL_SECONDS,
@@ -33,11 +34,13 @@ const SECOND_MS = 1000;
 export class WaitingRoomService {
   private readonly logger = new Logger(WaitingRoomService.name);
 
+  // eslint-disable-next-line max-params -- Nest injects each collaborator through its own parameter
   constructor(
     @Inject(DB) private readonly db: Database,
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(WAITING_ROOM_STORE) private readonly store: WaitingRoomStore,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    private readonly eventCache: EventCache
   ) {}
 
   /** NotFound for an event the caller cannot see, Conflict when the event has no waiting room. */
@@ -108,6 +111,7 @@ export class WaitingRoomService {
         requestId,
       });
     });
+    await this.eventCache.invalidate(eventId);
     const [event] = await this.db
       .select({
         id: events.id,

@@ -136,7 +136,7 @@ after a payment, `CANCELLED` after a cancel and `EXPIRED` by the expiry job, onc
 `tm_queue_effects_total` counts one per queue effect that took effect (`SUCCEEDED`) or whose handler
 threw (`FAILED`); a message handled before counts nothing.
 
-**Cache.** `tm_cache_requests_total` counts one per event-page read that went to Redis: `HIT` served the stored value, `MISS` loaded from PostgreSQL (an empty key or a value that no longer matches its schema), `ERROR` means Redis failed and the read fell through to PostgreSQL. A cache with `EVENT_CACHE_TTL_SECONDS=0` counts nothing. The labels name the cache, never an event.
+**Cache.** `tm_cache_requests_total` counts one per event-page read that went to Redis: `HIT` served the stored value, `MISS` loaded from PostgreSQL (an empty key, a value that is not JSON or one that no longer matches its schema), `ERROR` means Redis failed and the read fell through to PostgreSQL. A cache with `EVENT_CACHE_TTL_SECONDS=0` counts nothing. The labels name the cache, never an event.
 
 **Gauges.** Outbox age, queue depth and waiting room are registered by the worker only, so replicas
 of the API do not report shared state twice. A gauge whose source fails or does not answer within 3

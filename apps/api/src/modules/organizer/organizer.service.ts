@@ -28,6 +28,7 @@ import {
   venueSeats,
 } from '../../infrastructure/database/schema.js';
 import { AuditService } from '../audit/index.js';
+import { EventCache } from '../event-cache/index.js';
 
 /** Events one owner may have; every event copies a venue's seats, so the table cannot grow unbounded. */
 export const MAX_EVENTS_PER_OWNER = 20;
@@ -37,7 +38,8 @@ export class OrganizerService {
   constructor(
     @Inject(DB) private readonly db: Database,
     @Inject(CLOCK) private readonly clock: Clock,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    private readonly eventCache: EventCache
   ) {}
 
   /**
@@ -53,7 +55,7 @@ export class OrganizerService {
     if (startsAt.getTime() <= this.clock.now().getTime()) {
       throw new BadRequestException('startsAt must lie in the future');
     }
-    return this.db.transaction(async (tx) => {
+    const created = await this.db.transaction(async (tx) => {
       await this.assertBelowCap(tx, ownerId);
       const [venue] = await tx
         .select({ id: venues.id, name: venues.name })
@@ -100,6 +102,8 @@ export class OrganizerService {
         waitingRoomCapacity: input.waitingRoomCapacity,
       };
     });
+    await this.eventCache.invalidate(created.id);
+    return created;
   }
 
   /** Serializes one owner's creations, so parallel requests cannot all pass the count. */

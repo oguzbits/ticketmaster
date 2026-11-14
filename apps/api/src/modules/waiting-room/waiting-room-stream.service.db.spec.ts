@@ -12,6 +12,7 @@ import { openTestRedis } from '../../testing/redis.js';
 import { lockSpecs } from '../../testing/spec-lock.js';
 import { SPEC_NOW } from '../../testing/time.js';
 import { AuditService } from '../audit/index.js';
+import { createUncachedEventCache } from '../event-cache/testing/index.js';
 import { RedisWaitingRoomStore } from './adapters/redis-waiting-room-store.js';
 import { WaitingRoomService } from './waiting-room.service.js';
 import { WaitingRoomStreamService } from './waiting-room-stream.service.js';
@@ -39,7 +40,8 @@ describe('WaitingRoomStreamService', () => {
       db,
       { now: () => SPEC_NOW },
       store,
-      new AuditService(db, { now: () => SPEC_NOW })
+      new AuditService(db, { now: () => SPEC_NOW }),
+      createUncachedEventCache()
     );
     stream = new WaitingRoomStreamService(service, new SlotLimiter(redis, { now: () => SPEC_NOW }));
     stream.pollMs = POLL_MS;

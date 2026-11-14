@@ -23,13 +23,20 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { AppModule } from '../../app.module.js';
 import { configureApp } from '../../app.setup.js';
+import { loadEnv } from '../../config/config.module.js';
 import { CLOCK } from '../../core/clock.js';
+import { CacheAside } from '../../infrastructure/cache/cache-aside.js';
 import { bookings, demoUsers } from '../../infrastructure/database/schema.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { fakeTokenVerifier, randomClientAddress } from '../../testing/http.js';
+import { openTestRedis } from '../../testing/redis.js';
 import { EXPIRY_SPEC_END, SPEC_NOW } from '../../testing/time.js';
+import { AuditService } from '../audit/index.js';
 import { auditRowsOfSubject } from '../audit/testing/index.js';
 import { TOKEN_VERIFIER } from '../auth/index.js';
+import { RecordingMetrics } from '../bookings/testing/recording-metrics.js';
+import { EventCache } from '../event-cache/index.js';
+import { EventsService } from './events.service.js';
 
 const STRATEGY = BOOKING_STRATEGY.PESSIMISTIC;
 const SANDBOX_OWNER = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
@@ -194,6 +201,24 @@ describe('events endpoints', () => {
     await get(`/api/events/${eventId}`, OTHER_TOKEN).expect(404);
     expect(await listedIds()).not.toContain(eventId);
     await get(`/api/events/${eventId}`).expect(404);
+  });
+
+  it('a closed redis client still answers list and detail', async () => {
+    // The db project runs with the cache off; this service has it on, against a client that is gone.
+    const closed = await openTestRedis();
+    await closed.quit();
+    const cache = new EventCache(new CacheAside(closed, new RecordingMetrics()), {
+      ...loadEnv(),
+      EVENT_CACHE_TTL_SECONDS: 30,
+    });
+    const service = new EventsService(db, app.get(AuditService), cache);
+    const { eventId } = await createTestEvent(db, { strategy: STRATEGY, seats: 1 });
+
+    const list = await service.list(null);
+    const detail = await service.detail(eventId, null);
+
+    expect(list.map(({ id }) => id)).toContain(eventId);
+    expect(detail.id).toBe(eventId);
   });
 
   it('detail of an unknown event is 404', async () => {

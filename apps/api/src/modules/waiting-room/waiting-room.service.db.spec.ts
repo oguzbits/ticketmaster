@@ -10,6 +10,7 @@ import { openTestRedis } from '../../testing/redis.js';
 import { lockSpecs } from '../../testing/spec-lock.js';
 import { SPEC_NOW } from '../../testing/time.js';
 import { AuditService } from '../audit/index.js';
+import { createUncachedEventCache } from '../event-cache/testing/index.js';
 import { RedisWaitingRoomStore } from './adapters/redis-waiting-room-store.js';
 import { ADMISSION_TTL_SECONDS } from './domain/admission-policy.js';
 import { WaitingRoomService } from './waiting-room.service.js';
@@ -33,7 +34,8 @@ describe('WaitingRoomService', () => {
       db,
       { now: () => now },
       new RedisWaitingRoomStore(redis),
-      new AuditService(db, { now: () => now })
+      new AuditService(db, { now: () => now }),
+      createUncachedEventCache()
     );
   });
   afterAll(async () => {

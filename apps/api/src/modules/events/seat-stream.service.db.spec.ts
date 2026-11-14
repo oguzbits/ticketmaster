@@ -12,6 +12,7 @@ import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
 import { AuditService } from '../audit/index.js';
 import { seatChannel } from '../bookings/index.js';
+import { createUncachedEventCache } from '../event-cache/testing/index.js';
 import { EventsService } from './events.service.js';
 import {
   HEARTBEAT_MS,
@@ -34,7 +35,11 @@ const OTHER_ADDRESS = '10.0.0.2';
 describe('SeatStreamService', () => {
   const database = openTestDatabase();
   const { db } = database;
-  const events = new EventsService(db, new AuditService(db, new SystemClock()));
+  const events = new EventsService(
+    db,
+    new AuditService(db, new SystemClock()),
+    createUncachedEventCache()
+  );
   let redis: Redis;
   let snapshotGate: Promise<void> = Promise.resolve();
   let service: SeatStreamService;
@@ -259,12 +264,12 @@ describe('SeatStreamService limits', () => {
     redis = await openTestRedis();
     service = new SeatStreamService(
       redis,
-      new EventsService(db, new AuditService(db, new SystemClock())),
+      new EventsService(db, new AuditService(db, new SystemClock()), createUncachedEventCache()),
       slotsOf(redis)
     );
     other = new SeatStreamService(
       redis,
-      new EventsService(db, new AuditService(db, new SystemClock())),
+      new EventsService(db, new AuditService(db, new SystemClock()), createUncachedEventCache()),
       slotsOf(redis)
     );
     for (const instance of services()) {
@@ -401,7 +406,7 @@ describe('SeatStreamService limits', () => {
     const broken = ownSlotKeys(
       new SeatStreamService(
         redis,
-        new EventsService(db, new AuditService(db, new SystemClock())),
+        new EventsService(db, new AuditService(db, new SystemClock()), createUncachedEventCache()),
         new FailingAddressSlots(redis, new SystemClock())
       )
     );
@@ -459,7 +464,7 @@ describe('SeatStreamService after the subscriber connection was lost', () => {
     const service = ownSlotKeys(
       new SeatStreamService(
         redis,
-        new EventsService(db, new AuditService(db, new SystemClock())),
+        new EventsService(db, new AuditService(db, new SystemClock()), createUncachedEventCache()),
         slotsOf(redis)
       )
     );
@@ -493,7 +498,11 @@ describe('SeatStreamService shutdown', () => {
     const service = ownSlotKeys(
       new SeatStreamService(
         redis,
-        new EventsService(database.db, new AuditService(database.db, new SystemClock())),
+        new EventsService(
+          database.db,
+          new AuditService(database.db, new SystemClock()),
+          createUncachedEventCache()
+        ),
         slotsOf(redis)
       )
     );
