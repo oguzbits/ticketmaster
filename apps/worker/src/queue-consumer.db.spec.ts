@@ -280,7 +280,8 @@ describe('QueueConsumer against the local emulator', () => {
       await send(queue, message);
       await send(queue, message);
       await expect.poll(() => metrics.calls.length, { timeout: DLQ_WAIT_MS }).toBe(EFFECTS);
-      await leftOver(queue, consumer);
+      // Both copies are deleted before the counts are read: the second one cannot arrive late.
+      expect(await leftOver(queue, consumer)).toEqual([]);
 
       expect(outcomes(metrics)).toEqual([
         `effectProcessed:${CONSUMER_NAME.TICKET_PDF}:${EFFECT_OUTCOME.SUCCEEDED}`,
