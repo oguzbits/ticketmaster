@@ -178,6 +178,31 @@ describe('events endpoints', () => {
     expect(detail.seats).toHaveLength(5);
   });
 
+  it('detail shows the furthest status of a seat with several active bookings (NAIVE)', async () => {
+    const { eventId, seatIds } = await createTestEvent(db, {
+      strategy: BOOKING_STRATEGY.NAIVE,
+      seats: 2,
+    });
+    const [heldAndConfirmed, heldAndPaid] = seatIds;
+    const book = (seatId: string | undefined, status: BookingStatus) =>
+      db.insert(bookings).values({
+        eventId,
+        seatId: seatId ?? '',
+        userId: randomUUID(),
+        strategy: BOOKING_STRATEGY.NAIVE,
+        status,
+        holdExpiresAt: SPEC_NOW,
+      });
+    await book(heldAndConfirmed, BOOKING_STATUS.HELD);
+    await book(heldAndConfirmed, BOOKING_STATUS.CONFIRMED);
+    await book(heldAndPaid, BOOKING_STATUS.HELD);
+    await book(heldAndPaid, BOOKING_STATUS.PAID);
+
+    const detail = EventDetailSchema.parse((await get(`/api/events/${eventId}`).expect(200)).body);
+
+    expect(detail.seats.map((seat) => seat.status)).toEqual([SEAT_STATUS.SOLD, SEAT_STATUS.SOLD]);
+  });
+
   it('detail of a sandbox event is 404', async () => {
     const { eventId } = await createTestEvent(db, {
       strategy: STRATEGY,
