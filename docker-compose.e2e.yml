@@ -1,6 +1,6 @@
 # Overrides for the end-to-end run (`pnpm e2e`), used together with docker-compose.yml.
 # The payment fails 10 % of the time by default; the specs need a payment that succeeds.
-# Only web keeps a host port, so the run does not collide with a development stack or `pnpm db:up`.
+# Only web and the Mailpit REST API keep a host port, so the run does not collide with a development stack or `pnpm db:up`.
 services:
   api:
     environment:
@@ -14,4 +14,5 @@ services:
   aws:
     ports: !reset []
   mailpit:
-    ports: !reset []
+    # The ticket spec reads the mails over REST; the SMTP port stays inside the stack.
+    ports: !override ['18025:8025']
