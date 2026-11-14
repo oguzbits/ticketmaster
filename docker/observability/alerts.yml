@@ -1,0 +1,84 @@
+# SLO alert rules, evaluated by Prometheus (local observability profile, see docs/observability.md).
+# Targets: booking routes answer below 500 for 99.5 % of requests over 30 days; p95 of the hold route
+# at most 500 ms, of the payment route at most 1 s. Delivery (Alertmanager, paging) is out of scope.
+groups:
+  - name: slo
+    rules:
+      - alert: BookingErrorRatioHigh
+        expr: |
+          sum(rate(http_server_request_duration_count{http_request_method="POST",http_route=~"/api/bookings|/api/bookings/:id/payment|/api/bookings/:id/cancel",http_response_status_code=~"5.."}[5m]))
+          / sum(rate(http_server_request_duration_count{http_request_method="POST",http_route=~"/api/bookings|/api/bookings/:id/payment|/api/bookings/:id/cancel"}[5m]))
+          > 0.05
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: More than 5 % of booking requests answer with a 5xx status
+          runbook: docs/observability.md#alerts
+
+      - alert: HoldLatencyHigh
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_bucket{http_request_method="POST",http_route="/api/bookings"}[5m])))
+          > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: p95 latency of the hold route is above 500 ms
+          runbook: docs/observability.md#alerts
+
+      - alert: PaymentLatencyHigh
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_bucket{http_request_method="POST",http_route="/api/bookings/:id/payment"}[5m])))
+          > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: p95 latency of the payment route is above 1 s
+          runbook: docs/observability.md#alerts
+
+  - name: worker
+    rules:
+      - alert: OutboxStuck
+        expr: tm_outbox_oldest_age > 300
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: The oldest outbox row has waited more than 5 minutes
+          runbook: docs/observability.md#alerts
+
+      - alert: DeadLetterQueueNotEmpty
+        expr: tm_queue_depth{queue="booking-events-dlq"} > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Messages sit in the dead-letter queue
+          runbook: docs/observability.md#alerts
+
+      # A worker gauge whose source (PostgreSQL, SQS) is down is left out of the scrape instead of
+      # reported as 0, so OutboxStuck and DeadLetterQueueNotEmpty would go silent. This rule covers
+      # that while the worker itself is up; a down worker is ScrapeTargetDown.
+      - alert: GaugeSourceMissing
+        expr: |
+          up{job="worker"} == 1
+          and on() (absent(tm_outbox_oldest_age) or absent(tm_queue_depth{queue="booking-events-dlq"}))
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: The worker reports no outbox age or dead-letter depth, so those alerts are blind
+          runbook: docs/observability.md#alerts
+
+  - name: scrape
+    rules:
+      - alert: ScrapeTargetDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: A metrics target does not answer its scrape
+          runbook: docs/observability.md#alerts

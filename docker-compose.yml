@@ -291,8 +291,8 @@ services:
       timeout: 3s
       retries: 30
 
-  # Scrapes the API replicas and the worker (see docker/observability/prometheus.yml); keeps two
-  # days. Needs METRICS_ENABLED=true on api and worker, else every target is down.
+  # Scrapes the API replicas and the worker (see docker/observability/prometheus.yml), evaluates
+  # docker/observability/alerts.yml; keeps two days. Needs METRICS_ENABLED=true on api and worker, else every target is down.
   prometheus:
     image: prom/prometheus:v3.16.0
     profiles: [observability]
@@ -304,6 +304,7 @@ services:
       - '127.0.0.1:9090:9090'
     volumes:
       - ./docker/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/observability/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus-data:/prometheus
     healthcheck:
       test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1:9090/-/ready']

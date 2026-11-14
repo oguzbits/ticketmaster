@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 
 import { OUTBOX_STUCK_SECONDS } from '../../modules/outbox/index.js';
 import { API_POOL_SIZE } from '../database/database.module.js';
@@ -10,6 +11,8 @@ import { METRIC } from './names.js';
 const OBSERVABILITY_DIR = join(import.meta.dirname, '../../../../../docker/observability');
 const DASHBOARD_DIR = join(OBSERVABILITY_DIR, 'grafana/provisioning/dashboards');
 const PROMETHEUS_DATASOURCE_UID = 'prometheus';
+const COMPOSE_FILE = join(OBSERVABILITY_DIR, '../../docker-compose.yml');
+const RUNBOOK = 'docs/observability.md#alerts';
 
 const KIND = { COUNTER: 'counter', GAUGE: 'gauge', HISTOGRAM: 'histogram' } as const;
 type Kind = (typeof KIND)[keyof typeof KIND];
@@ -136,5 +139,151 @@ describe('provisioned dashboards', () => {
 
   it('marks in-flight queries at the pool size', () => {
     expect(thresholds('api.json', 'tm_db_queries_active')).toEqual([API_POOL_SIZE]);
+  });
+});
+
+interface AlertRule {
+  alert: string;
+  expr: string;
+  for: string;
+  labels: { severity: string };
+  annotations: { summary?: string; runbook?: string };
+}
+interface RuleFile {
+  groups: { rules: AlertRule[] }[];
+}
+
+const ALERT = {
+  ERROR_RATIO: 'BookingErrorRatioHigh',
+  HOLD_LATENCY: 'HoldLatencyHigh',
+  PAYMENT_LATENCY: 'PaymentLatencyHigh',
+  OUTBOX_STUCK: 'OutboxStuck',
+  DLQ: 'DeadLetterQueueNotEmpty',
+  TARGET_DOWN: 'ScrapeTargetDown',
+  GAUGE_MISSING: 'GaugeSourceMissing',
+} as const;
+
+const SEVERITY = { PAGE: 'page', WARNING: 'warning' } as const;
+
+/** SLO targets (docs/observability.md): the rules mirror them. Latency in seconds. */
+const SLO = { ERROR_RATIO: 0.05, HOLD_P95_SECONDS: 0.5, PAYMENT_P95_SECONDS: 1 } as const;
+
+/** The routes of the availability SLO, as the `http_route` label shows them (global prefix included). */
+const BOOKING_ROUTES = [
+  '/api/bookings',
+  '/api/bookings/:id/payment',
+  '/api/bookings/:id/cancel',
+] as const;
+
+const EXPECTED_RULES: Record<string, { for: string; severity: string }> = {
+  [ALERT.ERROR_RATIO]: { for: '5m', severity: SEVERITY.PAGE },
+  [ALERT.HOLD_LATENCY]: { for: '10m', severity: SEVERITY.WARNING },
+  [ALERT.PAYMENT_LATENCY]: { for: '10m', severity: SEVERITY.WARNING },
+  [ALERT.OUTBOX_STUCK]: { for: '1m', severity: SEVERITY.WARNING },
+  [ALERT.DLQ]: { for: '1m', severity: SEVERITY.WARNING },
+  [ALERT.TARGET_DOWN]: { for: '1m', severity: SEVERITY.WARNING },
+  [ALERT.GAUGE_MISSING]: { for: '2m', severity: SEVERITY.WARNING },
+};
+
+// SAFETY: the shape is the Prometheus rule file format; the tests below fail on anything else.
+const ruleFile = parse(readFileSync(join(OBSERVABILITY_DIR, 'alerts.yml'), 'utf8')) as RuleFile;
+const rules = ruleFile.groups.flatMap((group) => group.rules);
+
+function rule(name: string): AlertRule {
+  const found = rules.find((candidate) => candidate.alert === name);
+  if (!found) throw new Error(`no rule ${name}`);
+  return found;
+}
+
+/** The number a rule compares against: `... > 0.05` yields 0.05. */
+function threshold(expr: string): number {
+  const match = /[><]\s*([\d.]+)\s*$/.exec(expr.trim());
+  if (!match?.[1]) throw new Error(`no threshold in ${expr}`);
+  return Number(match[1]);
+}
+
+/** `up` is the synthetic series Prometheus writes for every scrape. */
+const KNOWN_METRIC_NAMES = new Set([...EMITTED_METRIC_NAMES, 'up']);
+
+describe('alert rules', () => {
+  it('defines exactly the expected rules with their duration and severity', () => {
+    expect(
+      Object.fromEntries(rules.map((r) => [r.alert, { for: r.for, severity: r.labels.severity }]))
+    ).toEqual(EXPECTED_RULES);
+  });
+
+  it('reads only metrics the services emit', () => {
+    for (const { alert, expr } of rules) {
+      const names = metricNames(expr);
+      expect(names.length, alert).toBeGreaterThan(0);
+      expect(
+        names.filter((name) => !KNOWN_METRIC_NAMES.has(name)),
+        alert
+      ).toEqual([]);
+    }
+  });
+
+  it('gives every rule a summary and a runbook link', () => {
+    for (const { alert, annotations } of rules) {
+      expect(annotations.summary?.length, alert).toBeGreaterThan(0);
+      expect(annotations.runbook, alert).toBe(RUNBOOK);
+    }
+  });
+
+  it('flags a stuck outbox at OUTBOX_STUCK_SECONDS', () => {
+    expect(threshold(rule(ALERT.OUTBOX_STUCK).expr)).toBe(OUTBOX_STUCK_SECONDS);
+  });
+
+  it('mirrors the SLO targets', () => {
+    expect(threshold(rule(ALERT.ERROR_RATIO).expr)).toBe(SLO.ERROR_RATIO);
+    expect(threshold(rule(ALERT.HOLD_LATENCY).expr)).toBe(SLO.HOLD_P95_SECONDS);
+    expect(threshold(rule(ALERT.PAYMENT_LATENCY).expr)).toBe(SLO.PAYMENT_P95_SECONDS);
+  });
+
+  it('measures the error ratio on the three booking routes, 5xx against all', () => {
+    const { expr } = rule(ALERT.ERROR_RATIO);
+    for (const route of BOOKING_ROUTES) expect(expr).toContain(route);
+    expect(expr).toContain('5..');
+  });
+
+  it('measures each latency on its own route', () => {
+    expect(rule(ALERT.HOLD_LATENCY).expr).toContain(`http_route="${BOOKING_ROUTES[0]}"`);
+    expect(rule(ALERT.PAYMENT_LATENCY).expr).toContain(`http_route="${BOOKING_ROUTES[1]}"`);
+  });
+
+  it('flags every target that does not answer its scrape', () => {
+    expect(rule(ALERT.TARGET_DOWN).expr).toBe('up == 0');
+  });
+
+  it('watches the dead-letter queue by name', () => {
+    expect(rule(ALERT.DLQ).expr).toContain('queue="booking-events-dlq"');
+  });
+
+  it('flags a worker gauge that is missing while the worker is up, for every gauge a rule reads', () => {
+    // A gauge whose source is down is absent from the scrape, so its rule would go silent.
+    const missing = rule(ALERT.GAUGE_MISSING).expr;
+    expect(missing).toContain('up{job="worker"}');
+    for (const alert of [ALERT.OUTBOX_STUCK, ALERT.DLQ]) {
+      const [gauge] = metricNames(rule(alert).expr);
+      expect(missing, alert).toContain(`absent(${gauge}`);
+    }
+  });
+
+  it('is loaded by Prometheus and mounted into its container', () => {
+    // SAFETY: the shape is the Prometheus config format; the assertions fail on anything else.
+    const prometheus = parse(readFileSync(join(OBSERVABILITY_DIR, 'prometheus.yml'), 'utf8')) as {
+      rule_files: string[];
+    };
+    // SAFETY: the shape is the Compose file format; the assertions fail on anything else.
+    const compose = parse(readFileSync(COMPOSE_FILE, 'utf8')) as {
+      services: { prometheus: { volumes: string[] } };
+    };
+    const mounts = compose.services.prometheus.volumes.map((volume) => volume.split(':'));
+    expect(prometheus.rule_files).toHaveLength(1);
+    expect(mounts).toContainEqual([
+      './docker/observability/alerts.yml',
+      prometheus.rule_files[0],
+      'ro',
+    ]);
   });
 });
