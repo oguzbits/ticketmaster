@@ -1,5 +1,7 @@
 import type { WaitingRoomStatus } from '@app/shared';
 
+export const WAITING_ROOM_STORE = Symbol('WAITING_ROOM_STORE');
+
 /** The queue and the admissions of every waiting room; the Redis adapter implements it. */
 export interface WaitingRoomStore {
   /** Idempotent: a user who is queued or admitted keeps their place. */

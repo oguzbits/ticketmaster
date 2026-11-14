@@ -124,7 +124,9 @@ function parameters(route: RouteDoc, schemas: Schemas): Parameter[] {
 
 function successResponse({ description, schema, stream }: RouteDoc['success']): ResponseDoc {
   if (stream === undefined) {
-    return { description, content: { [JSON_TYPE]: { schema: ref(schema ?? '') } } };
+    // No schema: no body (204) or a body that is not JSON (the ticket PDF).
+    if (schema === undefined) return { description };
+    return { description, content: { [JSON_TYPE]: { schema: ref(schema) } } };
   }
   const events = Object.entries(stream).map(([event, name]) => [event, ref(name)]);
   const content = { schema: { type: 'string' }, 'x-events': Object.fromEntries(events) };

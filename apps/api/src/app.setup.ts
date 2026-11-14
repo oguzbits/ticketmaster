@@ -23,7 +23,7 @@ export function configureApp(app: NestExpressApplication): NestExpressApplicatio
     app.enableCors({
       origin: [new URL(CORS_ORIGIN).origin],
       credentials: false,
-      methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
       allowedHeaders: ['Authorization', 'Content-Type'],
     });
   }

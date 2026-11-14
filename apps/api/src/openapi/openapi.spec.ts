@@ -19,7 +19,8 @@ import { UNPREFIXED_ROUTES } from '../app.setup.js';
 import { ZodPipe } from '../infrastructure/http/zod.pipe.js';
 import { IS_PUBLIC_KEY, ROLES_KEY } from '../modules/auth/index.js';
 import { buildOpenApi } from './build.js';
-import { PUBLIC, ROUTES, SCHEMAS } from './routes.js';
+import { PUBLIC, ROUTES as BASE_ROUTES, SCHEMAS } from './routes.js';
+import { WAITING_ROOM_ROUTES } from './waiting-room-routes.js';
 
 interface ArgMetadata {
   pipes?: readonly unknown[];
@@ -38,10 +39,13 @@ interface FoundRoute {
 const METHODS: Record<number, string> = {
   [RequestMethod.GET]: 'get',
   [RequestMethod.POST]: 'post',
+  [RequestMethod.PUT]: 'put',
   [RequestMethod.PATCH]: 'patch',
+  [RequestMethod.DELETE]: 'delete',
 };
 const MODULES_DIR = path.resolve(import.meta.dirname, '../modules');
 const reflector = new Reflector();
+const ROUTES = { ...BASE_ROUTES, ...WAITING_ROOM_ROUTES };
 
 function controllerFiles(): string[] {
   return fs

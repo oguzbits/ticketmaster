@@ -17,6 +17,7 @@ import { HealthModule } from './modules/health/index.js';
 import { OrganizerModule } from './modules/organizer/index.js';
 import { SimulationsModule } from './modules/simulations/index.js';
 import { TicketsModule } from './modules/tickets/index.js';
+import { WaitingRoomModule } from './modules/waiting-room/index.js';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { TicketsModule } from './modules/tickets/index.js';
     DemoModule,
     SimulationsModule,
     TicketsModule,
+    WaitingRoomModule,
   ],
   // Order matters: token first, then roles, then the rate limit (it reads the user the token guard
   // attached). Every global guard is listed here, in one place, because Nest runs them in the

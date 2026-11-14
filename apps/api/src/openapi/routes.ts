@@ -31,12 +31,14 @@ export const SCHEMAS = {
   SeatChange: shared.SeatChangeSchema,
   SeatSnapshot: shared.SeatSnapshotSchema,
   SetStrategyRequest: shared.SetStrategyRequestSchema,
+  SetWaitingRoomRequest: shared.SetWaitingRoomRequestSchema,
   SimulationList: shared.SimulationListResponseSchema,
   SimulationProgress: shared.SimulationProgressSchema,
   SimulationRun: shared.SimulationRunSchema,
   StartSimulationRequest: shared.StartSimulationRequestSchema,
   TokenResponse: shared.TokenResponseSchema,
   VenueList: shared.VenueListResponseSchema,
+  WaitingRoomStatus: shared.WaitingRoomStatusSchema,
 } as const;
 
 export type SchemaName = keyof typeof SCHEMAS;
@@ -44,7 +46,7 @@ export type ErrorStatus = 400 | 401 | 403 | 404 | 409 | 429 | 500 | 503;
 export type ErrorDoc = string | { description: string; schema: SchemaName };
 
 export interface RouteDoc {
-  method: 'get' | 'post' | 'patch';
+  method: 'get' | 'post' | 'put' | 'patch' | 'delete';
   /** The URL as a client sends it (global prefix included), parameters as `{name}`. */
   path: string;
   summary: string;
@@ -54,7 +56,7 @@ export interface RouteDoc {
   body?: SchemaName;
   idempotencyKey?: true;
   success: {
-    status: 200 | 201;
+    status: 200 | 201 | 204;
     description: string;
     schema?: SchemaName;
     /** Server-sent events: event name (`message` when unnamed) and the schema of its data. */

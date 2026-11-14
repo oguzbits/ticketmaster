@@ -14,6 +14,7 @@ import path from 'node:path';
 import { EnvSchema } from '../../apps/api/src/config/env.ts';
 import { buildOpenApi } from '../../apps/api/src/openapi/build.ts';
 import { ROUTES, SCHEMAS } from '../../apps/api/src/openapi/routes.ts';
+import { WAITING_ROOM_ROUTES } from '../../apps/api/src/openapi/waiting-room-routes.ts';
 import { replaceBlocks, table } from './blocks.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
@@ -46,7 +47,7 @@ for (const target of TARGETS) {
 }
 
 const openApiFile = path.join(ROOT, OPENAPI_FILE);
-const openApi = `${JSON.stringify(buildOpenApi(ROUTES, SCHEMAS), null, 2)}\n`;
+const openApi = `${JSON.stringify(buildOpenApi({ ...ROUTES, ...WAITING_ROOM_ROUTES }, SCHEMAS), null, 2)}\n`;
 if (!fs.existsSync(openApiFile) || fs.readFileSync(openApiFile, 'utf8') !== openApi) {
   if (check) problems.push(`${OPENAPI_FILE} differs from the route table and the shared schemas`);
   else fs.writeFileSync(openApiFile, openApi);

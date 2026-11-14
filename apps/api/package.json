@@ -44,6 +44,10 @@
       "types": "./dist/modules/simulations/testing/index.d.ts",
       "default": "./dist/modules/simulations/testing/index.js"
     },
+    "./waiting-room": {
+      "types": "./dist/modules/waiting-room/index.d.ts",
+      "default": "./dist/modules/waiting-room/index.js"
+    },
     "./redis": {
       "types": "./dist/infrastructure/redis/redis.module.d.ts",
       "default": "./dist/infrastructure/redis/redis.module.js"
