@@ -94,6 +94,19 @@ Phase 2, slice B (confirmation mail and ticket PDF) is complete:
   download route (owner, foreign, unknown, not ready, cancelled) and `ticket.e2e.ts`: pay, one mail
   with the PDF in Mailpit, the downloaded file starts with `%PDF-`.
 
+Phase 2, slice C (several API instances, PgBouncer) is complete:
+
+- Compose runs two `api` replicas; Caddy finds them by DNS (`dynamic a`, refreshed every 2 s), round
+  robin, a failed connection is retried on the other replica for up to 5 s and a failed replica is
+  skipped for 10 s. `failover.e2e.ts` stops one replica and expects no failed request.
+- PgBouncer 1.26.1 in transaction mode sits between the API replicas, the worker and PostgreSQL
+  ([ADR 0005](adr/0005-pgbouncer-transaction-mode.md)); `migrate` connects directly. `pnpm
+test:db:pooled` runs every database spec through it and CI runs that form.
+- The seat-stream (total and per address) and simulation-stream caps count expiring slots in Redis
+  (`SlotLimiter`), so they hold across replicas; `stream()` is async because the check is.
+- A spec with two API instances proves a hold through one reaches a viewer on the other and that
+  the per-address cap counts both.
+
 ## Deviations from the plan
 
 - **No SWC for NestJS decorators.** Vitest (Vite 8, Oxc) reads `experimentalDecorators` and
@@ -151,6 +164,15 @@ Slice D:
 - **Test helpers live in `@app/api/simulations/testing`**, not in the module barrel, so the
   production code does not export them.
 
+Slice C:
+
+- **The cross-instance proof is a database spec, not an end-to-end spec.** Two Nest apps in one
+  process share the database and Redis; the browser run cannot address one replica, so it checks
+  the failure of a replica instead.
+- **No `prepare: false` on the driver.** Drizzle sends unnamed statements; the pooler runs with
+  `max_prepared_statements` 200 and a spec with named statements guards it.
+- **`pnpm test:db` stays direct, CI runs the pooled form.**
+
 Phase 2, slice A:
 
 - **Readiness stays 200 when the outbox is stuck.** The signal is a field (`ok` or `stuck`), not a
@@ -175,7 +197,7 @@ Phase 2, slice A:
 
 ## Next
 
-Phase 2, slices A and B are done. Still open from earlier notes:
+Phase 2, slices A, B and C are done; the waiting room (D) and infrastructure as code (E) remain. Still open from earlier notes:
 
 - Write the runbooks the docs-map entry for the deploy folder points to (`docs/runbooks/`).
 - Images are pinned by tag; pin by digest and add resource limits with the container hardening.
@@ -267,8 +289,6 @@ Phase 2, slices A and B are done. Still open from earlier notes:
   outlives the deleted Keycloak user. The grace period (`ACCESS_TOKEN_GRACE_SECONDS`) covers only
   tokens issued before `expires_at`. A booking made in that window has no `demo_users` row to
   clean it (a hold still expires by itself).
-- **The seat-stream caps are per process** (10 per address, 500 per process, counted in memory).
-  With more than one API process they have to move to Redis (phase 2).
 - **Chrome reports a Content-Security-Policy `eval` violation** on the web app. The source is not
   traced yet; the policy has no `unsafe-eval`. Find the script that calls `eval` before widening
   the policy.
@@ -278,8 +298,14 @@ Phase 2, slices A and B are done. Still open from earlier notes:
   seed (this also resets the Keycloak realm, which lives in the same Postgres).
 - **The worker has no healthcheck and no restart policy** in the Compose stack (phase 5, with the
   container hardening).
-- **The simulation stream caps are per process** (50 open streams, counted in memory), like the
-  seat-stream caps.
+- **Stream slots of a vanished process expire only after the stream lifetime plus 60 s.** A slot
+  is released when its stream ends; if the process dies, the address stays counted for up to eleven
+  minutes. The caps are now shared (500 seat streams, 10 per address, 50 simulation streams for all
+  replicas together).
+- **The worker is a single instance.** Its jobs are safe in parallel (locks, consumer groups) but
+  nothing runs more than one yet.
+- **The pooler is one container on the path.** If it is down the apps are down; it has a
+  health check and no restart policy yet (phase 5, with the container hardening).
 - **Simulation data is kept for one hour.** The worker's retention job deletes the sandbox event of
   every run that ended more than `SIMULATION_RETENTION_SECONDS` ago (seats, bookings, transitions
   and the run go with it), so the comparison table lists the runs of the last hour only. Within
