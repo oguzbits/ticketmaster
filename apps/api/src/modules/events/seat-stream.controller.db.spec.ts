@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import type { AddressInfo } from 'node:net';
 
 import {
   BOOKING_STRATEGY,
@@ -23,6 +22,7 @@ import type { Redis } from '../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { fakeTokenVerifier, randomClientAddress } from '../../testing/http.js';
 import { openTestRedis } from '../../testing/redis.js';
+import { openStream } from '../../testing/sse.js';
 import { EXPIRY_SPEC_END, SPEC_NOW } from '../../testing/time.js';
 import { TOKEN_VERIFIER } from '../auth/index.js';
 import { seatChannel } from '../bookings/index.js';
@@ -31,53 +31,7 @@ import { MAX_STREAMS_PER_IP, SeatStreamService } from './seat-stream.service.js'
 const CUSTOMER = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
 const STRANGER = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
 const TOKENS = { customer: CUSTOMER, stranger: STRANGER };
-type Caller = keyof typeof TOKENS;
 const SHUTDOWN_LIMIT_MS = 5000;
-
-interface ServerEvent {
-  event: string;
-  data: string;
-}
-
-/** Reads an SSE response block by block; comment-only blocks (the heartbeat) are skipped. */
-async function openStream(
-  app: INestApplication,
-  path: string,
-  caller?: Caller,
-  address = randomClientAddress()
-) {
-  const { port } = app.getHttpServer().address() as AddressInfo; // SAFETY: listen() was called with a port
-  const abort = new AbortController();
-  const origin = `http://127.0.0.1:${port}`;
-  const response = await fetch(`${origin}/api${path}`, {
-    signal: abort.signal,
-    headers: {
-      'X-Forwarded-For': address,
-      ...(caller === undefined ? {} : { Authorization: `Bearer ${caller}` }),
-    },
-  });
-  const events: ServerEvent[] = [];
-  const done = (async () => {
-    if (response.body === null) return;
-    const decoder = new TextDecoder();
-    let buffer = '';
-    for await (const chunk of response.body) {
-      buffer += decoder.decode(chunk as Uint8Array, { stream: true }); // SAFETY: fetch bodies yield bytes
-      const blocks = buffer.split('\n\n');
-      buffer = blocks.pop() ?? '';
-      for (const block of blocks) {
-        const lines = block.split('\n').filter((line) => !line.startsWith(':'));
-        const event = lines.find((line) => line.startsWith('event: '))?.slice('event: '.length);
-        const data = lines.find((line) => line.startsWith('data: '))?.slice('data: '.length);
-        if (event !== undefined && data !== undefined) events.push({ event, data });
-      }
-    }
-  })().catch((error: Error) => {
-    // The test aborts the read to end a stream; anything else is a real failure.
-    if (error.name !== 'AbortError') throw error;
-  });
-  return { origin, response, events, abort: () => abort.abort(), done };
-}
 
 describe('GET /api/events/:id/seats/stream', () => {
   const database = openTestDatabase();
