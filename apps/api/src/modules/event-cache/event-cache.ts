@@ -54,7 +54,8 @@ export class EventCache {
   async invalidate(eventId: string): Promise<void> {
     // With the cache off nothing was stored, so there is nothing to delete.
     if (this.ttl === 0) return;
-    await this.cache.invalidate(LIST_KEY, detailKey(eventId));
+    // One delete for both keys, so a failure counts once, under the list.
+    await this.cache.invalidate(EVENT_CACHE.LIST, LIST_KEY, detailKey(eventId));
   }
 
   private get ttl(): number {

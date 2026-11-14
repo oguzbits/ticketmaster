@@ -5,7 +5,7 @@ import { z } from 'zod';
 
 import { CACHE_RESULT } from '../../core/business-metrics.js';
 import { RecordingMetrics } from '../../modules/bookings/testing/recording-metrics.js';
-import { openTestRedis } from '../../testing/redis.js';
+import { openReadOnlyRedis, openTestRedis, openUnresponsiveRedis } from '../../testing/redis.js';
 import type { Redis } from '../redis/redis.module.js';
 import { CacheAside } from './cache-aside.js';
 
@@ -13,6 +13,8 @@ const CACHE = 'spec.cache';
 const TTL_SECONDS = 30;
 const ValueSchema = z.object({ name: z.string() });
 const VALUE = { name: 'first' };
+/** Well above the call bound, well below the test timeout: a hung call fails the test. */
+const RESPONSE_BOUND_MS = 2000;
 
 describe('CacheAside', () => {
   let redis: Redis;
@@ -123,23 +125,78 @@ describe('CacheAside', () => {
     expect(counted()).toEqual([['cacheLookup', CACHE, CACHE_RESULT.ERROR]]);
   });
 
+  it('answers within a bound when redis stops answering, counts ERROR', async () => {
+    const { client, close } = await openUnresponsiveRedis();
+    metrics = new RecordingMetrics();
+    cache = new CacheAside(client, metrics);
+    const started = Date.now();
+
+    const result = await cache.getOrLoad(
+      CACHE,
+      freshKey(),
+      ValueSchema,
+      TTL_SECONDS,
+      async () => VALUE
+    );
+
+    close();
+    expect(result).toEqual(VALUE);
+    expect(Date.now() - started).toBeLessThan(RESPONSE_BOUND_MS);
+    expect(counted()).toEqual([['cacheLookup', CACHE, CACHE_RESULT.ERROR]]);
+  });
+
+  it('invalidate answers within a bound when redis stops answering, counts ERROR', async () => {
+    const { client, close } = await openUnresponsiveRedis();
+    metrics = new RecordingMetrics();
+    const started = Date.now();
+
+    await new CacheAside(client, metrics).invalidate(CACHE, freshKey());
+
+    close();
+    expect(Date.now() - started).toBeLessThan(RESPONSE_BOUND_MS);
+    expect(counted()).toEqual([['cacheLookup', CACHE, CACHE_RESULT.ERROR]]);
+  });
+
+  it('a failed write after the load counts ERROR and still returns the value', async () => {
+    const { client, close } = await openReadOnlyRedis();
+    metrics = new RecordingMetrics();
+
+    const result = await new CacheAside(client, metrics).getOrLoad(
+      CACHE,
+      freshKey(),
+      ValueSchema,
+      TTL_SECONDS,
+      async () => VALUE
+    );
+
+    await close();
+    expect(result).toEqual(VALUE);
+    expect(counted()).toEqual([
+      ['cacheLookup', CACHE, CACHE_RESULT.MISS],
+      ['cacheLookup', CACHE, CACHE_RESULT.ERROR],
+    ]);
+  });
+
   it('invalidate deletes the keys', async () => {
     fresh();
     const [first, second] = [freshKey(), freshKey()];
     await redis.set(first, '1');
     await redis.set(second, '1');
 
-    await cache.invalidate(first, second);
+    await cache.invalidate(CACHE, first, second);
 
     expect(await redis.exists([first, second])).toBe(0);
   });
 
-  it('invalidate on a closed client resolves', async () => {
+  it('invalidate on a closed client resolves and counts ERROR', async () => {
     const closed = await openTestRedis();
     await closed.quit();
+    metrics = new RecordingMetrics();
 
     await expect(
-      new CacheAside(closed, new RecordingMetrics()).invalidate(freshKey())
+      new CacheAside(closed, metrics).invalidate(CACHE, freshKey())
     ).resolves.toBeUndefined();
+
+    expect(counted()).toEqual([['cacheLookup', CACHE, CACHE_RESULT.ERROR]]);
   });
 });
