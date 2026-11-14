@@ -21,6 +21,7 @@ const MESSAGE = {
     'The payment was not confirmed because the connection failed. Try again; you are not charged twice.',
   PAYMENT_FAILED: 'Payment failed. Nothing was charged and the seat is free again.',
   CANCELLED: 'Hold cancelled. The seat is free again.',
+  NEEDS_ADMISSION: 'You need a place in the waiting room first. Join it, then pick a seat.',
   TOO_MANY: 'Too many requests. Wait a moment and try again.',
   GENERIC: 'That did not work. Try again.',
 } as const;
@@ -41,6 +42,8 @@ export class BookingsStore {
   readonly notice = signal<Notice | null>(null);
   /** Emits after every answer from the server: the seat map should read the seats again. */
   readonly settled = new Subject<void>();
+  /** Emits when the server refused a hold because the customer is not admitted. */
+  readonly admissionRequired = new Subject<void>();
 
   private readonly now = toSignal(timer(0, TICK_MS).pipe(map(() => Date.now())), {
     initialValue: Date.now(),
@@ -80,7 +83,10 @@ export class BookingsStore {
       error: (error: Error) => {
         const status = statusOf(error);
         if (status === HttpStatusCode.Conflict) this.fail(MESSAGE.TAKEN);
-        else if (status === HttpStatusCode.TooManyRequests) this.fail(MESSAGE.TOO_MANY);
+        else if (status === HttpStatusCode.Forbidden) {
+          this.finish(null, { text: MESSAGE.NEEDS_ADMISSION, error: false });
+          this.admissionRequired.next();
+        } else if (status === HttpStatusCode.TooManyRequests) this.fail(MESSAGE.TOO_MANY);
         else this.fail(MESSAGE.GENERIC);
       },
     });

@@ -1,7 +1,12 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { BOOKING_STRATEGY, type EventSummary, type Venue } from '@app/shared';
+import {
+  BOOKING_STRATEGY,
+  type EventSummary,
+  MAX_ADMISSION_CAPACITY,
+  type Venue,
+} from '@app/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { EventForm } from './event-form';
@@ -141,6 +146,33 @@ describe('EventForm', () => {
     expect(button?.disabled).toBe(true);
     http.expectOne(EVENTS_URL).flush(SUMMARY);
   });
+
+  it('sends the capacity of the waiting room when one is given', async () => {
+    const { http, answer, loaded, fillValid, fill, submit } = render();
+    await loaded();
+    fillValid();
+    fill('Waiting room capacity (optional)', ' 25 ');
+
+    submit();
+    const request = http.expectOne(EVENTS_URL);
+    expect(request.request.body).toMatchObject({ waitingRoomCapacity: 25 });
+    await answer(() => request.flush({ ...SUMMARY, waitingRoomCapacity: 25 }));
+  });
+
+  it.each(['0', '-1', '2.5', 'many', String(MAX_ADMISSION_CAPACITY + 1)])(
+    'sends nothing for the waiting room capacity "%s"',
+    async (capacity) => {
+      const { http, loaded, fillValid, fill, submit, alertText } = render();
+      await loaded();
+      fillValid();
+      fill('Waiting room capacity (optional)', capacity);
+
+      submit();
+
+      http.expectNone(EVENTS_URL);
+      expect(alertText()).toContain(`between 1 and ${MAX_ADMISSION_CAPACITY}`);
+    }
+  );
 
   it('sends nothing for an empty name', async () => {
     const { http, loaded, fill, submit, alertText } = render();

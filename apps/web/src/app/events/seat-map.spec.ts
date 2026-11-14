@@ -12,10 +12,12 @@ import {
   type Role,
   SEAT_STATUS,
   SEAT_STREAM_EVENT,
+  WAITING_ROOM_STATE,
 } from '@app/shared';
 import { Subject } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { FakeWaitingRoom } from '../../testing/fake-waiting-room';
 import { tokensFor } from '../../testing/tokens';
 import { SessionStore } from '../auth/session.store';
 import { SeatMap } from './seat-map';
@@ -24,6 +26,7 @@ import {
   type SeatStreamMessage,
   SeatStreamService,
 } from './seat-stream.service';
+import { WaitingRoomService } from './waiting-room.service';
 
 const EVENT_ID = '00000000-0000-4000-8000-0000000000a2';
 const EVENT_URL = `/api/events/${EVENT_ID}`;
@@ -72,6 +75,7 @@ class FakeSeatStream {
 
 function render(role: Role | null = ROLE.CUSTOMER) {
   const stream = new FakeSeatStream();
+  const waitingRoom = new FakeWaitingRoom();
   TestBed.configureTestingModule({
     imports: [SeatMap],
     providers: [
@@ -79,6 +83,7 @@ function render(role: Role | null = ROLE.CUSTOMER) {
       provideHttpClientTesting(),
       provideRouter([]),
       { provide: SeatStreamService, useValue: stream },
+      { provide: WaitingRoomService, useValue: waitingRoom },
     ],
   });
   if (role) TestBed.inject(SessionStore).set(tokensFor(role));
@@ -101,7 +106,8 @@ function render(role: Role | null = ROLE.CUSTOMER) {
     button.click();
     TestBed.tick();
   };
-  const loaded = () => answer(() => http.expectOne(EVENT_URL).flush(DETAIL));
+  const loaded = (detail: EventDetail = DETAIL) =>
+    answer(() => http.expectOne(EVENT_URL).flush(detail));
   /** Every booking action re-reads the seats; the answer shows `status` for the open seat. */
   const refreshed = (status: DetailStatus) =>
     answer(() =>
@@ -110,8 +116,21 @@ function render(role: Role | null = ROLE.CUSTOMER) {
         seats: DETAIL.seats.map((seat) => (seat.id === SEAT_ID(3) ? { ...seat, status } : seat)),
       })
     );
-  return { element, http, answer, press, loaded, refreshed, stream, fixture };
+  return { element, http, answer, press, loaded, refreshed, stream, fixture, waitingRoom };
 }
+const WITH_WAITING_ROOM: EventDetail = { ...DETAIL, waitingRoomCapacity: 10 };
+const ADMITTED = {
+  state: WAITING_ROOM_STATE.ADMITTED,
+  position: null,
+  waiting: 0,
+  admittedUntil: '2099-01-01T00:00:00.000Z',
+};
+const NOT_JOINED = {
+  state: WAITING_ROOM_STATE.NONE,
+  position: null,
+  waiting: 0,
+  admittedUntil: null,
+};
 type DetailStatus = (typeof SEAT_STATUS)[keyof typeof SEAT_STATUS];
 
 describe('SeatMap', () => {
@@ -163,6 +182,77 @@ describe('SeatMap', () => {
 
     expect(element.querySelectorAll('button')).toHaveLength(3);
     expect(element.querySelector('[role=alert]')).toBeNull();
+  });
+
+  describe('waiting room', () => {
+    const openSeat = (element: HTMLElement) =>
+      element.querySelector<HTMLElement>(`[aria-label="${OPEN_SEAT}"]`);
+
+    it('shows no panel and lets a customer hold when the event has no waiting room', async () => {
+      const { element, loaded, waitingRoom } = render();
+      await loaded();
+
+      expect(element.querySelector('app-waiting-room-panel')).toBeNull();
+      expect(waitingRoom.statusCalls).toHaveLength(0);
+      expect(openSeat(element)?.getAttribute('aria-disabled')).toBeNull();
+    });
+
+    it('keeps the map readable but blocks holding until the customer is admitted', async () => {
+      const { element, http, loaded, refreshed, waitingRoom, press, answer } = render();
+      await loaded(WITH_WAITING_ROOM);
+      waitingRoom.statusCalls[0]?.next(NOT_JOINED);
+      TestBed.tick();
+
+      expect(element.querySelector('app-waiting-room-panel')).not.toBeNull();
+      expect(element.querySelectorAll('button[aria-label^="Section"]')).toHaveLength(3);
+      expect(openSeat(element)?.getAttribute('aria-disabled')).toBe('true');
+      press(OPEN_SEAT);
+      http.expectNone('/api/bookings');
+
+      press(/Join the waiting room/);
+      waitingRoom.joinCalls[0]?.next(ADMITTED);
+      await answer(() => undefined);
+      TestBed.tick();
+
+      expect(openSeat(element)?.getAttribute('aria-disabled')).toBeNull();
+      press(OPEN_SEAT);
+      const hold = http.expectOne('/api/bookings');
+      await answer(() => hold.flush(BOOKING));
+      await refreshed(SEAT_STATUS.HELD);
+    });
+
+    it('asks to join, not a raw error, when the server refuses the hold, and reads the status', async () => {
+      const { element, http, loaded, waitingRoom, press, answer } = render();
+      await loaded(WITH_WAITING_ROOM);
+      waitingRoom.statusCalls[0]?.next(ADMITTED);
+      TestBed.tick();
+
+      press(OPEN_SEAT);
+      await answer(() =>
+        http
+          .expectOne('/api/bookings')
+          .flush(
+            { statusCode: 403, message: 'Join the waiting room first' },
+            { status: 403, statusText: 'Forbidden' }
+          )
+      );
+      http.expectOne(EVENT_URL).flush(WITH_WAITING_ROOM); // the map reads the seats again
+      waitingRoom.statusCalls[1]?.next(NOT_JOINED);
+      TestBed.tick();
+
+      expect(element.textContent).toContain('You need a place in the waiting room');
+      expect(element.textContent).not.toContain('That did not work');
+      expect(element.querySelector('[role=alert]')).toBeNull();
+      expect(openSeat(element)?.getAttribute('aria-disabled')).toBe('true');
+    });
+
+    it('shows no panel to a visitor who is not a customer', async () => {
+      const { element, loaded, waitingRoom } = render(ROLE.ORGANIZER);
+      await loaded(WITH_WAITING_ROOM);
+
+      expect(element.querySelector('app-waiting-room-panel')).toBeNull();
+      expect(waitingRoom.statusCalls).toHaveLength(0);
+    });
   });
 
   describe('booking', () => {

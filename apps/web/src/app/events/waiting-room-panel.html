@@ -1,0 +1,62 @@
+<section
+  aria-label="Waiting room"
+  class="flex flex-col gap-2 rounded border border-edge bg-surface-raised p-4"
+>
+  <h2 class="text-lg font-medium">Waiting room</h2>
+
+  @switch (store.phase()) {
+    @case (phase.LOADING) {
+      <p role="status">Checking the waiting room…</p>
+    }
+    @case (phase.ERROR) {
+      <p role="alert" class="text-danger">The waiting room could not be reached.</p>
+      <button type="button" class="btn self-start" (click)="store.retry()">Try again</button>
+    }
+    @default {
+      @if (store.reconnecting()) {
+        <p role="status" class="text-sm text-text-muted">
+          Live position paused. Reconnecting; the position shown may be out of date.
+        </p>
+      }
+      @switch (store.state()) {
+        @case (state.WAITING) {
+          <p role="status">Position {{ store.position() }} of {{ store.waiting() }}</p>
+          <p class="text-sm text-text-muted">
+            You are in the queue. This page admits you when it is your turn.
+          </p>
+          <button
+            type="button"
+            class="self-start rounded border border-edge px-4 py-2 disabled:cursor-not-allowed disabled:opacity-60"
+            [disabled]="store.pending() !== null"
+            (click)="store.leave()"
+          >
+            {{ store.pending() === pending.LEAVE ? 'Leaving…' : 'Leave the waiting room' }}
+          </button>
+        }
+        @case (state.ADMITTED) {
+          <p>
+            You are admitted until {{ store.admittedUntil() | date: 'mediumTime' }}. Pick a seat
+            below.
+          </p>
+          <p role="timer" class="text-sm text-text-muted">
+            Admission ends in {{ store.countdown() }}
+          </p>
+        }
+        @default {
+          <p>This event has a waiting room. Join it to pick a seat.</p>
+          <button
+            type="button"
+            class="btn self-start disabled:cursor-not-allowed disabled:opacity-60"
+            [disabled]="store.pending() !== null"
+            (click)="store.join()"
+          >
+            {{ store.pending() === pending.JOIN ? 'Joining…' : 'Join the waiting room' }}
+          </button>
+        }
+      }
+      @if (store.problem(); as text) {
+        <p role="alert" class="text-danger">{{ text }}</p>
+      }
+    }
+  }
+</section>

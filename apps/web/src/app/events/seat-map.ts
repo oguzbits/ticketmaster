@@ -15,6 +15,8 @@ import {
   type SeatStreamMessage,
   SeatStreamService,
 } from './seat-stream.service';
+import { WaitingRoomStore } from './waiting-room.store';
+import { WaitingRoomPanel } from './waiting-room-panel';
 
 interface SeatRow {
   row: number;
@@ -28,9 +30,9 @@ interface SeatSection {
 
 @Component({
   selector: 'app-seat-map',
-  imports: [CurrencyPipe, DatePipe, RouterLink, StrategySwitch],
+  imports: [CurrencyPipe, DatePipe, RouterLink, StrategySwitch, WaitingRoomPanel],
   templateUrl: './seat-map.html',
-  providers: [BookingsStore],
+  providers: [BookingsStore, WaitingRoomStore],
 })
 export class SeatMap {
   /** The route parameter, bound by the router. */
@@ -40,6 +42,7 @@ export class SeatMap {
   private readonly stream = inject(SeatStreamService);
   private readonly session = inject(SessionStore);
   protected readonly bookings = inject(BookingsStore);
+  private readonly waitingRoom = inject(WaitingRoomStore);
 
   protected readonly event = rxResource({
     params: () => this.id(),
@@ -59,6 +62,11 @@ export class SeatMap {
   protected readonly held = BOOKING_STATUS.HELD;
   protected readonly confirmed = BOOKING_STATUS.CONFIRMED;
   protected readonly cancelled = BOOKING_STATUS.CANCELLED;
+
+  /** The event has a waiting room: a customer needs an admission before holding a seat. */
+  protected readonly gated = computed(
+    () => (this.event.value()?.waitingRoomCapacity ?? null) !== null
+  );
 
   protected readonly notFound = computed(() => {
     const error = this.event.error();
@@ -106,10 +114,18 @@ export class SeatMap {
         error: () => this.live.set('stopped'),
       });
     this.bookings.settled.pipe(takeUntilDestroyed()).subscribe(() => this.refreshSeats());
+    this.bookings.admissionRequired
+      .pipe(takeUntilDestroyed())
+      .subscribe(() => this.waitingRoom.refresh());
   }
 
   protected canChoose(seat: Seat): boolean {
-    return this.isCustomer() && seat.status === this.available && this.bookings.canHold();
+    return (
+      this.isCustomer() &&
+      seat.status === this.available &&
+      this.bookings.canHold() &&
+      (!this.gated() || this.waitingRoom.admitted())
+    );
   }
 
   protected choose(seat: Seat): void {

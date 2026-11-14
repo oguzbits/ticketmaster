@@ -6,12 +6,15 @@ import {
   type BookingStrategy,
   BookingStrategySchema,
   type EventSummary,
+  MAX_ADMISSION_CAPACITY,
+  WaitingRoomCapacitySchema,
 } from '@app/shared';
 
 import { OrganizerService } from './organizer.service';
 
 const MESSAGE = {
   NAME: 'Enter a name for the event.',
+  CAPACITY: `The waiting room capacity must be a whole number between 1 and ${MAX_ADMISSION_CAPACITY}, or empty for no waiting room.`,
   FUTURE: 'Pick a start time in the future.',
   LIMIT: 'The event limit for this account is reached, so no more events can be created.',
   TOO_MANY: 'Too many requests. Wait a moment and try again.',
@@ -56,6 +59,7 @@ export class EventForm {
   protected readonly name = signal('');
   protected readonly startsAt = signal('');
   protected readonly strategy = signal<BookingStrategy>(BOOKING_STRATEGY.PESSIMISTIC);
+  protected readonly capacity = signal('');
 
   protected readonly pending = signal(false);
   protected readonly problem = signal<string | null>(null);
@@ -80,6 +84,14 @@ export class EventForm {
       this.problem.set(MESSAGE.FUTURE);
       return;
     }
+    // Empty means no waiting room; `Number('')` would read as 0.
+    const capacityText = this.capacity().trim();
+    const capacity =
+      capacityText === '' ? null : WaitingRoomCapacitySchema.safeParse(Number(capacityText));
+    if (capacity !== null && !capacity.success) {
+      this.problem.set(MESSAGE.CAPACITY);
+      return;
+    }
     this.problem.set(null);
     this.pending.set(true);
     this.service
@@ -88,7 +100,7 @@ export class EventForm {
         name,
         startsAt: start.toISOString(),
         strategy: this.strategy(),
-        waitingRoomCapacity: null,
+        waitingRoomCapacity: capacity?.data ?? null,
       })
       .subscribe({
         next: (summary) => {

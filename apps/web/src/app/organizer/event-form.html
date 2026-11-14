@@ -62,6 +62,24 @@
           }
         </select>
       </div>
+      <div class="flex flex-col gap-1">
+        <label for="event-capacity" class="text-sm font-medium">
+          Waiting room capacity (optional)
+        </label>
+        <input
+          id="event-capacity"
+          type="text"
+          inputmode="numeric"
+          aria-describedby="event-capacity-hint"
+          class="rounded border border-edge bg-surface-raised px-3 py-2"
+          [value]="capacity()"
+          (input)="capacity.set(capacityInput.value)"
+          #capacityInput
+        />
+        <p id="event-capacity-hint" class="text-sm text-text-muted">
+          How many customers may pick seats at once. Leave empty for no waiting room.
+        </p>
+      </div>
 
       @if (problem(); as text) {
         <p role="alert" class="text-danger">{{ text }}</p>

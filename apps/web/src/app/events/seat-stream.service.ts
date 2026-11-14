@@ -34,7 +34,7 @@ const IDLE_MS = 45_000;
 const BUSY_STATUSES: readonly number[] = [429, 503];
 const FATAL_STATUSES: readonly number[] = [400, 404];
 
-class StreamRefused extends Error {
+export class StreamRefused extends Error {
   constructor(
     readonly status: number,
     readonly retryAfterMs: number
@@ -43,7 +43,7 @@ class StreamRefused extends Error {
   }
 }
 
-interface SseMessage {
+export interface SseMessage {
   event: string;
   data: string;
 }
@@ -118,7 +118,7 @@ export class SeatStreamService {
     };
     try {
       alive();
-      const response = await this.connect(eventId, connection.signal);
+      const response = await this.connect(seatStreamUrl(eventId), connection.signal);
       if (response.body === null) throw new StreamRefused(response.status, 0);
       let gotSnapshot = false;
       for await (const raw of sseMessages(response.body, alive)) {
@@ -138,9 +138,11 @@ export class SeatStreamService {
     }
   }
 
-  /** Opens the stream; after a 401 the token is renewed once and the request repeated. */
-  private async connect(eventId: string, signal: AbortSignal): Promise<Response> {
-    const url = `/api/events/${encodeURIComponent(eventId)}/seats/stream`;
+  /**
+   * Opens an event stream; after a 401 the token is renewed once and the request repeated. Public
+   * because the waiting room stream connects the same way.
+   */
+  async connect(url: string, signal: AbortSignal): Promise<Response> {
     const request = (token: string | null) =>
       this.fetcher(url, {
         headers: token
@@ -164,8 +166,12 @@ export class SeatStreamService {
   }
 }
 
+function seatStreamUrl(eventId: string): string {
+  return `/api/events/${encodeURIComponent(eventId)}/seats/stream`;
+}
+
 /** A refusal other than 400/404/401, a network failure or a silent connection is worth a retry. */
-function isRetryable(error: Error | DOMException): boolean {
+export function isRetryable(error: Error | DOMException): boolean {
   if (error instanceof StreamRefused) {
     return error.status !== 401 && !FATAL_STATUSES.includes(error.status);
   }
@@ -197,7 +203,7 @@ function parse(message: SseMessage): SeatStreamMessage | null {
  * an event. shortcut: lines end with `\n` or `\r\n` (what the API sends); a lone `\r` is not a
  * line end, upgrade if another server sits in front.
  */
-async function* sseMessages(
+export async function* sseMessages(
   body: ReadableStream<Uint8Array>,
   onChunk: () => void
 ): AsyncGenerator<SseMessage> {
@@ -241,7 +247,7 @@ function lineReader(): (line: string) => SseMessage | null {
   };
 }
 
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
+export function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     const done = () => {
       clearTimeout(timer);

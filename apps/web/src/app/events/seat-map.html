@@ -38,6 +38,10 @@
       </p>
     }
 
+    @if (isCustomer() && gated()) {
+      <app-waiting-room-panel [eventId]="id()" />
+    }
+
     @switch (live()) {
       @case ('reconnecting') {
         <p role="status" class="text-sm text-text-muted">
