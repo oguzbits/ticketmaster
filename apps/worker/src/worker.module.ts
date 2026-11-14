@@ -7,6 +7,7 @@ import { OutboxModule } from '@app/api/outbox';
 import { RedisModule } from '@app/api/redis';
 import { SimulationsModule } from '@app/api/simulations';
 import { TicketsModule } from '@app/api/tickets';
+import { WaitingRoomModule } from '@app/api/waiting-room';
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { LoggerModule } from 'nestjs-pino';
@@ -20,6 +21,7 @@ import { QueueConsumer } from './queue-consumer.js';
 import { SimulationConsumer } from './simulation.consumer.js';
 import { SimulationReaperJob } from './simulation-reaper.job.js';
 import { SimulationRetentionJob } from './simulation-retention.job.js';
+import { WaitingRoomAdmissionJob } from './waiting-room-admission.job.js';
 
 @Module({
   imports: [
@@ -34,9 +36,11 @@ import { SimulationRetentionJob } from './simulation-retention.job.js';
     OutboxModule,
     SimulationsModule,
     TicketsModule,
+    WaitingRoomModule,
   ],
   providers: [
     HoldExpiryJob,
+    WaitingRoomAdmissionJob,
     OutboxRelayJob,
     DemoCleanupJob,
     SimulationReaperJob,
