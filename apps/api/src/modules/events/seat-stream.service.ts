@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import {
   SEAT_STREAM_EVENT,
   type SeatChange,
@@ -16,6 +18,7 @@ import {
 } from '@nestjs/common';
 import { interval, Observable, Subject, timer } from 'rxjs';
 
+import { SLOT_SLACK_MS, SlotLimiter } from '../../infrastructure/rate-limit/slot-limiter.js';
 import { REDIS, type Redis } from '../../infrastructure/redis/redis.module.js';
 import { seatChannel } from '../bookings/index.js';
 import { EventsService } from './events.service.js';
@@ -23,7 +26,7 @@ import { EventsService } from './events.service.js';
 /** A comment line keeps proxies and browsers from closing a stream that is quiet. */
 export const HEARTBEAT_MS = 15_000;
 
-/** Open streams one client address may hold, and the open streams one process serves. */
+/** Open streams one client address may hold, and the open streams all API instances serve. */
 export const MAX_STREAMS_PER_IP = 10;
 export const MAX_STREAMS_TOTAL = 500;
 /** After this long the server ends a stream; the client reconnects and gets a fresh snapshot. */
@@ -55,18 +58,18 @@ export class SeatStreamService implements OnModuleInit, OnModuleDestroy {
   maxLifetimeMs = STREAM_MAX_LIFETIME_MS;
   maxStreamsPerIp = MAX_STREAMS_PER_IP;
   maxStreamsTotal = MAX_STREAMS_TOTAL;
+  /** Redis keys of the slot counters; a spec uses a prefix of its own. */
+  slotKeyPrefix = 'streams:seat';
   private readonly logger = new Logger(SeatStreamService.name);
   private readonly subscriber: Redis;
   private readonly topics = new Map<string, Topic>();
-  // shortcut: the counts live in this process; move them to Redis when the API scales out (phase 2).
-  private readonly streamsPerIp = new Map<string, number>();
-  private streamsTotal = 0;
   /** Subscribe and unsubscribe calls run one after another, see `enqueue`. */
   private subscriptionQueue: Promise<void> = Promise.resolve();
 
   constructor(
     @Inject(REDIS) redis: Redis,
-    @Inject(EventsService) private readonly events: Pick<EventsService, 'detail'>
+    @Inject(EventsService) private readonly events: Pick<EventsService, 'detail'>,
+    @Inject(SlotLimiter) private readonly slots: SlotLimiter
   ) {
     this.subscriber = redis.duplicate();
   }
@@ -102,11 +105,16 @@ export class SeatStreamService implements OnModuleInit, OnModuleDestroy {
    * the snapshot. A change older than the snapshot is harmless, the client applies changes in the
    * order they arrive. Errors (an event the viewer may not see: NotFound) end the stream. The
    * caps are checked here, before an Observable exists: once Nest subscribes it has sent the 200
-   * headers, so a refusal can no longer be a status code. The slot is taken now and given back when
-   * the stream ends, however it ends, so the caller must subscribe right away.
+   * headers, so a refusal can no longer be a status code. The slots are taken now and given back
+   * when the stream ends, however it ends, so the caller must subscribe right away (a slot that is
+   * never given back runs out by itself after the stream lifetime).
    */
-  stream(eventId: string, userId: string | null, address: string): Observable<SeatStreamMessage> {
-    this.admit(address);
+  async stream(
+    eventId: string,
+    userId: string | null,
+    address: string
+  ): Promise<Observable<SeatStreamMessage>> {
+    const release = await this.admit(address);
     return new Observable<SeatStreamMessage>((out) => {
       const topic = this.join(eventId);
       const pending: SeatChange[] = [];
@@ -137,28 +145,33 @@ export class SeatStreamService implements OnModuleInit, OnModuleDestroy {
         heartbeat.unsubscribe();
         lifetime.unsubscribe();
         this.leave(eventId, topic);
-        this.release(address);
+        release();
       };
     });
   }
 
-  private admit(address: string): void {
-    if (this.streamsTotal >= this.maxStreamsTotal) {
+  /** Takes a slot of the total cap, then one of the address; returns the call that gives both back. */
+  private async admit(address: string): Promise<() => void> {
+    const slotId = randomUUID();
+    const lifetimeMs = this.maxLifetimeMs + SLOT_SLACK_MS;
+    const totalKey = `${this.slotKeyPrefix}:total`;
+    const addressKey = `${this.slotKeyPrefix}:ip:${address}`;
+    if (!(await this.slots.acquire(totalKey, slotId, this.maxStreamsTotal, lifetimeMs))) {
       throw new ServiceUnavailableException('Too many open streams, try again later');
     }
-    const open = this.streamsPerIp.get(address) ?? 0;
-    if (open >= this.maxStreamsPerIp) {
+    if (!(await this.slots.acquire(addressKey, slotId, this.maxStreamsPerIp, lifetimeMs))) {
+      await this.slots.release(totalKey, slotId);
       throw new HttpException('Too many open streams', HttpStatus.TOO_MANY_REQUESTS);
     }
-    this.streamsPerIp.set(address, open + 1);
-    this.streamsTotal += 1;
-  }
-
-  private release(address: string): void {
-    const open = (this.streamsPerIp.get(address) ?? 1) - 1;
-    if (open > 0) this.streamsPerIp.set(address, open);
-    else this.streamsPerIp.delete(address);
-    this.streamsTotal -= 1;
+    return () => {
+      // A slot that stays after a failed release runs out by itself; the address is not logged.
+      void Promise.all([
+        this.slots.release(totalKey, slotId),
+        this.slots.release(addressKey, slotId),
+      ]).catch((error: Error) =>
+        this.logger.error(`releasing a stream slot failed: ${error.name}`)
+      );
+    };
   }
 
   private async readSnapshot(

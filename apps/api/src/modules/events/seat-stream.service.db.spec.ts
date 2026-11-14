@@ -5,6 +5,8 @@ import { HttpException, HttpStatus, Logger, NotFoundException } from '@nestjs/co
 import type { Subscription } from 'rxjs';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { SystemClock } from '../../infrastructure/clock/system-clock.js';
+import { SlotLimiter } from '../../infrastructure/rate-limit/slot-limiter.js';
 import type { Redis } from '../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
@@ -19,6 +21,12 @@ import {
   STREAM_MAX_LIFETIME_MS,
 } from './seat-stream.service.js';
 
+const slotsOf = (redis: Redis) => new SlotLimiter(redis, new SystemClock());
+/** Counters of their own: the default keys are shared with every other spec and the dev stack. */
+const ownSlotKeys = (service: SeatStreamService) => {
+  service.slotKeyPrefix = `streams:test:${randomUUID()}`;
+  return service;
+};
 const ADDRESS = '10.0.0.1';
 const OTHER_ADDRESS = '10.0.0.2';
 
@@ -34,12 +42,18 @@ describe('SeatStreamService', () => {
   beforeAll(async () => {
     redis = await openTestRedis();
     // The gate lets a spec hold the snapshot read back while it publishes.
-    service = new SeatStreamService(redis, {
-      detail: async (id, userId) => {
-        await snapshotGate;
-        return events.detail(id, userId);
-      },
-    });
+    service = ownSlotKeys(
+      new SeatStreamService(
+        redis,
+        {
+          detail: async (id, userId) => {
+            await snapshotGate;
+            return events.detail(id, userId);
+          },
+        },
+        slotsOf(redis)
+      )
+    );
     await service.onModuleInit();
   });
   afterEach(() => {
@@ -54,10 +68,10 @@ describe('SeatStreamService', () => {
   });
 
   /** Subscribes like the SSE route does and records what arrives. */
-  function listen(eventId: string, userId: string | null = null, address = ADDRESS) {
+  async function listen(eventId: string, userId: string | null = null, address = ADDRESS) {
     const messages: SeatStreamMessage[] = [];
     const state: { error?: Error; completed: boolean } = { completed: false };
-    const subscription = service.stream(eventId, userId, address).subscribe({
+    const subscription = (await service.stream(eventId, userId, address)).subscribe({
       next: (message) => messages.push(message),
       error: (error: Error) => (state.error = error),
       complete: () => (state.completed = true),
@@ -86,7 +100,7 @@ describe('SeatStreamService', () => {
 
   it('sends the snapshot first and every later change after it', async () => {
     const { eventId, seatIds } = await newEvent();
-    const viewer = listen(eventId);
+    const viewer = await listen(eventId);
     await vi.waitFor(() => expect(viewer.messages).toHaveLength(1));
 
     await publish(change(eventId, seatIds[0] ?? ''));
@@ -106,7 +120,7 @@ describe('SeatStreamService', () => {
     const { eventId, seatIds } = await newEvent();
     let release: () => void = () => undefined;
     snapshotGate = new Promise((resolve) => (release = resolve));
-    const viewer = listen(eventId);
+    const viewer = await listen(eventId);
     // The viewer's Redis subscription is up while the snapshot read waits.
     await vi.waitFor(async () => expect(await subscribersOf(eventId)).toBe(1));
 
@@ -123,7 +137,11 @@ describe('SeatStreamService', () => {
   it('gives a change to every viewer of the event and to no viewer of another event', async () => {
     const first = await newEvent();
     const other = await newEvent();
-    const [a, b, elsewhere] = [listen(first.eventId), listen(first.eventId), listen(other.eventId)];
+    const [a, b, elsewhere] = await Promise.all([
+      listen(first.eventId),
+      listen(first.eventId),
+      listen(other.eventId),
+    ]);
     await vi.waitFor(() => expect(elsewhere.messages).toHaveLength(1));
     await vi.waitFor(() => expect(b.messages).toHaveLength(1));
 
@@ -141,7 +159,7 @@ describe('SeatStreamService', () => {
 
   it('drops the Redis subscription when the last viewer of the event leaves', async () => {
     const { eventId } = await newEvent();
-    const [a, b] = [listen(eventId), listen(eventId)];
+    const [a, b] = await Promise.all([listen(eventId), listen(eventId)]);
     await vi.waitFor(() => expect(b.messages).toHaveLength(1));
     expect(await subscribersOf(eventId)).toBe(1);
 
@@ -155,11 +173,11 @@ describe('SeatStreamService', () => {
 
   it('a viewer who joins right after the last one left still gets the changes', async () => {
     const { eventId, seatIds } = await newEvent();
-    const first = listen(eventId);
+    const first = await listen(eventId);
     await vi.waitFor(() => expect(first.messages).toHaveLength(1));
 
     first.subscription.unsubscribe();
-    const second = listen(eventId);
+    const second = await listen(eventId);
     await vi.waitFor(() => expect(second.messages).toHaveLength(1));
     await publish(change(eventId, seatIds[0] ?? ''));
 
@@ -168,10 +186,10 @@ describe('SeatStreamService', () => {
 
   it('leaves nothing subscribed when a viewer joins and leaves right after the last one left', async () => {
     const { eventId } = await newEvent();
-    const first = listen(eventId);
+    const first = await listen(eventId);
     await vi.waitFor(() => expect(first.messages).toHaveLength(1));
     first.subscription.unsubscribe();
-    const second = listen(eventId);
+    const second = await listen(eventId);
     second.subscription.unsubscribe();
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(await subscribersOf(eventId)).toBe(0);
@@ -184,7 +202,7 @@ describe('SeatStreamService', () => {
       sandboxUserId: randomUUID(),
     });
 
-    const stranger = listen(eventId, randomUUID());
+    const stranger = await listen(eventId, randomUUID());
 
     await vi.waitFor(() => expect(stranger.state.error).toBeInstanceOf(NotFoundException));
     await vi.waitFor(async () => expect(await subscribersOf(eventId)).toBe(0));
@@ -193,7 +211,7 @@ describe('SeatStreamService', () => {
   it('skips a malformed message, logs it and keeps streaming', async () => {
     const { eventId, seatIds } = await newEvent();
     const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
-    const viewer = listen(eventId);
+    const viewer = await listen(eventId);
     await vi.waitFor(() => expect(viewer.messages).toHaveLength(1));
 
     await redis.publish(seatChannel(eventId), 'not json');
@@ -211,7 +229,7 @@ describe('SeatStreamService', () => {
     service.heartbeatMs = 20;
 
     try {
-      const viewer = listen(eventId);
+      const viewer = await listen(eventId);
       await vi.waitFor(() =>
         expect(viewer.messages.filter((message) => 'comment' in message)).toHaveLength(2)
       );
@@ -228,40 +246,58 @@ describe('SeatStreamService limits', () => {
   const database = openTestDatabase();
   const { db } = database;
   let redis: Redis;
+  // Two API instances that share one Redis, like two replicas.
   let service: SeatStreamService;
+  let other: SeatStreamService;
   const open: Subscription[] = [];
+  // Its own counters: the default keys are shared with every other spec and the dev stack.
+  const keyPrefix = `streams:test:${randomUUID()}`;
+  const services = () => [service, other];
 
   beforeAll(async () => {
     redis = await openTestRedis();
-    service = new SeatStreamService(redis, new EventsService(db));
-    await service.onModuleInit();
+    service = new SeatStreamService(redis, new EventsService(db), slotsOf(redis));
+    other = new SeatStreamService(redis, new EventsService(db), slotsOf(redis));
+    for (const instance of services()) {
+      instance.slotKeyPrefix = keyPrefix;
+      await instance.onModuleInit();
+    }
   });
-  afterEach(() => {
+  afterEach(async () => {
     for (const subscription of open.splice(0)) subscription.unsubscribe();
-    service.maxStreamsPerIp = MAX_STREAMS_PER_IP;
-    service.maxStreamsTotal = MAX_STREAMS_TOTAL;
-    service.maxLifetimeMs = STREAM_MAX_LIFETIME_MS;
+    for (const instance of services()) {
+      instance.maxStreamsPerIp = MAX_STREAMS_PER_IP;
+      instance.maxStreamsTotal = MAX_STREAMS_TOTAL;
+      instance.maxLifetimeMs = STREAM_MAX_LIFETIME_MS;
+    }
+    // A slot is released a moment after the unsubscribe; the next test starts from zero.
+    await vi.waitFor(async () => expect(await redis.zCard(`${keyPrefix}:total`)).toBe(0));
   });
   afterAll(async () => {
-    await service.onModuleDestroy();
+    for (const instance of services()) await instance.onModuleDestroy();
     await redis.quit();
     await database.close();
   });
 
   const newEvent = () => createTestEvent(db, { strategy: BOOKING_STRATEGY.PESSIMISTIC, seats: 1 });
-  function listen(eventId: string, address: string) {
-    const state = { completed: false, messages: 0 };
+  async function listen(eventId: string, address: string, via = service) {
+    const state: { completed: boolean; messages: number; error?: Error } = {
+      completed: false,
+      messages: 0,
+    };
+    const stream = await via.stream(eventId, null, address);
     open.push(
-      service.stream(eventId, null, address).subscribe({
+      stream.subscribe({
         next: () => (state.messages += 1),
+        error: (error: Error) => (state.error = error),
         complete: () => (state.completed = true),
       })
     );
     return state;
   }
-  const refusedWith = (eventId: string, address: string): number => {
+  const refusedWith = async (eventId: string, address: string, via = service): Promise<number> => {
     try {
-      listen(eventId, address);
+      await listen(eventId, address, via);
     } catch (error) {
       if (error instanceof HttpException) return error.getStatus();
       throw error;
@@ -278,45 +314,90 @@ describe('SeatStreamService limits', () => {
   it('refuses a stream over the per-address cap with 429, lets other addresses in, frees the slot on disconnect', async () => {
     const { eventId } = await newEvent();
     service.maxStreamsPerIp = 2;
-    listen(eventId, ADDRESS);
-    listen(eventId, ADDRESS);
+    await listen(eventId, ADDRESS);
+    await listen(eventId, ADDRESS);
 
-    expect(refusedWith(eventId, ADDRESS)).toBe(HttpStatus.TOO_MANY_REQUESTS);
-    expect(refusedWith(eventId, OTHER_ADDRESS)).toBe(HttpStatus.OK);
+    expect(await refusedWith(eventId, ADDRESS)).toBe(HttpStatus.TOO_MANY_REQUESTS);
+    expect(await refusedWith(eventId, OTHER_ADDRESS)).toBe(HttpStatus.OK);
     open[0]?.unsubscribe();
 
-    expect(refusedWith(eventId, ADDRESS)).toBe(HttpStatus.OK);
+    await vi.waitFor(async () => expect(await refusedWith(eventId, ADDRESS)).toBe(HttpStatus.OK));
   });
 
-  it('refuses a stream over the process cap with 503, whoever asks, frees the slot on disconnect', async () => {
+  it('refuses a stream over the total cap with 503, whoever asks, frees the slot on disconnect', async () => {
     const { eventId } = await newEvent();
     service.maxStreamsTotal = 2;
-    listen(eventId, ADDRESS);
-    listen(eventId, OTHER_ADDRESS);
+    await listen(eventId, ADDRESS);
+    await listen(eventId, OTHER_ADDRESS);
 
-    expect(refusedWith(eventId, '10.0.0.3')).toBe(HttpStatus.SERVICE_UNAVAILABLE);
+    expect(await refusedWith(eventId, '10.0.0.3')).toBe(HttpStatus.SERVICE_UNAVAILABLE);
     open[1]?.unsubscribe();
 
-    expect(refusedWith(eventId, '10.0.0.3')).toBe(HttpStatus.OK);
+    await vi.waitFor(async () =>
+      expect(await refusedWith(eventId, '10.0.0.3')).toBe(HttpStatus.OK)
+    );
+  });
+
+  it('counts the total cap over every instance that shares the Redis', async () => {
+    const { eventId } = await newEvent();
+    for (const instance of services()) instance.maxStreamsTotal = 2;
+    await listen(eventId, ADDRESS, service);
+    await listen(eventId, OTHER_ADDRESS, other);
+
+    expect(await refusedWith(eventId, '10.0.0.3', service)).toBe(HttpStatus.SERVICE_UNAVAILABLE);
+    expect(await refusedWith(eventId, '10.0.0.3', other)).toBe(HttpStatus.SERVICE_UNAVAILABLE);
+  });
+
+  it('counts the per-address cap over every instance that shares the Redis', async () => {
+    const { eventId } = await newEvent();
+    for (const instance of services()) instance.maxStreamsPerIp = 2;
+    await listen(eventId, ADDRESS, service);
+    await listen(eventId, ADDRESS, other);
+
+    expect(await refusedWith(eventId, ADDRESS, service)).toBe(HttpStatus.TOO_MANY_REQUESTS);
+    expect(await refusedWith(eventId, ADDRESS, other)).toBe(HttpStatus.TOO_MANY_REQUESTS);
+    expect(await refusedWith(eventId, OTHER_ADDRESS, other)).toBe(HttpStatus.OK);
+  });
+
+  it('frees both slots when a stream ends with an error', async () => {
+    service.maxStreamsPerIp = 1;
+    service.maxStreamsTotal = 1;
+    const failing = await listen(randomUUID(), ADDRESS);
+    await vi.waitFor(() => expect(failing.error).toBeInstanceOf(NotFoundException));
+
+    const { eventId } = await newEvent();
+
+    await vi.waitFor(async () => expect(await refusedWith(eventId, ADDRESS)).toBe(HttpStatus.OK));
+  });
+
+  it('gives the total slot back when the per-address cap refuses a stream', async () => {
+    const { eventId } = await newEvent();
+    service.maxStreamsPerIp = 1;
+    service.maxStreamsTotal = 2;
+    await listen(eventId, ADDRESS);
+
+    expect(await refusedWith(eventId, ADDRESS)).toBe(HttpStatus.TOO_MANY_REQUESTS);
+
+    expect(await refusedWith(eventId, OTHER_ADDRESS)).toBe(HttpStatus.OK);
   });
 
   it('ends a stream after its maximum lifetime and frees its slot and its Redis subscription', async () => {
     const { eventId } = await newEvent();
     service.maxLifetimeMs = 50;
     service.maxStreamsPerIp = 1;
-    const viewer = listen(eventId, ADDRESS);
+    const viewer = await listen(eventId, ADDRESS);
 
     await vi.waitFor(() => expect(viewer.completed).toBe(true));
 
     await vi.waitFor(async () =>
       expect((await redis.pubSubNumSub(seatChannel(eventId)))[seatChannel(eventId)]).toBe(0)
     );
-    expect(refusedWith(eventId, ADDRESS)).toBe(HttpStatus.OK);
+    await vi.waitFor(async () => expect(await refusedWith(eventId, ADDRESS)).toBe(HttpStatus.OK));
   });
 
   it('keeps a stream open before its maximum lifetime', async () => {
     const { eventId } = await newEvent();
-    const viewer = listen(eventId, ADDRESS);
+    const viewer = await listen(eventId, ADDRESS);
     await vi.waitFor(() => expect(viewer.messages).toBe(1));
 
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -344,7 +425,9 @@ describe('SeatStreamService after the subscriber connection was lost', () => {
     const name = `seat-stream-spec-${randomUUID()}`;
     const duplicate = redis.duplicate.bind(redis);
     vi.spyOn(redis, 'duplicate').mockImplementation(() => duplicate({ name }));
-    const service = new SeatStreamService(redis, new EventsService(db));
+    const service = ownSlotKeys(
+      new SeatStreamService(redis, new EventsService(db), slotsOf(redis))
+    );
     await service.onModuleInit();
     const { eventId } = await createTestEvent(db, {
       strategy: BOOKING_STRATEGY.PESSIMISTIC,
@@ -352,7 +435,7 @@ describe('SeatStreamService after the subscriber connection was lost', () => {
     });
     const messages: SeatStreamMessage[] = [];
     let completed = false;
-    service.stream(eventId, null, ADDRESS).subscribe({
+    (await service.stream(eventId, null, ADDRESS)).subscribe({
       next: (message) => messages.push(message),
       complete: () => (completed = true),
     });
@@ -372,7 +455,9 @@ describe('SeatStreamService shutdown', () => {
 
   it('completes the open streams and closes its Redis connection', async () => {
     const redis = await openTestRedis();
-    const service = new SeatStreamService(redis, new EventsService(database.db));
+    const service = ownSlotKeys(
+      new SeatStreamService(redis, new EventsService(database.db), slotsOf(redis))
+    );
     await service.onModuleInit();
     const { eventId } = await createTestEvent(database.db, {
       strategy: BOOKING_STRATEGY.PESSIMISTIC,
@@ -380,7 +465,7 @@ describe('SeatStreamService shutdown', () => {
     });
     const messages: SeatStreamMessage[] = [];
     let completed = false;
-    service.stream(eventId, null, ADDRESS).subscribe({
+    (await service.stream(eventId, null, ADDRESS)).subscribe({
       next: (message) => messages.push(message),
       complete: () => (completed = true),
     });

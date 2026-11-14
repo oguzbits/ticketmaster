@@ -10,7 +10,9 @@ import { HttpStatus, Logger } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { SystemClock } from '../../infrastructure/clock/system-clock.js';
 import { events, simulationRuns } from '../../infrastructure/database/schema.js';
+import { SlotLimiter } from '../../infrastructure/rate-limit/slot-limiter.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
 import { SPEC_NOW } from '../../testing/time.js';
@@ -199,10 +201,18 @@ describe('SimulationsService.start', () => {
         return service.find(id);
       },
     };
-    const stream = new SimulationStreamService(redis, counting);
+    const stream = new SimulationStreamService(
+      redis,
+      counting,
+      new SlotLimiter(redis, new SystemClock())
+    );
     stream.pollMs = 20;
+    // A key of its own: the default one is shared with every other spec and the dev stack.
+    stream.slotKey = `streams:test:${randomUUID()}`;
     const messages: unknown[] = [];
-    const subscription = stream.stream(run.id).subscribe((message) => messages.push(message));
+    const subscription = (await stream.stream(run.id)).subscribe((message) =>
+      messages.push(message)
+    );
 
     await expect.poll(() => messages.length).toBe(1);
     await new Promise((resolve) => setTimeout(resolve, 20 * 10));

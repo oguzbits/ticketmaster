@@ -50,6 +50,6 @@ export class SimulationsController {
   async stream(@Param('id', new ZodPipe(z.uuid())) id: string): Promise<Observable<MessageEvent>> {
     // Nest sends the 200 headers as soon as it subscribes, so an unknown run has to fail here.
     await this.simulations.find(id);
-    return this.progress.stream(id).pipe(map((data) => ({ data })));
+    return (await this.progress.stream(id)).pipe(map((data) => ({ data })));
   }
 }

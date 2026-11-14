@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { CLOCK, type Clock } from '../../core/clock.js';
+import { RateLimitModule } from '../../infrastructure/rate-limit/rate-limit.module.js';
 import { BookingsModule, BookingsService } from '../bookings/index.js';
 import { SimulationRunner } from './simulation-runner.js';
 import { SimulationStreamService } from './simulation-stream.service.js';
@@ -11,7 +12,7 @@ import { SimulationsService } from './simulations.service.js';
 const PROGRESS_INTERVAL_MS = 250;
 
 @Module({
-  imports: [BookingsModule],
+  imports: [BookingsModule, RateLimitModule],
   controllers: [SimulationsController],
   providers: [
     SimulationsService,

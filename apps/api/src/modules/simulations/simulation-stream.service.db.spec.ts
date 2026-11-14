@@ -9,9 +9,11 @@ import {
 } from '@app/shared';
 import { NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import type { Subscription } from 'rxjs';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { SystemClock } from '../../infrastructure/clock/system-clock.js';
 import { simulationRuns } from '../../infrastructure/database/schema.js';
+import { SlotLimiter } from '../../infrastructure/rate-limit/slot-limiter.js';
 import type { Redis } from '../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
@@ -36,20 +38,31 @@ describe('SimulationStreamService', () => {
   const { db } = database;
   let redis: Redis;
   let service: SimulationStreamService;
+  // A second API instance on the same Redis, like a second replica.
+  let other: SimulationStreamService;
+  // Its own counter: the default key is shared with every other spec and the dev stack.
+  const slotKey = `streams:test:${randomUUID()}`;
   const open: Subscription[] = [];
 
   beforeAll(async () => {
     redis = await openTestRedis();
-    service = new SimulationStreamService(
-      redis,
-      new SimulationsService(db, redis, { now: () => SPEC_NOW })
-    );
-    service.pollMs = POLL_MS;
+    const simulations = new SimulationsService(db, redis, { now: () => SPEC_NOW });
+    const slots = new SlotLimiter(redis, new SystemClock());
+    service = new SimulationStreamService(redis, simulations, slots);
+    other = new SimulationStreamService(redis, simulations, slots);
+    for (const instance of [service, other]) {
+      instance.pollMs = POLL_MS;
+      instance.slotKey = slotKey;
+    }
   });
-  afterEach(() => {
+  afterEach(async () => {
     for (const subscription of open.splice(0)) subscription.unsubscribe();
-    service.maxStreams = 50;
-    service.maxLifetimeMs = 600_000;
+    for (const instance of [service, other]) {
+      instance.maxStreams = 50;
+      instance.maxLifetimeMs = 600_000;
+    }
+    // A slot is released a moment after the unsubscribe; the next test starts from zero.
+    await vi.waitFor(async () => expect(await redis.zCard(slotKey)).toBe(0));
   });
   afterAll(async () => {
     await redis.quit();
@@ -93,10 +106,10 @@ describe('SimulationStreamService', () => {
       }
     );
 
-  function listen(runId: string) {
+  async function listen(runId: string, via = service) {
     const messages: SimulationProgress[] = [];
     const state: { error?: Error; completed: boolean } = { completed: false };
-    const subscription = service.stream(runId).subscribe({
+    const subscription = (await via.stream(runId)).subscribe({
       next: (message) => messages.push(message),
       error: (error: Error) => (state.error = error),
       complete: () => (state.completed = true),
@@ -110,7 +123,7 @@ describe('SimulationStreamService', () => {
   it('emits the progress of the key, each change once, and completes after FINISHED', async () => {
     const runId = await seedRun();
     await publish(runId, progress(SIMULATION_STATUS.RUNNING));
-    const { messages, state } = listen(runId);
+    const { messages, state } = await listen(runId);
 
     await expect.poll(() => messages).toHaveLength(1);
     await settle(POLL_MS * 4);
@@ -124,7 +137,7 @@ describe('SimulationStreamService', () => {
   it('completes after FAILED', async () => {
     const runId = await seedRun();
     await publish(runId, progress(SIMULATION_STATUS.FAILED));
-    const { messages, state } = listen(runId);
+    const { messages, state } = await listen(runId);
 
     await expect.poll(() => state.completed).toBe(true);
     expect(messages).toEqual([progress(SIMULATION_STATUS.FAILED)]);
@@ -132,7 +145,7 @@ describe('SimulationStreamService', () => {
 
   it('falls back to the row when the key is absent: QUEUED with empty metrics', async () => {
     const runId = await seedRun(SIMULATION_STATUS.QUEUED);
-    const { messages } = listen(runId);
+    const { messages } = await listen(runId);
 
     await expect.poll(() => messages).toEqual([progress(SIMULATION_STATUS.QUEUED, EMPTY_METRICS)]);
   });
@@ -140,14 +153,14 @@ describe('SimulationStreamService', () => {
   it('falls back to the final row once the key has expired, and completes', async () => {
     const finished = { ...METRICS, doubleBookings: 0 };
     const runId = await seedRun(SIMULATION_STATUS.FINISHED, finished);
-    const { messages, state } = listen(runId);
+    const { messages, state } = await listen(runId);
 
     await expect.poll(() => state.completed).toBe(true);
     expect(messages).toEqual([progress(SIMULATION_STATUS.FINISHED, finished)]);
   });
 
   it('ends with an error for a run that does not exist', async () => {
-    const { state } = listen(randomUUID());
+    const { state } = await listen(randomUUID());
 
     await expect.poll(() => state.error).toBeInstanceOf(NotFoundException);
   });
@@ -158,7 +171,7 @@ describe('SimulationStreamService', () => {
   ])('ends with an error and emits nothing for a key that is %s', async (_name, value) => {
     const runId = await seedRun();
     await publish(runId, value);
-    const { messages, state } = listen(runId);
+    const { messages, state } = await listen(runId);
 
     await expect.poll(() => state.error).toBeInstanceOf(Error);
     expect(messages).toEqual([]);
@@ -168,7 +181,7 @@ describe('SimulationStreamService', () => {
     service.maxLifetimeMs = POLL_MS * 5;
     const runId = await seedRun();
     await publish(runId, progress(SIMULATION_STATUS.RUNNING));
-    const { state } = listen(runId);
+    const { state } = await listen(runId);
 
     await expect.poll(() => state.completed).toBe(true);
   });
@@ -177,13 +190,26 @@ describe('SimulationStreamService', () => {
     service.maxStreams = 2;
     const runId = await seedRun();
     await publish(runId, progress(SIMULATION_STATUS.RUNNING));
-    const first = listen(runId);
-    listen(runId);
+    const first = await listen(runId);
+    await listen(runId);
 
-    expect(() => service.stream(runId)).toThrow(ServiceUnavailableException);
+    await expect(service.stream(runId)).rejects.toThrow(ServiceUnavailableException);
 
     open[0]?.unsubscribe();
     expect(first.state.completed).toBe(false);
-    expect(() => listen(runId)).not.toThrow();
+    await vi.waitFor(async () => {
+      await listen(runId);
+    });
+  });
+
+  it('counts the cap over every instance that shares the Redis', async () => {
+    for (const instance of [service, other]) instance.maxStreams = 2;
+    const runId = await seedRun();
+    await publish(runId, progress(SIMULATION_STATUS.RUNNING));
+    await listen(runId, service);
+    await listen(runId, other);
+
+    await expect(service.stream(runId)).rejects.toThrow(ServiceUnavailableException);
+    await expect(other.stream(runId)).rejects.toThrow(ServiceUnavailableException);
   });
 });

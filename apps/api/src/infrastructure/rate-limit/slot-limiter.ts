@@ -17,6 +17,9 @@ end
 return 0
 `;
 
+/** A slot outlives its stream by this much, so a stream that ends late is never counted as gone. */
+export const SLOT_SLACK_MS = 60_000;
+
 const AcquireReplySchema = z.union([z.literal(0), z.literal(1)]);
 
 /** A counted set of open slots in Redis, shared by every API instance. */
