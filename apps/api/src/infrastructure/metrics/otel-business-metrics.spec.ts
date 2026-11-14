@@ -2,7 +2,7 @@ import { BOOKING_STATUS, BOOKING_STRATEGY } from '@app/shared';
 import { metrics } from '@opentelemetry/api';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { EFFECT_OUTCOME } from '../../core/business-metrics.js';
+import { CACHE_RESULT, EFFECT_OUTCOME } from '../../core/business-metrics.js';
 import { HOLD_OUTCOME } from '../../core/hold-outcome.js';
 import { METRIC, METRIC_ATTR } from './names.js';
 import { OtelBusinessMetrics } from './otel-business-metrics.js';
@@ -70,6 +70,19 @@ describe('OtelBusinessMetrics', () => {
           [METRIC_ATTR.EFFECT]: QUEUE_EFFECT,
           [METRIC_ATTR.OUTCOME]: EFFECT_OUTCOME.FAILED,
         },
+      }),
+    ]);
+  });
+
+  it('counts a cache lookup with exactly the cache and result labels', async () => {
+    business.cacheLookup('events.list', CACHE_RESULT.HIT);
+
+    const points = dataPoints(await started.collect(), METRIC.CACHE_REQUESTS);
+
+    expect(points).toEqual([
+      expect.objectContaining({
+        value: 1,
+        attributes: { [METRIC_ATTR.CACHE]: 'events.list', [METRIC_ATTR.RESULT]: CACHE_RESULT.HIT },
       }),
     ]);
   });

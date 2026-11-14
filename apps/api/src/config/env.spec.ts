@@ -52,6 +52,7 @@ describe('parseEnv', () => {
       METRICS_ENABLED: false,
       METRICS_PORT: 9464,
       METRICS_HOST: '127.0.0.1',
+      EVENT_CACHE_TTL_SECONDS: 30,
     });
   });
 
@@ -135,6 +136,11 @@ describe('parseEnv', () => {
 
   it('PAYMENT_FAILURE_RATE above 1 is rejected', () => {
     expect(() => parseEnv({ PAYMENT_FAILURE_RATE: '1.5' })).toThrow(/PAYMENT_FAILURE_RATE/);
+  });
+
+  it('EVENT_CACHE_TTL_SECONDS accepts 0 (cache off) and rejects a negative number', () => {
+    expect(parseEnv({ EVENT_CACHE_TTL_SECONDS: '0' }).EVENT_CACHE_TTL_SECONDS).toBe(0);
+    expect(() => parseEnv({ EVENT_CACHE_TTL_SECONDS: '-1' })).toThrow(/EVENT_CACHE_TTL_SECONDS/);
   });
 
   it('HOLD_TTL_SECONDS must be a positive integer', () => {

@@ -7,6 +7,7 @@ export const METRIC = {
   HOLDS: 'tm.holds',
   BOOKINGS_SETTLED: 'tm.bookings.settled',
   QUEUE_EFFECTS: 'tm.queue.effects',
+  CACHE_REQUESTS: 'tm.cache.requests',
   DB_QUERIES_ACTIVE: 'tm.db.queries.active',
   OUTBOX_OLDEST_AGE: 'tm.outbox.oldest_age',
   QUEUE_DEPTH: 'tm.queue.depth',
@@ -20,6 +21,8 @@ export const METRIC_ATTR = {
   STATUS: 'status',
   QUEUE: 'queue',
   EFFECT: 'effect',
+  CACHE: 'cache',
+  RESULT: 'result',
 } as const;
 
 /** Label keys the HTTP instrumentation writes on the request histogram (stable semconv names). */

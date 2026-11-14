@@ -89,6 +89,7 @@ variable with a comment; the table is generated (`pnpm docs:generate`).
 | `METRICS_ENABLED` | default `false` |
 | `METRICS_PORT` | default `9464` |
 | `METRICS_HOST` | default `127.0.0.1` |
+| `EVENT_CACHE_TTL_SECONDS` | default `30` |
 | `GRAFANA_URL` | optional |
 <!-- /generated -->
 

@@ -8,6 +8,8 @@ export interface BusinessMetrics {
   /** Called after the commit that stored the status; `count` defaults to 1. */
   bookingSettled(status: BookingStatus, count?: number): void;
   effectProcessed(effect: string, outcome: EffectOutcome): void;
+  /** One per cache read that went to Redis; `cache` names the cache, never a key or an ID. */
+  cacheLookup(cache: string, result: CacheResult): void;
 }
 
 export const BUSINESS_METRICS = Symbol('BUSINESS_METRICS');
@@ -15,3 +17,6 @@ export const BUSINESS_METRICS = Symbol('BUSINESS_METRICS');
 /** FAILED is the word the run status already declares: the magic-string audit knows each value once. */
 export const EFFECT_OUTCOME = { SUCCEEDED: 'SUCCEEDED', FAILED: SIMULATION_STATUS.FAILED } as const;
 export type EffectOutcome = (typeof EFFECT_OUTCOME)[keyof typeof EFFECT_OUTCOME];
+
+export const CACHE_RESULT = { HIT: 'HIT', MISS: 'MISS', ERROR: 'ERROR' } as const;
+export type CacheResult = (typeof CACHE_RESULT)[keyof typeof CACHE_RESULT];

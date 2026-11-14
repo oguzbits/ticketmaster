@@ -19,4 +19,8 @@ export class RecordingMetrics implements BusinessMetrics {
   effectProcessed(...args: Parameters<BusinessMetrics['effectProcessed']>): void {
     this.recorded.push({ method: 'effectProcessed', args });
   }
+
+  cacheLookup(...args: Parameters<BusinessMetrics['cacheLookup']>): void {
+    this.recorded.push({ method: 'cacheLookup', args });
+  }
 }

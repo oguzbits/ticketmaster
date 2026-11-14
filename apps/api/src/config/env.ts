@@ -12,6 +12,7 @@ const DEFAULT_MAIL_FROM = 'tickets@ticketmaster-klon.invalid';
 const DEFAULT_TRACING_OTLP_ENDPOINT = 'http://localhost:4318';
 const DEFAULT_METRICS_PORT = 9464;
 const DEFAULT_METRICS_HOST = '127.0.0.1';
+const DEFAULT_EVENT_CACHE_TTL_SECONDS = 30;
 
 export const NODE_ENV = {
   DEVELOPMENT: 'development',
@@ -74,6 +75,8 @@ export const EnvSchema = z.object({
   // Interface of that listener. Loopback by default; Compose sets 0.0.0.0 so the scraper container
   // can reach it. The scrape holds counts per route template, no IDs and no personal data.
   METRICS_HOST: z.ipv4().default(DEFAULT_METRICS_HOST),
+  // Lifetime of a cached event page in seconds; 0 switches the cache off (baseline load runs).
+  EVENT_CACHE_TTL_SECONDS: z.coerce.number().int().min(0).default(DEFAULT_EVENT_CACHE_TTL_SECONDS),
   // Base URL of Grafana as the admin's browser reaches it; unset hides the trace link of a run.
   GRAFANA_URL: z.url().optional(),
 });

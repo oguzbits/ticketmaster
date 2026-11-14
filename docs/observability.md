@@ -102,16 +102,17 @@ each replica is a target, and the job `worker` scrapes `worker:9464`.
 `METRICS_ENABLED=true` (without it every target is down). The decision and the spike are in
 [ADR 0008](adr/0008-metrics-with-opentelemetry.md).
 
-| OpenTelemetry name             | Prometheus series                                                 | Kind             | Labels                                                           | Emitted by                                                 |
-| ------------------------------ | ----------------------------------------------------------------- | ---------------- | ---------------------------------------------------------------- | ---------------------------------------------------------- |
-| `http.server.request.duration` | `http_server_request_duration_bucket`, `_sum`, `_count` (seconds) | histogram        | `http_request_method`, `http_route`, `http_response_status_code` | API (HTTP instrumentation)                                 |
-| `tm.holds`                     | `tm_holds_total`                                                  | counter          | `strategy`, `outcome`                                            | API and the simulator in the worker, once per hold attempt |
-| `tm.bookings.settled`          | `tm_bookings_settled_total`                                       | counter          | `status`                                                         | API (payment, cancel), worker (expiry job)                 |
-| `tm.queue.effects`             | `tm_queue_effects_total`                                          | counter          | `effect`, `outcome`                                              | worker                                                     |
-| `tm.db.queries.active`         | `tm_db_queries_active`                                            | up-down counter  | none                                                             | API, worker                                                |
-| `tm.outbox.oldest_age`         | `tm_outbox_oldest_age` (seconds, 0 when no row waits)             | observable gauge | none                                                             | worker only                                                |
-| `tm.queue.depth`               | `tm_queue_depth`                                                  | observable gauge | `queue` (`booking-events`, `booking-events-dlq`)                 | worker only                                                |
-| `tm.waiting_room.waiting`      | `tm_waiting_room_waiting`                                         | observable gauge | none                                                             | worker only; users waiting in all rooms                    |
+| OpenTelemetry name             | Prometheus series                                                 | Kind             | Labels                                                                      | Emitted by                                                 |
+| ------------------------------ | ----------------------------------------------------------------- | ---------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `http.server.request.duration` | `http_server_request_duration_bucket`, `_sum`, `_count` (seconds) | histogram        | `http_request_method`, `http_route`, `http_response_status_code`            | API (HTTP instrumentation)                                 |
+| `tm.holds`                     | `tm_holds_total`                                                  | counter          | `strategy`, `outcome`                                                       | API and the simulator in the worker, once per hold attempt |
+| `tm.bookings.settled`          | `tm_bookings_settled_total`                                       | counter          | `status`                                                                    | API (payment, cancel), worker (expiry job)                 |
+| `tm.queue.effects`             | `tm_queue_effects_total`                                          | counter          | `effect`, `outcome`                                                         | worker                                                     |
+| `tm.cache.requests`            | `tm_cache_requests_total`                                         | counter          | `cache` (`events.list`, `events.detail`), `result` (`HIT`, `MISS`, `ERROR`) | API                                                        |
+| `tm.db.queries.active`         | `tm_db_queries_active`                                            | up-down counter  | none                                                                        | API, worker                                                |
+| `tm.outbox.oldest_age`         | `tm_outbox_oldest_age` (seconds, 0 when no row waits)             | observable gauge | none                                                                        | worker only                                                |
+| `tm.queue.depth`               | `tm_queue_depth`                                                  | observable gauge | `queue` (`booking-events`, `booking-events-dlq`)                            | worker only                                                |
+| `tm.waiting_room.waiting`      | `tm_waiting_room_waiting`                                         | observable gauge | none                                                                        | worker only; users waiting in all rooms                    |
 
 The exporter turns the dots into underscores, adds `_total` to counters and never appends the unit.
 
@@ -134,6 +135,8 @@ transaction committed, so a rolled-back or refused action counts nothing. Hold o
 after a payment, `CANCELLED` after a cancel and `EXPIRED` by the expiry job, once per batch.
 `tm_queue_effects_total` counts one per queue effect that took effect (`SUCCEEDED`) or whose handler
 threw (`FAILED`); a message handled before counts nothing.
+
+**Cache.** `tm_cache_requests_total` counts one per event-page read that went to Redis: `HIT` served the stored value, `MISS` loaded from PostgreSQL (an empty key or a value that no longer matches its schema), `ERROR` means Redis failed and the read fell through to PostgreSQL. A cache with `EVENT_CACHE_TTL_SECONDS=0` counts nothing. The labels name the cache, never an event.
 
 **Gauges.** Outbox age, queue depth and waiting room are registered by the worker only, so replicas
 of the API do not report shared state twice. A gauge whose source fails or does not answer within 3

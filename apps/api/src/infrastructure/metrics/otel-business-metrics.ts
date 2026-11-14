@@ -8,6 +8,7 @@ export class OtelBusinessMetrics implements BusinessMetrics {
   private readonly holds: Counter;
   private readonly settled: Counter;
   private readonly effects: Counter;
+  private readonly cache: Counter;
 
   constructor(meter: Meter) {
     this.holds = meter.createCounter(METRIC.HOLDS, { description: 'Hold attempts by outcome' });
@@ -16,6 +17,9 @@ export class OtelBusinessMetrics implements BusinessMetrics {
     });
     this.effects = meter.createCounter(METRIC.QUEUE_EFFECTS, {
       description: 'Queue messages processed by effect and outcome',
+    });
+    this.cache = meter.createCounter(METRIC.CACHE_REQUESTS, {
+      description: 'Cache reads by cache and result',
     });
   }
 
@@ -29,5 +33,9 @@ export class OtelBusinessMetrics implements BusinessMetrics {
 
   effectProcessed: BusinessMetrics['effectProcessed'] = (effect, outcome) => {
     this.effects.add(1, { [METRIC_ATTR.EFFECT]: effect, [METRIC_ATTR.OUTCOME]: outcome });
+  };
+
+  cacheLookup: BusinessMetrics['cacheLookup'] = (cache, result) => {
+    this.cache.add(1, { [METRIC_ATTR.CACHE]: cache, [METRIC_ATTR.RESULT]: result });
   };
 }
