@@ -86,6 +86,8 @@ variable with a comment; the table is generated (`pnpm docs:generate`).
 | `MAIL_FROM` | default `tickets@ticketmaster-klon.invalid` |
 | `TRACING_ENABLED` | default `false` |
 | `TRACING_OTLP_ENDPOINT` | optional |
+| `METRICS_ENABLED` | default `false` |
+| `METRICS_PORT` | default `9464` |
 | `GRAFANA_URL` | optional |
 <!-- /generated -->
 

@@ -10,6 +10,7 @@ const DEFAULT_DEMO_USER_TTL_SECONDS = 3600;
 const DEFAULT_AWS_REGION = 'us-east-1';
 const DEFAULT_MAIL_FROM = 'tickets@ticketmaster-klon.invalid';
 const DEFAULT_TRACING_OTLP_ENDPOINT = 'http://localhost:4318';
+const DEFAULT_METRICS_PORT = 9464;
 
 export const NODE_ENV = {
   DEVELOPMENT: 'development',
@@ -65,6 +66,10 @@ export const EnvSchema = z.object({
     .url()
     .default(DEFAULT_TRACING_OTLP_ENDPOINT)
     .transform((url) => url.replace(/\/+$/, '')),
+  // Off by default and in every test: no provider, no exporter, no listening socket.
+  METRICS_ENABLED: z.stringbool().default(false),
+  // Port of the Prometheus scrape endpoint (`/metrics`); served by its own listener, never by the app.
+  METRICS_PORT: z.coerce.number().int().min(1).max(MAX_PORT).default(DEFAULT_METRICS_PORT),
   // Base URL of Grafana as the admin's browser reaches it; unset hides the trace link of a run.
   GRAFANA_URL: z.url().optional(),
 });

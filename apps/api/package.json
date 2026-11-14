@@ -64,6 +64,10 @@
       "types": "./dist/infrastructure/tracing/testing/index.d.ts",
       "default": "./dist/infrastructure/tracing/testing/index.js"
     },
+    "./metrics": {
+      "types": "./dist/infrastructure/metrics/index.d.ts",
+      "default": "./dist/infrastructure/metrics/index.js"
+    },
     "./logging": {
       "types": "./dist/infrastructure/logging/index.d.ts",
       "default": "./dist/infrastructure/logging/index.js"
@@ -93,6 +97,7 @@
     "@opentelemetry/api": "1.10.0",
     "@opentelemetry/context-async-hooks": "3.1.1",
     "@opentelemetry/core": "3.1.1",
+    "@opentelemetry/exporter-prometheus": "0.301.2",
     "@opentelemetry/exporter-trace-otlp-http": "0.301.2",
     "@opentelemetry/instrumentation": "0.301.2",
     "@opentelemetry/instrumentation-aws-sdk": "0.80.0",
@@ -100,6 +105,7 @@
     "@opentelemetry/instrumentation-http": "0.301.2",
     "@opentelemetry/otlp-exporter-base": "0.301.2",
     "@opentelemetry/resources": "3.1.1",
+    "@opentelemetry/sdk-metrics": "3.1.1",
     "@opentelemetry/sdk-trace": "3.1.1",
     "dejavu-fonts-ttf": "^2.37.3",
     "drizzle-orm": "^0.45.4",

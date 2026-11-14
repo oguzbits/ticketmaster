@@ -49,6 +49,8 @@ describe('parseEnv', () => {
       MAIL_FROM: DEFAULT_MAIL_FROM,
       TRACING_ENABLED: false,
       TRACING_OTLP_ENDPOINT: LOCAL_OTLP_ENDPOINT,
+      METRICS_ENABLED: false,
+      METRICS_PORT: 9464,
     });
   });
 
@@ -203,6 +205,15 @@ describe('parseEnv', () => {
     expect(parseEnv({}).TRACING_ENABLED).toBe(false);
     expect(parseEnv({ TRACING_ENABLED: 'true' }).TRACING_ENABLED).toBe(true);
     expect(parseEnv({ TRACING_ENABLED: 'false' }).TRACING_ENABLED).toBe(false);
+  });
+
+  it('has metrics off by default on port 9464, and names METRICS_PORT outside the port range', () => {
+    expect(parseEnv({ METRICS_ENABLED: 'true', METRICS_PORT: '9100' })).toMatchObject({
+      METRICS_ENABLED: true,
+      METRICS_PORT: 9100,
+    });
+    expect(() => parseEnv({ METRICS_PORT: '0' })).toThrow(/METRICS_PORT/);
+    expect(() => parseEnv({ METRICS_PORT: '65536' })).toThrow(/METRICS_PORT/);
   });
 
   it('names TRACING_OTLP_ENDPOINT when it is not a URL, and strips trailing slashes', () => {

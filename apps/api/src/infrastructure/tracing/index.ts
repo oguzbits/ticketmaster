@@ -1,3 +1,4 @@
+export { acquireInstrumentation, useMeterProvider } from './instrumentation.js';
 export { SPAN_ATTR, SPAN_NAME, withSpan } from './span.js';
 export { currentTraceparent, withExtractedContext } from './trace-context.js';
 export type { ServiceName, TracingHandle } from './tracing.js';

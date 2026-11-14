@@ -1,21 +1,13 @@
-import type { IncomingMessage } from 'node:http';
-
 import {
   type Attributes,
   type Context,
-  context,
   type Link,
   propagation,
   SpanKind,
   trace,
 } from '@opentelemetry/api';
-import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
 import { CompositePropagator, W3CTraceContextPropagator } from '@opentelemetry/core';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
-import { registerInstrumentations } from '@opentelemetry/instrumentation';
-import { AwsInstrumentation } from '@opentelemetry/instrumentation-aws-sdk';
-import { ExpressInstrumentation, ExpressLayerType } from '@opentelemetry/instrumentation-express';
-import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
 import { CompressionAlgorithm } from '@opentelemetry/otlp-exporter-base';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import {
@@ -33,6 +25,9 @@ import {
 
 import type { Env } from '../../config/env.js';
 import { subscribeDriverSpans } from './channel-spans.js';
+import { acquireInstrumentation } from './instrumentation.js';
+
+export { isEventStreamRequest, isHealthProbe } from './instrumentation.js';
 
 export const SERVICE_NAME = { API: 'ticketmaster-api', WORKER: 'ticketmaster-worker' } as const;
 export type ServiceName = (typeof SERVICE_NAME)[keyof typeof SERVICE_NAME];
@@ -47,8 +42,6 @@ const OTLP_TRACES_PATH = '/v1/traces';
 // The queue keeps the SDK default (2048): a 50-buyer simulation run puts ~780 spans in one trace.
 const EXPORT_TIMEOUT_MS = 2000;
 const EXPORT_DELAY_MS = 2000;
-const EVENT_STREAM = 'text/event-stream';
-const HEALTH_PATH = /^\/health(\/|\?|$)/;
 
 /** Personal data under invariant 6: the client's address and agent, and the query string. */
 const PERSONAL_ATTRIBUTES = [
@@ -103,16 +96,6 @@ class DropReceiveRootSampler implements Sampler {
   }
 }
 
-/** Server-sent event streams stay open for minutes: their span would end long after the work. */
-export function isEventStreamRequest(request: Pick<IncomingMessage, 'headers'>): boolean {
-  return request.headers.accept?.includes(EVENT_STREAM) ?? false;
-}
-
-/** Container health checks and probes hit `/health/*` every few seconds: one-span traces, no signal. */
-export function isHealthProbe(request: Pick<IncomingMessage, 'url'>): boolean {
-  return HEALTH_PATH.test(request.url ?? '');
-}
-
 function otlpProcessor(endpoint: string): SpanProcessor {
   // Every option is explicit: the exporter would otherwise fall back to OTEL_EXPORTER_OTLP_*.
   const exporter = new OTLPTraceExporter({
@@ -147,36 +130,18 @@ export function startTracing(
     ],
   });
   trace.setGlobalTracerProvider(provider);
-  context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
   propagation.setGlobalPropagator(
     new CompositePropagator({ propagators: [new W3CTraceContextPropagator()] })
   );
   const unsubscribeDrivers = subscribeDriverSpans();
-  const unregister = registerInstrumentations({
-    instrumentations: [
-      new HttpInstrumentation({
-        ignoreIncomingRequestHook: (request) =>
-          isEventStreamRequest(request) || isHealthProbe(request),
-      }),
-      // Layer spans would bury the request: the server span keeps the route template as its name.
-      new ExpressInstrumentation({
-        ignoreLayersType: [
-          ExpressLayerType.MIDDLEWARE,
-          ExpressLayerType.ROUTER,
-          ExpressLayerType.REQUEST_HANDLER,
-        ],
-      }),
-      new AwsInstrumentation(),
-    ],
-  });
+  const releaseInstrumentation = acquireInstrumentation();
 
   return {
     async shutdown() {
       unsubscribeDrivers();
-      unregister();
+      releaseInstrumentation();
       await provider.shutdown();
       trace.disable();
-      context.disable();
       propagation.disable();
     },
   };

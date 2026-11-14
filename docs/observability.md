@@ -78,6 +78,22 @@ runs older than the column. A run writes about seven spans per buyer attempt int
 run of 50 buyers and 110 attempts gave 778 spans); Grafana shows them, a run of the maximum size is large enough to hit
 Tempo's per-trace size limit, and the trace is then cut off.
 
+## Metrics
+
+Prometheus-format metrics are off by default and in every test project (`METRICS_ENABLED=false`).
+With `METRICS_ENABLED=true` the API and the worker each serve `/metrics` from their own listener on
+`METRICS_PORT` (default 9464, bound to all interfaces of the process, not published by Compose, no
+personal data in it). A port that cannot be bound stops the process, so two processes on one host
+need different ports. The flags are independent of `TRACING_ENABLED`; either one makes the preload
+register the HTTP instrumentation, once. The decision and the spike are in
+[ADR 0008](adr/0008-metrics-with-opentelemetry.md).
+
+The request histogram is `http_server_request_duration_bucket` (with `_sum` and `_count`, seconds)
+with the labels `http_request_method`, `http_route` and `http_response_status_code`. `http_route` is
+the route template (`/api/bookings/:id/payment`), `/api*path` for an unknown path below `/api`, and
+`UNMATCHED` for any other request no route matched, so a URL never becomes a series. Health probes,
+event streams and the scrape itself are not counted.
+
 ## Check it by hand
 
 A repeatable check, not a CI job: it needs the profile. Stop any `pnpm dev` worker first, or it
