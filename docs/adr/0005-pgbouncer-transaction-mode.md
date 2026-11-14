@@ -41,8 +41,10 @@ Settings (`docker-compose.yml`):
 | `MAX_PREPARED_STATEMENTS` | `200`           | Named prepared statements survive a change of server connection (PgBouncer 1.21 and later).                   |
 
 No `DB_NAME`: the image then writes a wildcard database entry, so the database specs reach
-`app_test` through the pooler. `migrate` and the setup that drops and recreates `app_test` connect
-to PostgreSQL's own port; the apps and the worker connect to the pooler.
+`app_test` through the pooler. `migrate` connects to PostgreSQL's own port; the apps and the worker
+connect to the pooler. The setup of the database specs uses the `DATABASE_URL` it is given, so
+`pnpm test:db:pooled` drops, creates and migrates `app_test` through the pooler as well (`drop
+database ... with (force)` ends the idle server connections the pooler holds to it).
 
 Evidence: `pnpm test:db:pooled` runs every database spec with `DATABASE_URL` pointing at the pooler
 (the concurrency test, the payment and outbox specs with their advisory locks and `SKIP LOCKED`

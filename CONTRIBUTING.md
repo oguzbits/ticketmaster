@@ -27,7 +27,7 @@ Ports of the local stack (`docker-compose.yml`):
 | aws      | 45660     | local AWS emulator (SQS and S3), any credentials, region `us-east-1` |
 | mailpit  | 1025, 8025 | mail sink: SMTP on 1025, UI and REST API on 8025; the worker's confirmation mails arrive here |
 
-`docker compose up` also starts two `api` replicas (no host port; `docker compose stop` of one of them leaves the app answering) and three more processes without a host port: `aws-init`, a one-shot service
+`docker compose up` also starts two `api` replicas (no host port; `docker stop` of one container leaves the app answering, `docker compose stop api` stops both) and three more processes without a host port: `aws-init`, a one-shot service
 that creates the queues (`booking-events` with its dead-letter queue `booking-events-dlq`) and the
 bucket `tickets` in the emulator and exits (`pnpm aws:init` does the same from the host, and
 running it again changes nothing); `migrate`, a one-shot service
