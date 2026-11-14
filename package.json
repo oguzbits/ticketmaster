@@ -80,9 +80,6 @@
         "entry": [
           "src/main.ts",
           "src/infrastructure/database/migrate.ts"
-        ],
-        "ignore": [
-          "src/modules/waiting-room/domain/waiting-room-store.ts"
         ]
       }
     }
