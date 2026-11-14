@@ -179,11 +179,13 @@ describe('MyBookings ticket', () => {
     download?.click();
     TestBed.tick();
     expect(download?.disabled).toBe(true);
-    await answer(() => http.expectOne(TICKET_URL).flush(new Blob(['%PDF'])));
+    http.expectOne(TICKET_URL).flush(new Blob(['%PDF']));
 
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect(click).toHaveBeenCalledTimes(1);
-    expect(revokeObjectURL).toHaveBeenCalledWith(OBJECT_URL);
+    // Not in the same task as the click: Safari and Firefox cancel the download otherwise.
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith(OBJECT_URL));
     expect(button(/Download ticket/)?.disabled).toBe(false);
   });
 

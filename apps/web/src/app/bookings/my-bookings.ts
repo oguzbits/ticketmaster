@@ -85,12 +85,13 @@ export class MyBookings {
   }
 }
 
-/** Hands the file to the browser through a temporary link; the object URL is released at once. */
+/** Hands the file to the browser through a temporary link; the object URL is released right after. */
 function saveFile(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.download = name;
   link.click();
-  URL.revokeObjectURL(url);
+  // After the click has been handled: Safari and Firefox cancel the download of a revoked URL.
+  setTimeout(() => URL.revokeObjectURL(url));
 }
