@@ -11,6 +11,7 @@ import {
 import { and, count, eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, it } from 'vitest';
 
+import { lockOutboxRelays } from '../../modules/outbox/testing/index.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { SPEC_NOW } from '../../testing/time.js';
 import type { Database } from './database.module.js';
@@ -153,22 +154,27 @@ describe('booking schema', () => {
 
   it('a new outbox row is unpublished with no attempts', async () => {
     const id = randomUUID();
-
-    await db.insert(outboxMessages).values({
-      id,
-      type: OUTBOX_MESSAGE_TYPE.BOOKING_CONFIRMED,
-      payload: {
-        messageId: id,
+    // A relay of another spec file would publish the row between the write and the read.
+    const unlock = await lockOutboxRelays(db);
+    try {
+      await db.insert(outboxMessages).values({
+        id,
         type: OUTBOX_MESSAGE_TYPE.BOOKING_CONFIRMED,
-        bookingId: randomUUID(),
-        eventId: randomUUID(),
-        userId: randomUUID(),
-        occurredAt: SPEC_NOW.toISOString(),
-      },
-    });
+        payload: {
+          messageId: id,
+          type: OUTBOX_MESSAGE_TYPE.BOOKING_CONFIRMED,
+          bookingId: randomUUID(),
+          eventId: randomUUID(),
+          userId: randomUUID(),
+          occurredAt: SPEC_NOW.toISOString(),
+        },
+      });
 
-    const [row] = await db.select().from(outboxMessages).where(eq(outboxMessages.id, id));
-    expect(row).toMatchObject({ publishedAt: null, attempts: 0, lastError: null });
+      const [row] = await db.select().from(outboxMessages).where(eq(outboxMessages.id, id));
+      expect(row).toMatchObject({ publishedAt: null, attempts: 0, lastError: null });
+    } finally {
+      await unlock();
+    }
   });
 
   it('the index on unpublished outbox rows is partial', async () => {
