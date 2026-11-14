@@ -78,6 +78,13 @@
       "when": 1794675030424,
       "tag": "0010_easy_young_avengers",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794692179347,
+      "tag": "0011_flawless_squadron_sinister",
+      "breakpoints": true
     }
   ]
 }

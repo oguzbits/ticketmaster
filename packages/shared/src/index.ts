@@ -1,4 +1,19 @@
 export {
+  AUDIT_ACTION,
+  AUDIT_LOG_LIMITS,
+  AUDIT_SUBJECT,
+  type AuditAction,
+  AuditActionSchema,
+  type AuditEntry,
+  AuditEntrySchema,
+  type AuditLogPage,
+  AuditLogPageSchema,
+  type AuditLogQuery,
+  AuditLogQuerySchema,
+  type AuditSubject,
+  AuditSubjectSchema,
+} from './audit.js';
+export {
   AccessTokenClaimsSchema,
   type DemoLoginRequest,
   DemoLoginRequestSchema,

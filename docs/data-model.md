@@ -97,6 +97,15 @@ erDiagram
         text last_error "error name of the latest failed send"
         text traceparent "W3C trace context of the change, null if none"
     }
+    audit_log {
+        bigint id PK "identity, the cursor of the admin route"
+        timestamptz at "from the injected clock"
+        uuid actor_id "the verified user"
+        audit_action action "seven state changes"
+        audit_subject subject_type "BOOKING, EVENT, SIMULATION_RUN"
+        uuid subject_id
+        text request_id "ID of the request that did it"
+    }
     processed_messages {
         text consumer PK
         uuid message_id PK
@@ -132,6 +141,16 @@ kept; deleting old ones is a backlog item. `processed_messages(consumer, message
 consumers' idempotency record: the primary key turns a second delivery of a message ID into a
 no-op for that consumer. Neither table has a foreign key: the payload holds IDs of rows that may
 be deleted later (a demo user's cleanup), and a message must survive that.
+
+`audit_log` holds one row per audited state change (hold, payment, cancellation, event creation,
+strategy switch, waiting-room change, simulation start): who (`actor_id`), what (`action`,
+`subject_type`, `subject_id`) and the request that did it (`request_id`), IDs only. It is
+append-only: `AuditService.record` is the only writer, it inserts on the transaction of the change
+(so a rolled-back change leaves no row), and nothing updates or deletes rows. The database does not
+enforce this (migrations are generated, a trigger would need a hand-written one). `at` comes from
+the injected clock. The table has no foreign key: a row must outlive a deleted demo user or event.
+`audit_log(actor_id, id)` and `audit_log(action, id)` serve the filtered pages of the admin route,
+which pages newest first by `id`. There is no retention yet (backlog).
 
 Seats are copied from the venue template when an event is created (one `INSERT ... SELECT` in the
 same transaction as the event), so a later change of the template does not move seats of events

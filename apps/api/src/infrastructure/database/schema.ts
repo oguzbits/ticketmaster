@@ -1,4 +1,6 @@
 import {
+  AUDIT_ACTION,
+  AUDIT_SUBJECT,
   BOOKING_STATUS,
   BOOKING_STRATEGY,
   OUTBOX_MESSAGE_TYPE,
@@ -10,6 +12,7 @@ import {
 } from '@app/shared';
 import { sql } from 'drizzle-orm';
 import {
+  bigint,
   check,
   index,
   integer,
@@ -30,6 +33,8 @@ export const transitionReasonEnum = pgEnum('transition_reason', TRANSITION_REASO
 export const userRoleEnum = pgEnum('user_role', ROLE);
 export const simulationStatusEnum = pgEnum('simulation_status', SIMULATION_STATUS);
 export const outboxMessageTypeEnum = pgEnum('outbox_message_type', OUTBOX_MESSAGE_TYPE);
+export const auditActionEnum = pgEnum('audit_action', AUDIT_ACTION);
+export const auditSubjectEnum = pgEnum('audit_subject', AUDIT_SUBJECT);
 
 // The index predicate is DDL, so the values are written into it instead of passed as parameters.
 const literal = (value: string) => sql.raw(`'${value}'`);
@@ -226,4 +231,27 @@ export const processedMessages = pgTable(
     processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.consumer, t.messageId] })]
+);
+
+/**
+ * Who did what: one row per audited state change, written in the transaction of the change by
+ * `AuditService.record` and never updated or deleted. IDs only. No foreign keys: a row outlives a
+ * deleted demo user or event. The identity `id` is the keyset cursor of the admin route.
+ */
+export const auditLog = pgTable(
+  'audit_log',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+    at: timestamp('at', { withTimezone: true }).notNull(),
+    actorId: uuid('actor_id').notNull(),
+    action: auditActionEnum('action').notNull(),
+    subjectType: auditSubjectEnum('subject_type').notNull(),
+    subjectId: uuid('subject_id').notNull(),
+    requestId: text('request_id').notNull(),
+  },
+  // Serve the filtered, newest-first pages of the admin route.
+  (t) => [
+    index('audit_log_actor_id_id_idx').on(t.actorId, t.id),
+    index('audit_log_action_id_idx').on(t.action, t.id),
+  ]
 );

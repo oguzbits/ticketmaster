@@ -10,6 +10,7 @@ import { MetricsModule } from './infrastructure/metrics/index.js';
 import { RateLimitGuard } from './infrastructure/rate-limit/rate-limit.guard.js';
 import { RateLimitModule } from './infrastructure/rate-limit/rate-limit.module.js';
 import { RedisModule } from './infrastructure/redis/redis.module.js';
+import { AuditModule } from './modules/audit/index.js';
 import { AUTH_GUARD_PROVIDERS, AuthModule } from './modules/auth/index.js';
 import { BookingsModule } from './modules/bookings/index.js';
 import { DemoModule } from './modules/demo/index.js';
@@ -32,6 +33,7 @@ import { WaitingRoomModule } from './modules/waiting-room/index.js';
     RedisModule,
     RateLimitModule,
     AuthModule,
+    AuditModule,
     HealthModule,
     BookingsModule,
     EventsModule,
