@@ -381,6 +381,28 @@ describe('SeatStreamService limits', () => {
     expect(await refusedWith(eventId, OTHER_ADDRESS)).toBe(HttpStatus.OK);
   });
 
+  it('gives the total slot back when the address slot cannot be taken because Redis fails', async () => {
+    /** Fails the address counter only, like a Redis error between the two acquires. */
+    class FailingAddressSlots extends SlotLimiter {
+      override acquire(key: string, slotId: string, limit: number, lifetimeMs: number) {
+        if (key.includes(':ip:')) return Promise.reject(new Error('redis down'));
+        return super.acquire(key, slotId, limit, lifetimeMs);
+      }
+    }
+    const broken = ownSlotKeys(
+      new SeatStreamService(
+        redis,
+        new EventsService(db),
+        new FailingAddressSlots(redis, new SystemClock())
+      )
+    );
+    const { eventId } = await newEvent();
+
+    await expect(broken.stream(eventId, null, ADDRESS)).rejects.toThrow('redis down');
+
+    expect(await redis.zCard(`${broken.slotKeyPrefix}:total`)).toBe(0);
+  });
+
   it('ends a stream after its maximum lifetime and frees its slot and its Redis subscription', async () => {
     const { eventId } = await newEvent();
     service.maxLifetimeMs = 50;

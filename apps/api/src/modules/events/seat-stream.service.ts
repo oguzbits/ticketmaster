@@ -159,7 +159,14 @@ export class SeatStreamService implements OnModuleInit, OnModuleDestroy {
     if (!(await this.slots.acquire(totalKey, slotId, this.maxStreamsTotal, lifetimeMs))) {
       throw new ServiceUnavailableException('Too many open streams, try again later');
     }
-    if (!(await this.slots.acquire(addressKey, slotId, this.maxStreamsPerIp, lifetimeMs))) {
+    // The total slot is taken: a refusal and a Redis error both give it back before they leave.
+    const addressAllowed = await this.slots
+      .acquire(addressKey, slotId, this.maxStreamsPerIp, lifetimeMs)
+      .catch(async (error: Error) => {
+        await this.slots.release(totalKey, slotId);
+        throw error;
+      });
+    if (!addressAllowed) {
       await this.slots.release(totalKey, slotId);
       throw new HttpException('Too many open streams', HttpStatus.TOO_MANY_REQUESTS);
     }
