@@ -1,0 +1,70 @@
+<h1 class="text-2xl font-semibold">Audit log</h1>
+
+<div class="flex flex-col gap-1">
+  <label for="audit-action" class="text-sm font-medium">Action</label>
+  <select
+    id="audit-action"
+    class="w-fit rounded border border-edge bg-surface-raised px-3 py-2"
+    (change)="pickAction(actionInput.value)"
+    #actionInput
+  >
+    <option value="">All actions</option>
+    @for (item of actions; track item) {
+      <option [value]="item" [selected]="item === action()">{{ item }}</option>
+    }
+  </select>
+</div>
+
+@if (failed()) {
+  <p role="alert" class="text-danger">The audit log could not be loaded.</p>
+  <button type="button" class="btn self-start" (click)="retry()">Retry</button>
+}
+
+@if (items().length > 0) {
+  <div class="overflow-x-auto">
+    <table class="w-full border-collapse text-left text-sm">
+      <caption class="sr-only">
+        Audit log entries, newest first
+      </caption>
+      <thead>
+        <tr class="border-b border-edge">
+          <th scope="col" class="py-2 pr-3">Time</th>
+          <th scope="col" class="py-2 pr-3">Action</th>
+          <th scope="col" class="py-2 pr-3">Actor ID</th>
+          <th scope="col" class="py-2 pr-3">Subject</th>
+          <th scope="col" class="py-2">Request ID</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (item of items(); track item.id) {
+          <tr class="border-b border-edge">
+            <td class="py-2 pr-3 whitespace-nowrap">
+              <time [attr.datetime]="item.at">{{ item.at | date: 'medium' }}</time>
+            </td>
+            <th scope="row" class="py-2 pr-3 font-medium">{{ item.action }}</th>
+            <td class="py-2 pr-3 font-mono text-xs">{{ item.actorId }}</td>
+            <td class="py-2 pr-3">
+              {{ item.subjectType }}
+              <span class="font-mono text-xs">{{ item.subjectId }}</span>
+            </td>
+            <td class="py-2 font-mono text-xs">{{ item.requestId }}</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+  @if (nextCursor()) {
+    <button
+      type="button"
+      class="btn self-start disabled:cursor-not-allowed disabled:opacity-60"
+      [disabled]="loading()"
+      (click)="loadMore()"
+    >
+      {{ loading() ? 'Loading…' : 'Load more' }}
+    </button>
+  }
+} @else if (loading()) {
+  <p role="status">Loading audit log…</p>
+} @else if (!failed()) {
+  <p>No entries</p>
+}

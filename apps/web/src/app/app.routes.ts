@@ -1,6 +1,7 @@
 import type { Routes } from '@angular/router';
 import { ROLE } from '@app/shared';
 
+import { AuditLogPage } from './admin/audit-log-page';
 import { SimulatorPage } from './admin/simulator-page';
 import { roleGuard } from './auth/role.guard';
 import { MyBookings } from './bookings/my-bookings';
@@ -16,4 +17,5 @@ export const routes: Routes = [
   { path: 'bookings', component: MyBookings, canActivate: [roleGuard(ROLE.CUSTOMER)] },
   { path: 'organizer', component: OrganizerEvents, canActivate: [roleGuard(ROLE.ORGANIZER)] },
   { path: 'admin/simulator', component: SimulatorPage, canActivate: [roleGuard(ROLE.ADMIN)] },
+  { path: 'admin/audit-log', component: AuditLogPage, canActivate: [roleGuard(ROLE.ADMIN)] },
 ];
