@@ -184,9 +184,13 @@ describe('QueueConsumer against the local emulator', () => {
     async () => {
       const { queue, dlq } = await scratch();
       const handler = new RecordingHandler();
+      // Every level: a payload in a debug line leaks as well as one in an error.
       const logged = [
+        vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined),
         vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined),
         vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined),
+        vi.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined),
+        vi.spyOn(Logger.prototype, 'verbose').mockImplementation(() => undefined),
       ];
       const consumer = start(queue, handler);
       const notJson = randomUUID();
