@@ -34,6 +34,13 @@ export class FakeKeycloakAdmin implements KeycloakAdmin {
     return Promise.resolve();
   }
 
+  emailOf(userId: string): Promise<string> {
+    const user = this.created.find(({ id }) => id === userId);
+    return user === undefined
+      ? Promise.reject(new Error(`Keycloak user ${userId} not found`))
+      : Promise.resolve(user.email);
+  }
+
   passwordGrant(): Promise<TokenResponse> {
     return this.failGrant
       ? Promise.reject(new Error('grant refused'))

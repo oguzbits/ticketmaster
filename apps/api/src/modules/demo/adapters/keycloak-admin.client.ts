@@ -38,6 +38,7 @@ const AdminTokenSchema = z.object({
   expires_in: z.number().int().positive(),
 });
 const TokenErrorSchema = z.object({ error: z.string() });
+const UserSchema = z.object({ email: z.string().optional() });
 const RolesSchema = z.array(z.object({ id: z.string(), name: z.string() }));
 
 /** Keycloak over HTTP: admin calls through the service account of the confidential client. */
@@ -72,6 +73,13 @@ export class KeycloakAdminClient implements KeycloakAdmin {
 
   async deleteUser(id: string): Promise<void> {
     await this.admin('DELETE', `/users/${id}`, undefined, [HTTP.NOT_FOUND]);
+  }
+
+  async emailOf(userId: string): Promise<string> {
+    const { email } = UserSchema.parse(await (await this.admin('GET', `/users/${userId}`)).json());
+    if (email === undefined || email === '')
+      throw new Error(`Keycloak user ${userId} has no email`);
+    return email;
   }
 
   passwordGrant(username: string, password: string): Promise<TokenResponse> {

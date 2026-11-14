@@ -48,6 +48,6 @@ import { KEYCLOAK_ADMIN, type KeycloakAdmin } from './domain/demo-user.js';
       inject: [DB, KEYCLOAK_ADMIN, CLOCK, DEMO_OPTIONS],
     },
   ],
-  exports: [DemoService],
+  exports: [DemoService, KEYCLOAK_ADMIN],
 })
 export class DemoModule {}

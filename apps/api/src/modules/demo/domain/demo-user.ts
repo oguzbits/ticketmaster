@@ -17,6 +17,8 @@ export interface KeycloakAdmin {
   createUser(input: NewDemoUser): Promise<string>;
   /** A user that is already gone counts as deleted; any other failure throws. */
   deleteUser(id: string): Promise<void>;
+  /** The address of the user; throws when the user has none or does not exist. */
+  emailOf(userId: string): Promise<string>;
   passwordGrant(username: string, password: string): Promise<TokenResponse>;
   refresh(refreshToken: string): Promise<TokenResponse>;
 }

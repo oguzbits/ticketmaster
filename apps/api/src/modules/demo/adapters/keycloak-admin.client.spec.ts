@@ -183,6 +183,34 @@ describe('KeycloakAdminClient', () => {
     });
   });
 
+  describe('emailOf', () => {
+    const userId = randomUUID();
+    const answer = (status: number, body: object) =>
+      server.use(http.get(`${USERS_URL}/${userId}`, () => HttpResponse.json(body, { status })));
+
+    it('returns the address of the user', async () => {
+      answer(200, { id: userId, email: 'dora@example.test' });
+
+      await expect(client.emailOf(userId)).resolves.toBe('dora@example.test');
+    });
+
+    it('throws for a user without an address, so no mail goes to a blank one', async () => {
+      answer(200, { id: userId });
+      await expect(client.emailOf(userId)).rejects.toThrow(/no email/);
+
+      answer(200, { id: userId, email: '' });
+      await expect(client.emailOf(userId)).rejects.toThrow(/no email/);
+    });
+
+    it('throws for an unknown user and for a Keycloak error', async () => {
+      answer(404, { error: 'User not found' });
+      await expect(client.emailOf(userId)).rejects.toThrow(/404/);
+
+      answer(500, {});
+      await expect(client.emailOf(userId)).rejects.toThrow(/500/);
+    });
+  });
+
   describe('admin token', () => {
     const answerDelete = () =>
       server.use(
