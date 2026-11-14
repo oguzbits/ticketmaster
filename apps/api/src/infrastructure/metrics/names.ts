@@ -1,3 +1,6 @@
+/** The one meter of the app; instruments are told apart by their names. */
+export const METER_NAME = 'ticketmaster-klon';
+
 /** OpenTelemetry instrument names; the Prometheus exporter turns the dots into underscores. */
 export const METRIC = {
   HTTP_SERVER_DURATION: 'http.server.request.duration',

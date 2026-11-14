@@ -15,6 +15,8 @@ export interface WaitingRoomStore {
     now: Date,
     headSize: number
   ): Promise<{ admitted: number; head: string[] }>;
+  /** Users waiting in the queues of all events together; admitted users do not count. */
+  waitingTotal(): Promise<number>;
   /** Moves the given users from the queue to the admissions, atomically, never past `capacity` live admissions. Returns the users that moved. */
   admit(input: {
     eventId: string;

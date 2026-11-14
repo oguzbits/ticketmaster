@@ -1,6 +1,7 @@
-import { QUEUE_POLICY } from '@app/shared';
+import { QUEUE_POLICY, type QueueName } from '@app/shared';
 import {
   DeleteMessageCommand,
+  GetQueueAttributesCommand,
   GetQueueUrlCommand,
   ReceiveMessageCommand,
   SendMessageCommand,
@@ -17,6 +18,7 @@ const MESSAGE_ID_ATTRIBUTE = 'messageId';
 const TRACEPARENT_ATTRIBUTE = 'traceparent';
 const TRACEPARENT_FORMAT = /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/;
 const RECEIVE_COUNT_ATTRIBUTE = 'ApproximateReceiveCount';
+const DEPTH_ATTRIBUTE = 'ApproximateNumberOfMessages';
 
 /** A send, a delete or a lookup that takes longer fails: the relay holds a transaction meanwhile. */
 const SQS_REQUEST_TIMEOUT_MS = 5000;
@@ -72,8 +74,19 @@ const ReceivedSchema = z.object({
     .optional(),
 });
 
+const DepthSchema = z.object({ [DEPTH_ATTRIBUTE]: z.coerce.number().int().nonnegative() });
+
+async function queueUrl(client: SQSClient, queueName: string): Promise<string> {
+  const { QueueUrl } = await client.send(new GetQueueUrlCommand({ QueueName: queueName }));
+  if (QueueUrl === undefined) throw new Error(`queue ${queueName} has no URL`);
+  return QueueUrl;
+}
+
 /** An SQS queue (the local emulator or AWS), addressed by its URL. */
 export class SqsMessageQueue implements MessageQueue {
+  /** URLs of the other queues, resolved by name on first use (the same lookup as `connect`). */
+  private readonly urls = new Map<string, string>();
+
   private constructor(
     private readonly client: SQSClient,
     private readonly queueUrl: string,
@@ -86,9 +99,7 @@ export class SqsMessageQueue implements MessageQueue {
     queueName: string,
     waitSeconds: number = QUEUE_POLICY.LONG_POLL_SECONDS
   ): Promise<SqsMessageQueue> {
-    const { QueueUrl } = await client.send(new GetQueueUrlCommand({ QueueName: queueName }));
-    if (QueueUrl === undefined) throw new Error(`queue ${queueName} has no URL`);
-    return new SqsMessageQueue(client, QueueUrl, waitSeconds);
+    return new SqsMessageQueue(client, await queueUrl(client, queueName), waitSeconds);
   }
 
   async send(input: {
@@ -142,5 +153,17 @@ export class SqsMessageQueue implements MessageQueue {
     await this.client.send(
       new DeleteMessageCommand({ QueueUrl: this.queueUrl, ReceiptHandle: receiptHandle })
     );
+  }
+
+  async depth(queue: QueueName): Promise<number> {
+    let url = this.urls.get(queue);
+    if (url === undefined) {
+      url = await queueUrl(this.client, queue);
+      this.urls.set(queue, url);
+    }
+    const { Attributes } = await this.client.send(
+      new GetQueueAttributesCommand({ QueueUrl: url, AttributeNames: [DEPTH_ATTRIBUTE] })
+    );
+    return DepthSchema.parse(Attributes)[DEPTH_ATTRIBUTE];
   }
 }

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import { QUEUE_NAME } from '@app/shared';
 import { GetQueueUrlCommand, SendMessageCommand, type SQSClient } from '@aws-sdk/client-sqs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -149,5 +150,20 @@ describe('SqsMessageQueue against the local emulator', () => {
 
     // Longer than the visibility timeout: an undeleted message would be back by now.
     expect(await queue.receive(1)).toEqual([]);
+  });
+
+  it('depth counts the visible messages of the named queue, the dead-letter queue included', async () => {
+    // The production queues: other specs use scratch queues, so only this test touches the DLQ.
+    const dlq = await SqsMessageQueue.connect(client, QUEUE_NAME.BOOKING_EVENTS_DLQ, POLL_SECONDS);
+    const before = await queue.depth(QUEUE_NAME.BOOKING_EVENTS_DLQ);
+    const sent: string[] = [randomUUID(), randomUUID(), randomUUID()];
+    for (const messageId of sent) await dlq.send({ body: 'dead', messageId, traceparent: null });
+
+    expect(await queue.depth(QUEUE_NAME.BOOKING_EVENTS_DLQ)).toBe(before + sent.length);
+
+    // Take only the messages of this test off the queue again.
+    for (const received of await dlq.receive(10)) {
+      if (sent.includes(received.messageId)) await dlq.delete(received.receiptHandle);
+    }
   });
 });

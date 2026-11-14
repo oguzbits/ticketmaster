@@ -4,6 +4,8 @@ export const QUEUE_NAME = {
   BOOKING_EVENTS_DLQ: 'booking-events-dlq',
 } as const;
 
+export type QueueName = (typeof QUEUE_NAME)[keyof typeof QUEUE_NAME];
+
 /** Redrive and polling policy of the queues: a message is received at most MAX_RECEIVE_COUNT times. */
 export const QUEUE_POLICY = {
   MAX_RECEIVE_COUNT: 5,

@@ -1,11 +1,18 @@
 import { metrics } from '@opentelemetry/api';
 import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
 import { resourceFromAttributes } from '@opentelemetry/resources';
-import { MeterProvider, type MetricReader, type ViewOptions } from '@opentelemetry/sdk-metrics';
+import {
+  AggregationTemporality,
+  InstrumentType,
+  MeterProvider,
+  type MetricReader,
+  type ViewOptions,
+} from '@opentelemetry/sdk-metrics';
 
 import type { Env } from '../../config/env.js';
 import { acquireInstrumentation, type ServiceName, useMeterProvider } from '../tracing/index.js';
-import { HTTP_ATTR, METRIC, ROUTE_UNMATCHED } from './names.js';
+import { HTTP_ATTR, METER_NAME, METRIC, ROUTE_UNMATCHED } from './names.js';
+import { subscribeQueryCounter } from './query-counter.js';
 
 export interface MetricsHandle {
   shutdown(): Promise<void>;
@@ -36,8 +43,27 @@ export function failOnBindError(error: Error | void): void {
   if (error) throw error;
 }
 
+/**
+ * Cumulative, as Prometheus needs for counters and histograms, except for observable gauges: a
+ * cumulative reader repeats the last value of a gauge that nothing observed in this scrape, so a
+ * failed callback would read as a stale but healthy value. As a delta, only what was observed
+ * in this scrape is reported.
+ */
+export function scrapeTemporality(type: InstrumentType): AggregationTemporality {
+  return type === InstrumentType.OBSERVABLE_GAUGE
+    ? AggregationTemporality.DELTA
+    : AggregationTemporality.CUMULATIVE;
+}
+
+/** The exporter fixes its temporality to cumulative; only this override can change it per instrument. */
+class ScrapeExporter extends PrometheusExporter {
+  override selectAggregationTemporality(type: InstrumentType): AggregationTemporality {
+    return scrapeTemporality(type);
+  }
+}
+
 function prometheusReader(host: string, port: number): MetricReader {
-  return new PrometheusExporter({ host, port, withoutScopeInfo: true }, failOnBindError);
+  return new ScrapeExporter({ host, port, withoutScopeInfo: true }, failOnBindError);
 }
 
 /**
@@ -58,9 +84,12 @@ export function startMetrics(
   metrics.setGlobalMeterProvider(provider);
   const releaseInstrumentation = acquireInstrumentation();
   useMeterProvider(provider);
+  // Not tied to tracing: the counter subscribes to the driver channel itself.
+  const unsubscribeQueries = subscribeQueryCounter(provider.getMeter(METER_NAME));
 
   return {
     async shutdown() {
+      unsubscribeQueries();
       releaseInstrumentation();
       await provider.shutdown();
       metrics.disable();

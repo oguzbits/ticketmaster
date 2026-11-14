@@ -101,6 +101,16 @@ committed, so a rolled-back or refused action counts nothing: `tm_holds_total{st
 cancel, `EXPIRED` by the expiry job once per batch). No ID of a user, booking, event or
 seat is ever a label.
 
+The worker adds `tm_queue_effects_total{effect,outcome}` (one per queue effect that took effect,
+`SUCCEEDED`, or whose handler threw, `FAILED`; a message handled before counts nothing) and three
+gauges that only the worker registers, so replicas of the API do not report shared state twice:
+`tm_outbox_oldest_age` (seconds, 0 when no row waits), `tm_queue_depth{queue}` (the booking queue
+and its dead-letter queue) and `tm_waiting_room_waiting` (users waiting in all rooms). A gauge
+whose source fails or does not answer within 3 seconds is left out of that scrape and logged by
+error name, never reported as 0 or repeated with its last value (gauges are exported as deltas for
+this). `tm_db_queries_active` (API and worker) is the number of database queries in flight; it
+needs only `METRICS_ENABLED`.
+
 ## Check it by hand
 
 A repeatable check, not a CI job: it needs the profile. Stop any `pnpm dev` worker first, or it

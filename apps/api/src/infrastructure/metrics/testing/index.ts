@@ -8,7 +8,7 @@ import {
 import { register } from 'import-in-the-middle/register-hooks.mjs';
 
 import { SERVICE_NAME } from '../../tracing/index.js';
-import { startMetrics } from '../metrics.js';
+import { scrapeTemporality, startMetrics } from '../metrics.js';
 
 let hooksRegistered = false;
 
@@ -24,6 +24,11 @@ export function registerEsmHooks(): void {
 
 /** A reader nobody polls: the spec collects when it wants to look. */
 class CollectingReader extends MetricReader {
+  constructor() {
+    // The temporality of the real exporter: a gauge nobody observed is left out.
+    super({ aggregationTemporalitySelector: scrapeTemporality });
+  }
+
   protected override onForceFlush(): Promise<void> {
     return Promise.resolve();
   }

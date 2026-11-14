@@ -1,3 +1,5 @@
+import type { QueueName } from '@app/shared';
+
 /** A message as the queue hands it out. */
 export interface ReceivedMessage {
   body: string;
@@ -27,6 +29,8 @@ export interface MessageQueue {
   receive(max: number, signal?: AbortSignal): Promise<ReceivedMessage[]>;
   /** Removes a received message for good. A consumer calls it only after its handler succeeded. */
   delete(receiptHandle: string): Promise<void>;
+  /** The messages waiting in the named queue (approximate: in flight and delayed ones do not count). */
+  depth(queue: QueueName): Promise<number>;
 }
 
 export const MESSAGE_QUEUE = Symbol('MESSAGE_QUEUE');

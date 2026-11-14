@@ -8,6 +8,8 @@ import type { WaitingRoomStore } from '../domain/waiting-room-store.js';
 /** Both keys expire a day after the last write, so the keys of a deleted event vanish. */
 const KEY_TTL_MS = 24 * 60 * 60 * 1000;
 
+const SCAN_BATCH = 100;
+
 /** The queue holds user IDs scored by join time, the admissions hold user IDs scored by expiry. */
 export const waitingRoomKeys = (eventId: string) => ({
   queue: `waiting-room:${eventId}:queue`,
@@ -117,6 +119,21 @@ export class RedisWaitingRoomStore implements WaitingRoomStore {
       this.redis.zRange(keys.queue, 0, headSize - 1),
     ]);
     return { admitted, head };
+  }
+
+  // shortcut: a queue stays counted until its key expires (a day) when an event drops its waiting
+  // room, upgrade by asking the database for the events that have one when that skews the gauge.
+  async waitingTotal(): Promise<number> {
+    // SCAN may return a key twice; the set counts it once.
+    const queues = new Set<string>();
+    for await (const batch of this.redis.scanIterator({
+      MATCH: waitingRoomKeys('*').queue,
+      COUNT: SCAN_BATCH,
+    })) {
+      for (const key of batch) queues.add(key);
+    }
+    const lengths = await Promise.all([...queues].map((key) => this.redis.zCard(key)));
+    return lengths.reduce((sum, length) => sum + length, 0);
   }
 
   async admit(input: {

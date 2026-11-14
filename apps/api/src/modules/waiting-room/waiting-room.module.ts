@@ -20,6 +20,6 @@ import { WaitingRoomStreamService } from './waiting-room-stream.service.js';
       inject: [REDIS],
     },
   ],
-  exports: [WaitingRoomService],
+  exports: [WaitingRoomService, WAITING_ROOM_STORE],
 })
 export class WaitingRoomModule {}

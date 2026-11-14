@@ -5,6 +5,7 @@ import { WaitingRoomService } from '@app/api/waiting-room';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it } from 'vitest';
 
+import { OperationalGauges } from './operational-gauges.js';
 import { OutboxRelayJob } from './outbox-relay.job.js';
 import { SimulationConsumer } from './simulation.consumer.js';
 import { WaitingRoomAdmissionJob } from './waiting-room-admission.job.js';
@@ -24,6 +25,8 @@ describe('WorkerModule', () => {
     expect(moduleRef.get(OutboxRelayJob)).toBeInstanceOf(OutboxRelayJob);
     expect(moduleRef.get(WaitingRoomService, { strict: false })).toBeInstanceOf(WaitingRoomService);
     expect(moduleRef.get(WaitingRoomAdmissionJob)).toBeInstanceOf(WaitingRoomAdmissionJob);
+    // Only the worker observes the shared state (outbox, queues, waiting rooms): the API has no such provider.
+    expect(moduleRef.get(OperationalGauges)).toBeInstanceOf(OperationalGauges);
     await moduleRef.close();
   });
 });

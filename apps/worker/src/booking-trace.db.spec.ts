@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { BookingsService, HOLD_OUTCOME } from '@app/api/bookings';
-import { createTestEvent } from '@app/api/bookings/testing';
+import { createTestEvent, RecordingMetrics } from '@app/api/bookings/testing';
 import { APP_CONFIG, loadEnv } from '@app/api/config';
 import { type Database, DB } from '@app/api/database';
 import { MESSAGE_QUEUE, OutboxService } from '@app/api/outbox';
@@ -93,8 +93,11 @@ describe('one booking is one trace', () => {
       consumer = new QueueConsumer(
         moduleRef.get(MESSAGE_QUEUE, { strict: false }),
         outbox,
-        effect(CONSUMER_NAME.TICKET_PDF, held.bookingId, seen),
-        effect(CONSUMER_NAME.CONFIRMATION_MAIL, held.bookingId, seen)
+        new RecordingMetrics(),
+        [
+          effect(CONSUMER_NAME.TICKET_PDF, held.bookingId, seen),
+          effect(CONSUMER_NAME.CONFIRMATION_MAIL, held.bookingId, seen),
+        ]
       );
       consumer.onModuleInit();
       const spans = () => traced.exporter.getFinishedSpans();

@@ -4,7 +4,9 @@ import { WAITING_ROOM_STATE } from '@app/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { Redis } from '../../../infrastructure/redis/redis.module.js';
+import { openTestDatabase } from '../../../testing/database.js';
 import { openTestRedis } from '../../../testing/redis.js';
+import { lockSpecs } from '../../../testing/spec-lock.js';
 import { SPEC_NOW } from '../../../testing/time.js';
 import { RedisWaitingRoomStore, waitingRoomKeys } from './redis-waiting-room-store.js';
 
@@ -170,5 +172,23 @@ describe('RedisWaitingRoomStore', () => {
       waiting: 1,
       admittedUntil: null,
     });
+  });
+
+  it('waitingTotal sums the queues of every event; admitted users do not count', async () => {
+    // Other waiting-room specs leave queues in the same Redis: hold their lock, compare with the baseline.
+    const database = openTestDatabase();
+    const unlock = await lockSpecs(database.db, 'waiting-room');
+    try {
+      const baseline = await store.waitingTotal();
+      const [first, second] = [freshEvent(), freshEvent()];
+      await Promise.all(['a', 'b'].map((id) => store.join(first, id, SPEC_NOW)));
+      await Promise.all(['c', 'd', 'e', 'f'].map((id) => store.join(second, id, SPEC_NOW)));
+      await admit(second, ['c'], 5);
+
+      expect(await store.waitingTotal()).toBe(baseline + 5);
+    } finally {
+      await unlock();
+      await database.close();
+    }
   });
 });

@@ -1,5 +1,6 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 
+import { BUSINESS_METRICS, type BusinessMetrics, EFFECT_OUTCOME } from '@app/api/metrics';
 import { MESSAGE_QUEUE, type MessageQueue, OutboxService } from '@app/api/outbox';
 import { SPAN_ATTR, SPAN_NAME, SpanKind, withExtractedContext, withSpan } from '@app/api/tracing';
 import { OUTBOX_MESSAGE_TYPE, type QueueMessage, QueueMessageSchema } from '@app/shared';
@@ -11,9 +12,13 @@ import {
   type OnModuleInit,
 } from '@nestjs/common';
 
-import type { BookingConfirmedEffect } from './handlers/booking-confirmed-effect.js';
-import { ConfirmationMailHandler } from './handlers/confirmation-mail.handler.js';
-import { TicketPdfHandler } from './handlers/ticket-pdf.handler.js';
+import type {
+  BookingConfirmedEffect,
+  BookingConfirmedMessage,
+} from './handlers/booking-confirmed-effect.js';
+
+/** The effects of a booking-confirmed message, in the order they run: the mail reads the PDF the first one stored. */
+export const BOOKING_CONFIRMED_EFFECTS = Symbol('BOOKING_CONFIRMED_EFFECTS');
 
 /** The pause after a failing iteration, so a queue or database that is down is not hammered. */
 const ERROR_PAUSE_MS = 1000;
@@ -40,8 +45,8 @@ export class QueueConsumer implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(MESSAGE_QUEUE) private readonly queue: MessageQueue,
     @Inject(OutboxService) private readonly outbox: OutboxService,
-    @Inject(TicketPdfHandler) private readonly ticketPdf: BookingConfirmedEffect,
-    @Inject(ConfirmationMailHandler) private readonly confirmationMail: BookingConfirmedEffect
+    @Inject(BUSINESS_METRICS) private readonly metrics: BusinessMetrics,
+    @Inject(BOOKING_CONFIRMED_EFFECTS) private readonly effects: readonly BookingConfirmedEffect[]
   ) {}
 
   onModuleInit(): void {
@@ -115,17 +120,30 @@ export class QueueConsumer implements OnModuleInit, OnModuleDestroy {
   private async dispatch(message: QueueMessage): Promise<void> {
     switch (message.type) {
       case OUTBOX_MESSAGE_TYPE.BOOKING_CONFIRMED:
-        for (const effect of [this.ticketPdf, this.confirmationMail]) {
-          await withSpan(
-            SPAN_NAME.QUEUE_EFFECT,
-            () =>
-              this.outbox.processOnce(effect.consumer, message.messageId, (tx) =>
-                effect.handle(message, tx)
-              ),
-            { attributes: { [SPAN_ATTR.EFFECT]: effect.consumer } }
-          );
-        }
+        for (const effect of this.effects) await this.runEffect(effect, message);
         return;
     }
+  }
+
+  /** Counts the effect after it committed, or its failure; a message that was handled before counts nothing. */
+  private async runEffect(
+    effect: BookingConfirmedEffect,
+    message: BookingConfirmedMessage
+  ): Promise<void> {
+    let tookEffect: boolean;
+    try {
+      tookEffect = await withSpan(
+        SPAN_NAME.QUEUE_EFFECT,
+        () =>
+          this.outbox.processOnce(effect.consumer, message.messageId, (tx) =>
+            effect.handle(message, tx)
+          ),
+        { attributes: { [SPAN_ATTR.EFFECT]: effect.consumer } }
+      );
+    } catch (error) {
+      this.metrics.effectProcessed(effect.consumer, EFFECT_OUTCOME.FAILED);
+      throw error;
+    }
+    if (tookEffect) this.metrics.effectProcessed(effect.consumer, EFFECT_OUTCOME.SUCCEEDED);
   }
 }

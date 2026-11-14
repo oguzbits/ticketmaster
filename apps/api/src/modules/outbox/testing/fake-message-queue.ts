@@ -28,6 +28,10 @@ export class FakeMessageQueue implements MessageQueue {
     throw new Error('FakeMessageQueue only records sends');
   }
 
+  depth(): Promise<number> {
+    throw new Error('FakeMessageQueue only records sends');
+  }
+
   /** How often the message was accepted. */
   sentCount(messageId: string): number {
     return this.sent.filter((input) => input.messageId === messageId).length;

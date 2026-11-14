@@ -17,8 +17,9 @@ import { DemoCleanupJob } from './demo-cleanup.job.js';
 import { ConfirmationMailHandler } from './handlers/confirmation-mail.handler.js';
 import { TicketPdfHandler } from './handlers/ticket-pdf.handler.js';
 import { HoldExpiryJob } from './hold-expiry.job.js';
+import { OperationalGauges } from './operational-gauges.js';
 import { OutboxRelayJob } from './outbox-relay.job.js';
-import { QueueConsumer } from './queue-consumer.js';
+import { BOOKING_CONFIRMED_EFFECTS, QueueConsumer } from './queue-consumer.js';
 import { SimulationConsumer } from './simulation.consumer.js';
 import { SimulationReaperJob } from './simulation-reaper.job.js';
 import { SimulationRetentionJob } from './simulation-retention.job.js';
@@ -51,7 +52,16 @@ import { workerLogOptions } from './worker-logger.js';
     SimulationConsumer,
     TicketPdfHandler,
     ConfirmationMailHandler,
+    {
+      provide: BOOKING_CONFIRMED_EFFECTS,
+      useFactory: (ticketPdf: TicketPdfHandler, confirmationMail: ConfirmationMailHandler) => [
+        ticketPdf,
+        confirmationMail,
+      ],
+      inject: [TicketPdfHandler, ConfirmationMailHandler],
+    },
     QueueConsumer,
+    OperationalGauges,
   ],
 })
 export class WorkerModule {}

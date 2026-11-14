@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { SERVICE_NAME } from '../tracing/index.js';
 import { startMetrics } from './metrics.js';
+import { appMeter } from './metrics.module.js';
+import { METRIC } from './names.js';
 import { registerEsmHooks } from './testing/index.js';
 
 async function freePort(): Promise<number> {
@@ -45,5 +47,28 @@ describe('Prometheus endpoint', () => {
 
     await handle?.shutdown();
     await expect(fetch(url)).rejects.toThrow();
+  });
+
+  it('a gauge that is not observed in a scrape is left out of it, not repeated with its last value', async () => {
+    const port = await freePort();
+    const handle = startMetrics(
+      { METRICS_ENABLED: true, METRICS_PORT: port, METRICS_HOST: '127.0.0.1' },
+      { serviceName: SERVICE_NAME.WORKER }
+    );
+    let failing = false;
+    appMeter()
+      .createObservableGauge(METRIC.OUTBOX_OLDEST_AGE)
+      .addCallback((result) => {
+        if (!failing) result.observe(5);
+      });
+    const url = `http://127.0.0.1:${port}/metrics`;
+    const scrape = async () => (await fetch(url)).text();
+    await vi.waitFor(async () => fetch(url), { timeout: 2000 });
+
+    expect(await scrape()).toMatch(/^tm_outbox_oldest_age\S* 5$/m);
+    failing = true;
+
+    expect(await scrape()).not.toContain('tm_outbox_oldest_age');
+    await handle?.shutdown();
   });
 });

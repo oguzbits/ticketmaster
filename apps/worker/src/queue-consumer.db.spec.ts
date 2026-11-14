@@ -2,9 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import { BookingsService, HOLD_OUTCOME } from '@app/api/bookings';
-import { createTestEvent } from '@app/api/bookings/testing';
+import { createTestEvent, RecordingMetrics } from '@app/api/bookings/testing';
 import { APP_CONFIG, loadEnv } from '@app/api/config';
 import { type Database, DB } from '@app/api/database';
+import { EFFECT_OUTCOME } from '@app/api/metrics';
 import { MESSAGE_QUEUE, type MessageQueue, OutboxService } from '@app/api/outbox';
 import {
   countProcessed,
@@ -147,9 +148,10 @@ describe('QueueConsumer against the local emulator', () => {
   function start(
     queue: MessageQueue,
     handler = new RecordingHandler(),
-    second = new RecordingHandler(CONSUMER_NAME.CONFIRMATION_MAIL)
+    second = new RecordingHandler(CONSUMER_NAME.CONFIRMATION_MAIL),
+    metrics = new RecordingMetrics()
   ): QueueConsumer {
-    const consumer = new QueueConsumer(queue, outbox, handler, second);
+    const consumer = new QueueConsumer(queue, outbox, metrics, [handler, second]);
     consumer.errorPauseMs = ERROR_PAUSE_MS;
     consumer.onModuleInit();
     running.push(consumer);
@@ -263,6 +265,48 @@ describe('QueueConsumer against the local emulator', () => {
       .poll(() => countProcessed(db, message.messageId), { timeout: DLQ_WAIT_MS })
       .toBe(EFFECTS);
     expect(await leftOver(queue, consumer)).toEqual([]);
+  });
+
+  describe('effect metrics', () => {
+    const outcomes = (metrics: RecordingMetrics) =>
+      metrics.calls.map((call) => `${call.method}:${call.args.join(':')}`);
+
+    it('counts every effect that took effect once; the same message ID again counts nothing', async () => {
+      const { queue } = await scratch();
+      const metrics = new RecordingMetrics();
+      const consumer = start(queue, new RecordingHandler(), undefined, metrics);
+      const message = confirmed();
+
+      await send(queue, message);
+      await send(queue, message);
+      await expect.poll(() => metrics.calls.length, { timeout: DLQ_WAIT_MS }).toBe(EFFECTS);
+      await leftOver(queue, consumer);
+
+      expect(outcomes(metrics)).toEqual([
+        `effectProcessed:${CONSUMER_NAME.TICKET_PDF}:${EFFECT_OUTCOME.SUCCEEDED}`,
+        `effectProcessed:${CONSUMER_NAME.CONFIRMATION_MAIL}:${EFFECT_OUTCOME.SUCCEEDED}`,
+      ]);
+    });
+
+    it('counts a handler that throws as FAILED once per delivery; the effect that took effect before is not counted again on the retry', async () => {
+      const { queue } = await scratch();
+      const metrics = new RecordingMetrics();
+      const mail = new RecordingHandler(CONSUMER_NAME.CONFIRMATION_MAIL);
+      const message = confirmed();
+      mail.failures.set(message.messageId, 1);
+      const consumer = start(queue, new RecordingHandler(), mail, metrics);
+
+      await send(queue, message);
+      await expect.poll(() => mail.handled, { timeout: DLQ_WAIT_MS }).toEqual([message.messageId]);
+      await expect.poll(() => metrics.calls.length, { timeout: DLQ_WAIT_MS }).toBe(3);
+      await leftOver(queue, consumer);
+
+      expect(outcomes(metrics)).toEqual([
+        `effectProcessed:${CONSUMER_NAME.TICKET_PDF}:${EFFECT_OUTCOME.SUCCEEDED}`,
+        `effectProcessed:${CONSUMER_NAME.CONFIRMATION_MAIL}:${EFFECT_OUTCOME.FAILED}`,
+        `effectProcessed:${CONSUMER_NAME.CONFIRMATION_MAIL}:${EFFECT_OUTCOME.SUCCEEDED}`,
+      ]);
+    });
   });
 
   describe('trace context', () => {

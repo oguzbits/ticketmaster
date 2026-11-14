@@ -72,6 +72,10 @@
       "types": "./dist/infrastructure/metrics/index.d.ts",
       "default": "./dist/infrastructure/metrics/index.js"
     },
+    "./metrics/testing": {
+      "types": "./dist/infrastructure/metrics/testing/index.d.ts",
+      "default": "./dist/infrastructure/metrics/testing/index.js"
+    },
     "./logging": {
       "types": "./dist/infrastructure/logging/index.d.ts",
       "default": "./dist/infrastructure/logging/index.js"
