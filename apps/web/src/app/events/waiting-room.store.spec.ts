@@ -146,6 +146,17 @@ describe('WaitingRoomStore', () => {
     expect(fake.streams[0]?.observed).toBe(false);
   });
 
+  it('leaves while admitted: the admission is gone and the countdown stops', () => {
+    const { store, fake, opened } = setup();
+    opened(ADMITTED);
+
+    store.leave();
+    fake.leaveCalls[0]?.complete();
+
+    expect(store.state()).toBe(WAITING_ROOM_STATE.NONE);
+    expect(store.admittedUntil()).toBeNull();
+  });
+
   it('reports a failed join and lets the caller try again', () => {
     const { store, fake, opened } = setup();
     opened();

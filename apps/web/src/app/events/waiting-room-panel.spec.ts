@@ -115,6 +115,19 @@ describe('WaitingRoomPanel', () => {
     expect(element.querySelector('[role=timer]')?.textContent).toContain('1:00');
   });
 
+  it('leaves while admitted and returns to not joined', () => {
+    const { element, button, fake, press, show } = render(ADMITTED);
+
+    press(/Leave/);
+    expect(fake.leaveCalls).toHaveLength(1);
+    fake.leaveCalls[0]?.complete();
+    show();
+
+    expect(element.querySelector('[role=timer]')).toBeNull();
+    expect(element.textContent).toContain('Join the waiting room');
+    expect(button(/Leave/)).toBeUndefined();
+  });
+
   it('returns to not joined when the admission runs out', () => {
     const { element, button, show } = render(ADMITTED);
 

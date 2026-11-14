@@ -24,14 +24,6 @@
           <p class="text-sm text-text-muted">
             You are in the queue. This page admits you when it is your turn.
           </p>
-          <button
-            type="button"
-            class="self-start rounded border border-edge px-4 py-2 disabled:cursor-not-allowed disabled:opacity-60"
-            [disabled]="store.pending() !== null"
-            (click)="store.leave()"
-          >
-            {{ store.pending() === pending.LEAVE ? 'Leaving…' : 'Leave the waiting room' }}
-          </button>
         }
         @case (state.ADMITTED) {
           <p>
@@ -53,6 +45,16 @@
             {{ store.pending() === pending.JOIN ? 'Joining…' : 'Join the waiting room' }}
           </button>
         }
+      }
+      @if (store.state() === state.WAITING || store.state() === state.ADMITTED) {
+        <button
+          type="button"
+          class="self-start rounded border border-edge px-4 py-2 disabled:cursor-not-allowed disabled:opacity-60"
+          [disabled]="store.pending() !== null"
+          (click)="store.leave()"
+        >
+          {{ store.pending() === pending.LEAVE ? 'Leaving…' : 'Leave the waiting room' }}
+        </button>
       }
       @if (store.problem(); as text) {
         <p role="alert" class="text-danger">{{ text }}</p>

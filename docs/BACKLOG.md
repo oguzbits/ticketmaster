@@ -118,7 +118,7 @@ Phase 2, slice D (virtual waiting room) is complete:
 - The worker's admission job runs every second: `planAdmissions` (pure) picks the head of the
   queue, an atomic Redis script moves them and never passes the capacity. An admission lasts five
   minutes.
-- Web: the waiting-room panel on the seat map (join, live position, leave, countdown); seats
+- Web: the waiting-room panel on the seat map (join, live position, countdown, leave while waiting or admitted); seats
   stay `aria-disabled` until the customer is admitted.
 - The public seed event Waiting Room Night (capacity 1) shows the queue with two customers, and
   `waiting-room.e2e.ts` runs it: customer A is admitted and holds a seat, customer B waits at
@@ -238,8 +238,6 @@ Phase 2, slices A, B, C and D are done; infrastructure as code (E) remains. Stil
 
 - **A closed tab stays admitted until the admission runs out** (five minutes) and can fill the
   capacity meanwhile. No presence heartbeat drops it earlier.
-- **An admitted customer has no button to leave.** The route (`DELETE /api/events/:id/waiting-room`)
-  releases an admission; the panel offers it only while waiting.
 - **No admin screen for the capacity of an existing event.** The settings route exists.
 - **Joins in the same millisecond are ordered by user ID** (the sorted set breaks a score tie by
   member).

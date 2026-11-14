@@ -1,4 +1,4 @@
-import { expect, loginAs, openEvent, SESSION_KEY, test } from './fixtures';
+import { expect, loginAs, openEvent, test } from './fixtures';
 
 const EVENT = 'Waiting Room Night';
 /** The worker's admission job runs every second; this is far longer than it needs. */
@@ -36,16 +36,8 @@ test('a second customer waits until the first leaves', async ({
       'true'
     );
 
-    // An admitted customer has no button to give the admission back, so the first customer leaves
-    // through the API with their own token.
-    const session = await first.evaluate((key) => sessionStorage.getItem(key), SESSION_KEY);
-    const token = /"accessToken":"([^"]+)"/.exec(session ?? '')?.[1];
-    const eventId = new URL(first.url()).pathname.split('/').pop();
-    if (token === undefined || eventId === undefined) throw new Error('No session or event ID');
-    const left = await first.request.delete(`/api/events/${eventId}/waiting-room`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    expect(left.ok()).toBe(true);
+    await firstRoom.getByRole('button', { name: 'Leave the waiting room' }).click();
+    await expect(firstRoom.getByRole('button', { name: 'Join the waiting room' })).toBeVisible();
 
     await expect(secondRoom.getByText(/You are admitted until/)).toBeVisible({
       timeout: ADMISSION_MS,
