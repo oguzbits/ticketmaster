@@ -77,4 +77,17 @@ describe('BookingsService', () => {
     http.expectOne('/api/bookings').flush([{ id: 'x' }]);
     expect(failed).toBe(true);
   });
+
+  it('downloads the ticket as a blob from the ticket URL', () => {
+    const http = TestBed.inject(HttpTestingController);
+    let received: Blob | undefined;
+    TestBed.inject(BookingsService)
+      .downloadTicket(BOOKING.id)
+      .subscribe((blob) => (received = blob));
+    const request = http.expectOne(`/api/bookings/${BOOKING.id}/ticket`);
+    expect(request.request.method).toBe('GET');
+    expect(request.request.responseType).toBe('blob');
+    request.flush(new Blob(['%PDF']));
+    expect(received?.size).toBe(4);
+  });
 });

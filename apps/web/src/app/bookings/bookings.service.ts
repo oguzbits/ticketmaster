@@ -39,4 +39,11 @@ export class BookingsService {
       .get('/api/bookings')
       .pipe(map((body) => BookingListResponseSchema.parse(body)));
   }
+
+  /** The PDF of a confirmed booking; the answer is binary, so it is not parsed. */
+  downloadTicket(bookingId: string): Observable<Blob> {
+    return this.http.get(`/api/bookings/${encodeURIComponent(bookingId)}/ticket`, {
+      responseType: 'blob',
+    });
+  }
 }

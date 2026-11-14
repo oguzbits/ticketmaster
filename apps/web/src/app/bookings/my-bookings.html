@@ -32,6 +32,23 @@
               </li>
             }
           </ol>
+          @if (hasTicket(booking)) {
+            @if (booking.ticketReady) {
+              @if (downloadFailed() === booking.id) {
+                <p role="alert" class="text-danger">The ticket could not be downloaded.</p>
+              }
+              <button
+                type="button"
+                class="btn self-start disabled:cursor-not-allowed disabled:opacity-60"
+                [disabled]="downloading() !== null"
+                (click)="download(booking)"
+              >
+                {{ downloadLabel(booking) }}
+              </button>
+            } @else {
+              <p role="status" class="text-sm text-text-muted">Ticket is being prepared</p>
+            }
+          }
           @if (canCancel(booking)) {
             <button
               type="button"

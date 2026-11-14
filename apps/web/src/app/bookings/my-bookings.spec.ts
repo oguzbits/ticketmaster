@@ -3,7 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { type Booking, BOOKING_STATUS, ROLE, TRANSITION_REASON } from '@app/shared';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { tokensFor } from '../../testing/tokens';
 import { routes } from '../app.routes';
@@ -132,6 +132,78 @@ describe('MyBookings', () => {
 
     expect(element.querySelector('[role=alert]')?.textContent).toContain('could not be cancelled');
     expect(button(/Cancel booking/)?.disabled).toBe(false);
+  });
+});
+
+describe('MyBookings ticket', () => {
+  const READY: Booking = { ...BOOKING, ticketReady: true };
+  const TICKET_URL = `${LIST_URL}/${READY.id}/ticket`;
+  const OBJECT_URL = 'blob:ticket';
+  const createObjectURL = vi.fn(() => OBJECT_URL);
+  const revokeObjectURL = vi.fn();
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+
+  beforeEach(() => {
+    Object.assign(URL, { createObjectURL, revokeObjectURL });
+    vi.clearAllMocks();
+  });
+  afterEach(() => TestBed.inject(HttpTestingController).verify());
+
+  it('says the ticket is being prepared and offers no download yet', async () => {
+    const { element, http, answer, button } = render();
+
+    await answer(() => http.expectOne(LIST_URL).flush([BOOKING]));
+
+    expect(element.textContent).toContain('Ticket is being prepared');
+    expect(button(/Download ticket/)).toBeUndefined();
+  });
+
+  it('offers no ticket for a booking that is not confirmed', async () => {
+    const { element, http, answer, button } = render();
+
+    await answer(() =>
+      http.expectOne(LIST_URL).flush([{ ...CANCELLED, ticketReady: true }, { ...CANCELLED }])
+    );
+
+    expect(element.textContent).not.toContain('Ticket is being prepared');
+    expect(button(/Download ticket/)).toBeUndefined();
+  });
+
+  it('downloads once for a double click and releases the object URL', async () => {
+    const { element, http, answer, button } = render();
+    await answer(() => http.expectOne(LIST_URL).flush([READY]));
+    expect(element.textContent).not.toContain('Ticket is being prepared');
+    const download = button(/Download ticket/);
+
+    download?.click();
+    download?.click();
+    TestBed.tick();
+    expect(download?.disabled).toBe(true);
+    await answer(() => http.expectOne(TICKET_URL).flush(new Blob(['%PDF'])));
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith(OBJECT_URL);
+    expect(button(/Download ticket/)?.disabled).toBe(false);
+  });
+
+  it('shows an error with a retry when the download fails', async () => {
+    const { element, http, answer, button } = render();
+    await answer(() => http.expectOne(LIST_URL).flush([READY]));
+
+    button(/Download ticket/)?.click();
+    await answer(() =>
+      http.expectOne(TICKET_URL).flush(null, { status: 500, statusText: 'Server Error' })
+    );
+
+    expect(element.querySelector('[role=alert]')?.textContent).toContain('could not be downloaded');
+    expect(click).not.toHaveBeenCalled();
+
+    button(/Try again/)?.click();
+    await answer(() => http.expectOne(TICKET_URL).flush(new Blob(['%PDF'])));
+
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(element.querySelector('[role=alert]')).toBeNull();
   });
 });
 
