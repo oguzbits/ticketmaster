@@ -106,6 +106,10 @@ describe('SimulationsService.start', () => {
     };
   }
 
+  async function auditRowsOfRequest(requestId: string) {
+    return (await auditRows(db)).filter((row) => row.requestId === requestId);
+  }
+
   describe('audit', () => {
     it('writes one SIMULATION_STARTED row with the admin, the run and the request ID', async () => {
       const adminId = randomUUID();
@@ -135,7 +139,7 @@ describe('SimulationsService.start', () => {
 
       const { runs } = await footprint(adminId);
       expect(runs).toEqual([]);
-      expect((await auditRows(db)).filter((row) => row.requestId === requestId)).toEqual([]);
+      expect(await auditRowsOfRequest(requestId)).toEqual([]);
     });
   });
 
@@ -343,10 +347,13 @@ describe('SimulationsService.start', () => {
       { env: NO_GRAFANA, audit: new AuditService(db, { now: () => NOW }) }
     );
 
-    await expect(failing.start(REQUEST, adminId, randomUUID())).rejects.toThrow('redis down');
+    const requestId = `req-${randomUUID()}`;
+
+    await expect(failing.start(REQUEST, adminId, requestId)).rejects.toThrow('redis down');
 
     const { events: leftEvents, runs, entries } = await footprint(adminId);
     expect([leftEvents.length, runs.length, entries]).toEqual([0, 0, before.entries]);
+    expect(await auditRowsOfRequest(requestId)).toEqual([]);
   });
 
   it('removes the sandbox event (seats and run cascade) and rethrows when the queue write fails', async () => {
@@ -358,10 +365,13 @@ describe('SimulationsService.start', () => {
       { env: NO_GRAFANA, audit: new AuditService(db, { now: () => NOW }) }
     );
 
-    await expect(failing.start(REQUEST, adminId, randomUUID())).rejects.toThrow('redis down');
+    const requestId = `req-${randomUUID()}`;
+
+    await expect(failing.start(REQUEST, adminId, requestId)).rejects.toThrow('redis down');
 
     const { events: leftEvents, runs } = await footprint(adminId);
     expect([leftEvents.length, runs.length]).toEqual([0, 0]);
+    expect(await auditRowsOfRequest(requestId)).toEqual([]);
   });
 
   it('rethrows the queue error, not the one of a failing cleanup, and logs the second', async () => {

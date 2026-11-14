@@ -128,9 +128,9 @@ export class SimulationsService {
   /**
    * One transaction under an advisory lock: the cap check, a fresh sandbox event of the admin with
    * `seats` generated seats and the QUEUED run. After the commit the QUEUED progress key and then
-   * the command go onto Redis, so the worker never reads a run it cannot see. When either write
-   * fails the sandbox event is deleted (its seats and the run cascade): a failed start leaves
-   * nothing behind.
+   * the command go onto Redis, so the worker never reads a run it cannot see, and last the audit
+   * row. When any of these fails the sandbox event is deleted (its seats and the run cascade): a
+   * failed start leaves nothing behind, audit row included.
    */
   async start(
     input: StartSimulationRequest,
@@ -158,13 +158,6 @@ export class SimulationsService {
         })
         .returning();
       if (row === undefined) throw new Error('run insert returned no row');
-      await this.deps.audit.record(tx, {
-        actorId: adminId,
-        action: AUDIT_ACTION.SIMULATION_STARTED,
-        subjectType: AUDIT_SUBJECT.SIMULATION_RUN,
-        subjectId: row.id,
-        requestId,
-      });
       return this.toRun(row);
     });
     try {
@@ -177,6 +170,17 @@ export class SimulationsService {
         EX: SIMULATION_PROGRESS_TTL_SECONDS,
       });
       await this.queue.xAdd(this.streamKey, '*', { runId: run.id }, STREAM_CAP);
+      // Last, so the row exists if and only if the start succeeded: a failure above or here
+      // discards the run, and a row committed earlier would point to a run that never existed.
+      await this.db.transaction((tx) =>
+        this.deps.audit.record(tx, {
+          actorId: adminId,
+          action: AUDIT_ACTION.SIMULATION_STARTED,
+          subjectType: AUDIT_SUBJECT.SIMULATION_RUN,
+          subjectId: run.id,
+          requestId,
+        })
+      );
     } catch (error) {
       // The queue error is the one to report; a failing cleanup must not hide it.
       await this.discard(run.eventId).catch((cause: Error) =>
