@@ -93,6 +93,18 @@ describe('CacheAside', () => {
     expect(JSON.parse((await redis.get(key)) ?? 'null')).toEqual(VALUE);
   });
 
+  it('counts MISS for a stored value that is not JSON and replaces it', async () => {
+    fresh();
+    const key = freshKey();
+    await redis.set(key, '{not json', { EX: TTL_SECONDS });
+
+    const result = await cache.getOrLoad(CACHE, key, ValueSchema, TTL_SECONDS, async () => VALUE);
+
+    expect(result).toEqual(VALUE);
+    expect(counted()).toEqual([['cacheLookup', CACHE, CACHE_RESULT.MISS]]);
+    expect(JSON.parse((await redis.get(key)) ?? 'null')).toEqual(VALUE);
+  });
+
   it('falls through to load on a closed client, counts ERROR and does not throw', async () => {
     const closed = await openTestRedis();
     await closed.quit();

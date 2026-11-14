@@ -34,7 +34,14 @@ export class CacheAside {
     if (ttlSeconds === 0) return load();
     const lookup = await this.attempt(key, async () => {
       const raw = await this.redis.get(key);
-      return raw === null ? undefined : schema.safeParse(JSON.parse(raw));
+      if (raw === null) return undefined;
+      try {
+        return schema.safeParse(JSON.parse(raw));
+      } catch (error) {
+        // Text that is not JSON is as unusable as an old shape: a miss, replaced below.
+        if (error instanceof SyntaxError) return undefined;
+        throw error;
+      }
     });
     if (!lookup.ok) {
       this.metrics.cacheLookup(cache, CACHE_RESULT.ERROR);
