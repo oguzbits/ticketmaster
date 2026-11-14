@@ -107,6 +107,23 @@ test:db:pooled` runs every database spec through it and CI runs that form.
 - A spec with two API instances proves a hold through one reaches a viewer on the other and that
   the per-address cap counts both.
 
+Phase 2, slice D (virtual waiting room) is complete:
+
+- `events.waiting_room_capacity` (null: no waiting room) and `PUT /api/events/:id/waiting-room/settings`
+  (organizer of the event, or admin); `CreateEventRequest` takes the same optional capacity. The
+  queue and the admissions live in Redis, one sorted set each per event.
+- A customer joins, leaves and reads the position with `/api/events/:id/waiting-room`; a server-sent
+  stream follows the position. `BookingsService.hold` asks the waiting room for an admission (through
+  `BookingPorts`) and answers 403 without one.
+- The worker's admission job runs every second: `planAdmissions` (pure) picks the head of the
+  queue, an atomic Redis script moves them and never passes the capacity. An admission lasts five
+  minutes.
+- Web: the waiting-room panel on the seat map (join, live position, leave, countdown); seats
+  stay `aria-disabled` until the customer is admitted.
+- The public seed event Waiting Room Night (capacity 1) shows the queue with two customers, and
+  `waiting-room.e2e.ts` runs it: customer A is admitted and holds a seat, customer B waits at
+  position 1 with gated seats and is admitted after A leaves.
+
 ## Deviations from the plan
 
 - **No SWC for NestJS decorators.** Vitest (Vite 8, Oxc) reads `experimentalDecorators` and
@@ -187,6 +204,21 @@ Phase 2, slice A:
   and could overlap with the next, so the deadline moved into `OutboxService.relay` and the job
   never gives a run up.
 
+Slice D:
+
+- **One column, not two.** `waiting_room_capacity` is null or a positive number; a separate
+  enabled flag could only contradict it.
+- **The settings route is `PUT /api/events/:id/waiting-room/settings`.**
+- **The position stream polls Redis once a second per open stream**, like the simulation progress
+  stream, instead of a subscription; that works across API replicas without extra wiring.
+- **The admission is checked in `BookingsService.hold` through `BookingPorts`,** so every caller of
+  `hold` shares one check.
+- **The end-to-end spec uses a public seed event** (Waiting Room Night), not an event the organizer
+  creates: an organizer's event is a sandbox event that a second customer cannot see. The booking
+  and admin specs changed with it (shared customer session; the admin opens a sandbox event by
+  name) to stay under five demo logins a minute and to not depend on the list order of events that
+  start at the same time.
+
 ## Open points for the owner
 
 - **Server and domain** for the live demo (Hetzner size, DNS name for HTTPS). Needed only for
@@ -197,13 +229,25 @@ Phase 2, slice A:
 
 ## Next
 
-Phase 2, slices A, B and C are done; the waiting room (D) and infrastructure as code (E) remain. Still open from earlier notes:
+Phase 2, slices A, B, C and D are done; infrastructure as code (E) remains. Still open from earlier notes:
 
 - Write the runbooks the docs-map entry for the deploy folder points to (`docs/runbooks/`).
 - Images are pinned by tag; pin by digest and add resource limits with the container hardening.
 
 ## Open points
 
+- **A closed tab stays admitted until the admission runs out** (five minutes) and can fill the
+  capacity meanwhile. No presence heartbeat drops it earlier.
+- **An admitted customer has no button to leave.** The route (`DELETE /api/events/:id/waiting-room`)
+  releases an admission; the panel offers it only while waiting.
+- **No admin screen for the capacity of an existing event.** The settings route exists.
+- **Joins in the same millisecond are ordered by user ID** (the sorted set breaks a score tie by
+  member).
+- **The queue keys of a deleted event expire after a day**, not at once.
+- **One `ZRANK`/`ZSCORE` read per open stream per second.** The waiting-room stream cap (200) is
+  counted over all API replicas together.
+- **The waiting-room stream reconnects after a fixed 3 s and has no heartbeat.** A silently dead
+  connection shows a stale position until the browser notices.
 - **A payment key stays claimed on a `HELD` booking that is never retried.** The expiry job spares
   such a booking for `PAYMENT_GRACE_SECONDS` (120) past its hold and expires it after that; the
   key is not released earlier, and a customer who abandons the payment keeps the seat until then.

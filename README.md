@@ -48,6 +48,9 @@ Anyone, signed in or not, can browse public events and watch the seat map.
   message once: it renders the ticket PDF, stores it and mails it to the customer, who can also
   download it from my bookings. A message that keeps failing ends in a dead-letter queue; the
   payment call itself runs outside any database transaction.
+- A virtual waiting room for events that set a capacity: a customer joins a queue, sees a live
+  position and may hold a seat only after being admitted, for a limited time and up to the
+  capacity. The public event Waiting Room Night has a capacity of one.
 - Keyboard operation, visible focus and a seat status that does not rely on color alone.
 
 ## Architecture
@@ -58,8 +61,14 @@ reach PostgreSQL through PgBouncer in transaction mode
 ([ADR 0005](docs/adr/0005-pgbouncer-transaction-mode.md)). The API
 verifies Keycloak tokens, writes to PostgreSQL and publishes every seat change to Redis, which fans
 it out to the open seat streams. The worker runs the scheduled jobs (hold expiry, cleanup of demo
-users) and the simulator: the API puts a run on a Redis stream, the worker's consumer runs the
+users, the admission job of the waiting room) and the simulator: the API puts a run on a Redis stream, the worker's consumer runs the
 buyers, and the API streams the progress from a Redis key to the admin's browser.
+
+The waiting room of an event lives in Redis (a sorted set per event for the queue, one for the
+live admissions). The worker's admission job moves the head of the queue into the admissions up to
+the event's capacity in one atomic script; the API streams the position of a waiting customer to
+the browser by reading it from Redis once a second, and checks the admission before it creates a
+hold.
 
 A payment is claimed in one transaction (the idempotency key is stored), charged outside any
 transaction, and applied in a second one; that second transaction also writes the outbox row of a
@@ -84,6 +93,8 @@ flowchart LR
   redis -->|consumer group| worker
   worker -->|progress key| redis
   redis -->|progress key polled for SSE| api
+  api -->|join, leave, position poll| redis
+  worker -->|admit the queue head, atomic| redis
   api -->|booking and outbox row, one transaction| pgbouncer
   worker -->|relay: unpublished outbox rows| queue[[SQS: booking-events]]
   queue -->|long poll, delete after success| worker
