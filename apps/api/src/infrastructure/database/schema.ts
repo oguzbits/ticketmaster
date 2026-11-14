@@ -179,6 +179,9 @@ export const simulationRuns = pgTable(
     startedBy: uuid('started_by').notNull(),
     startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
+    // W3C trace context of the request that started the run; the worker continues it, so the run's
+    // spans join that trace. Null for runs older than the column and for runs started outside a trace.
+    traceparent: text('traceparent'),
   },
   // Serves the cap query: runs that are still active and started within the timeout.
   (t) => [index('simulation_runs_status_started_at_idx').on(t.status, t.startedAt)]

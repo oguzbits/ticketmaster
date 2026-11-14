@@ -46,7 +46,7 @@ describe('SimulationStreamService', () => {
 
   beforeAll(async () => {
     redis = await openTestRedis();
-    const simulations = new SimulationsService(db, redis, { now: () => SPEC_NOW });
+    const simulations = new SimulationsService(db, redis, { now: () => SPEC_NOW }, {});
     const slots = new SlotLimiter(redis, new SystemClock());
     service = new SimulationStreamService(redis, simulations, slots);
     other = new SimulationStreamService(redis, simulations, slots);

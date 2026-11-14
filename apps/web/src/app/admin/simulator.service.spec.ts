@@ -34,6 +34,7 @@ const RUN: SimulationRun = {
   metrics: null,
   startedAt: '2027-01-01T00:00:00.000Z',
   finishedAt: null,
+  traceUrl: null,
 };
 const RUNNING: SimulationProgress = { status: SIMULATION_STATUS.RUNNING, metrics: METRICS };
 const FINISHED: SimulationProgress = {

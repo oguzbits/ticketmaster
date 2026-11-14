@@ -76,6 +76,7 @@ erDiagram
         uuid started_by "the admin"
         timestamptz started_at
         timestamptz finished_at "null until the run ends"
+        text traceparent "W3C trace context of the start request, null if none"
     }
     booking_transitions {
         uuid id PK
@@ -112,6 +113,9 @@ and the row, in one transaction.
 `simulation_runs` holds one rush of the simulator. The run belongs to its own sandbox event (owned
 by the admin who started it, so it never shows in the public list); deleting the event deletes the
 run. `metrics` is a JSON document of the shape `SimulationMetricsSchema`, null until the run ends.
+`traceparent` is the trace context of the request that started the run (null outside a trace and on
+runs older than the column); the worker continues it, so the run's spans join that trace and the
+API can link the run to it.
 `simulation_runs(status, started_at)` serves the cap query, which counts the runs that are still
 active and started within the timeout.
 

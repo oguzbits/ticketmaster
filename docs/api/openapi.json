@@ -2949,6 +2949,17 @@
                 "type": "null"
               }
             ]
+          },
+          "traceUrl": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2960,7 +2971,8 @@
           "status",
           "metrics",
           "startedAt",
-          "finishedAt"
+          "finishedAt",
+          "traceUrl"
         ],
         "additionalProperties": false
       },

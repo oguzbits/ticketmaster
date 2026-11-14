@@ -43,8 +43,10 @@ const QUEUED: SimulationRun = {
   metrics: null,
   startedAt: '2027-01-01T00:00:00.000Z',
   finishedAt: null,
+  traceUrl: null,
 };
 const FINISHED_METRICS: SimulationMetrics = { ...METRICS, buyersDone: 100, doubleBookings: 0 };
+const TRACE_URL = 'http://localhost:3000/explore?schemaVersion=1&orgId=1';
 const FINISHED: SimulationRun = {
   ...QUEUED,
   status: SIMULATION_STATUS.FINISHED,
@@ -236,6 +238,29 @@ describe('SimulatorPage', () => {
     const row = element.querySelector('tbody tr');
     expect(row?.textContent).toContain(BOOKING_STRATEGY.PESSIMISTIC);
     expect(row?.textContent).toContain('12');
+  });
+
+  it('links a finished run to its trace in a new tab, and shows no link without one', async () => {
+    const { element, ready } = render();
+    await ready([
+      { ...FINISHED, traceUrl: TRACE_URL },
+      { ...FINISHED, id: '00000000-0000-4000-8000-0000000000b2' },
+    ]);
+
+    const links = [...element.querySelectorAll<HTMLAnchorElement>('tbody a')];
+    expect(links).toHaveLength(1);
+    expect(links[0]?.getAttribute('href')).toBe(TRACE_URL);
+    expect(links[0]?.target).toBe('_blank');
+    expect(links[0]?.rel).toBe('noopener noreferrer');
+    expect(links[0]?.textContent).toContain('Trace');
+  });
+
+  it('has no trace column when no run has a trace', async () => {
+    const { element, ready } = render();
+    await ready([FINISHED]);
+
+    expect(element.querySelector('tbody a')).toBeNull();
+    expect(element.querySelector('thead')?.textContent).not.toContain('Trace');
   });
 
   it('says in words that a run has double bookings', async () => {

@@ -7,6 +7,8 @@ import { type Database, DB } from '@app/api/database';
 import { REDIS, type Redis } from '@app/api/redis';
 import { simulationProgressKey, SimulationRunner, SimulationsService } from '@app/api/simulations';
 import { clearSimulationRuns, ensureVenue, lockSimulationRuns } from '@app/api/simulations/testing';
+import { SPAN_ATTR, SPAN_NAME, withSpan } from '@app/api/tracing';
+import { startTestTracing } from '@app/api/tracing/testing';
 import {
   BOOKING_STRATEGY,
   type BookingStrategy,
@@ -30,6 +32,7 @@ const SPEC_LOCK_TIMEOUT_MS = 300_000;
 const REQUEST = { buyers: 10, seats: 5, strategy: BOOKING_STRATEGY.PESSIMISTIC };
 const PROGRESS_INTERVAL_MS = 20;
 const BLOCK_MS = 200;
+const ROOT_SPAN = 'test.request';
 const ERROR_PAUSE_MS = 50;
 
 describe('SimulationConsumer', () => {
@@ -41,6 +44,7 @@ describe('SimulationConsumer', () => {
   const consumers: SimulationConsumer[] = [];
   let database: Database;
   let unlock: () => Promise<void>;
+  let stopTracing: (() => Promise<void>) | undefined;
 
   beforeAll(async () => {
     moduleRef = await Test.createTestingModule({ imports: [WorkerModule] })
@@ -62,6 +66,8 @@ describe('SimulationConsumer', () => {
   });
   afterEach(async () => {
     await Promise.all(consumers.splice(0).map((consumer) => consumer.onModuleDestroy()));
+    await stopTracing?.();
+    stopTracing = undefined;
     await redis.del(streamKey);
     vi.restoreAllMocks();
   });
@@ -130,6 +136,28 @@ describe('SimulationConsumer', () => {
     });
   });
 
+  it('runs the run in the trace of the request that started it', async () => {
+    const traced = startTestTracing();
+    stopTracing = traced.shutdown;
+    await startedConsumer();
+    const run = await withSpan(ROOT_SPAN, () => simulations.start(REQUEST, randomUUID()));
+
+    await untilStatus(run, SIMULATION_STATUS.FINISHED);
+
+    const spans = () => traced.exporter.getFinishedSpans();
+    const root = spans()
+      .find((span) => span.name === ROOT_SPAN)
+      ?.spanContext().traceId;
+    const inRoot = (name: string) =>
+      spans().filter((span) => span.name === name && span.spanContext().traceId === root);
+    expect(root).toMatch(/^[0-9a-f]{32}$/);
+    // The run span ends just after the row says FINISHED.
+    await expect.poll(() => inRoot(SPAN_NAME.SIMULATION_RUN).length).toBe(1);
+    expect(inRoot(SPAN_NAME.SIMULATION_RUN)[0]?.attributes[SPAN_ATTR.RUN_ID]).toBe(run.id);
+    // The buyers' holds happen in the worker, long after the request ended.
+    expect(inRoot(SPAN_NAME.HOLD_STRATEGY).length).toBeGreaterThan(0);
+  });
+
   it('stores a failing run as FAILED, acknowledges it and still runs the next message', async () => {
     let failingEvent = '';
     await startedConsumer(
@@ -156,7 +184,7 @@ describe('SimulationConsumer', () => {
         return Promise.reject(new Error('database down'));
       }
     }
-    const store = new CannotFail(database, redis, { now: () => NOW });
+    const store = new CannotFail(database, redis, { now: () => NOW }, {});
     store.streamKey = streamKey;
     let failingEvent = '';
     await startedConsumer(
@@ -183,7 +211,7 @@ describe('SimulationConsumer', () => {
         return Promise.reject(new Error('database down'));
       }
     }
-    const store = new CannotFinish(database, redis, { now: () => NOW });
+    const store = new CannotFinish(database, redis, { now: () => NOW }, {});
     store.streamKey = streamKey;
     await startedConsumer(undefined, store);
     const run = await simulations.start(REQUEST, randomUUID());

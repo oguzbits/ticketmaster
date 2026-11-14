@@ -45,7 +45,8 @@ describe('SimulationsService sweeps', () => {
         set: () => Promise.reject(new Error('unused')),
         xAdd: () => Promise.reject(new Error('unused')),
       },
-      { now: () => NOW }
+      { now: () => NOW },
+      {}
     );
   });
   beforeEach(async () => {

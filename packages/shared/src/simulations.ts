@@ -68,6 +68,8 @@ export const SimulationRunSchema = z.object({
   metrics: SimulationMetricsSchema.nullable(),
   startedAt: z.iso.datetime(),
   finishedAt: z.iso.datetime().nullable(),
+  /** Grafana Explore on the run's trace; null when tracing is off, no Grafana URL is set or the run has no trace. */
+  traceUrl: z.url().nullable(),
 });
 
 export const SimulationListResponseSchema = z.array(SimulationRunSchema);

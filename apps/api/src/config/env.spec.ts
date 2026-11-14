@@ -211,4 +211,12 @@ describe('parseEnv', () => {
       'http://tempo:4318'
     );
   });
+
+  it('has no GRAFANA_URL by default and names it when it is not a URL', () => {
+    expect(parseEnv({}).GRAFANA_URL).toBeUndefined();
+    expect(parseEnv({ GRAFANA_URL: 'http://localhost:3000' }).GRAFANA_URL).toBe(
+      'http://localhost:3000'
+    );
+    expect(() => parseEnv({ GRAFANA_URL: 'not a url' })).toThrow(/GRAFANA_URL/);
+  });
 });

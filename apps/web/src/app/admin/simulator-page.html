@@ -165,7 +165,10 @@
               <th scope="col" class="py-2 pr-3">Holds</th>
               <th scope="col" class="py-2 pr-3">Conflicts</th>
               <th scope="col" class="py-2 pr-3">Double bookings</th>
-              <th scope="col" class="py-2">p95</th>
+              <th scope="col" class="py-2 pr-3">p95</th>
+              @if (hasTraces()) {
+                <th scope="col" class="py-2">Trace</th>
+              }
             </tr>
           </thead>
           <tbody>
@@ -185,9 +188,18 @@
                     0
                   }
                 </td>
-                <td class="py-2 whitespace-nowrap">
+                <td class="py-2 pr-3 whitespace-nowrap">
                   {{ item.metrics?.p95Ms | number: '1.0-0' }} ms
                 </td>
+                @if (hasTraces()) {
+                  <td class="py-2">
+                    @if (item.traceUrl; as url) {
+                      <a [href]="url" target="_blank" rel="noopener noreferrer" class="underline"
+                        >Trace<span class="sr-only"> (opens in a new tab)</span></a
+                      >
+                    }
+                  </td>
+                }
               </tr>
             }
           </tbody>

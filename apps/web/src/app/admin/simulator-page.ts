@@ -69,6 +69,11 @@ export class SimulatorPage {
 
   protected readonly runs = rxResource({ stream: () => this.service.list() });
 
+  /** The trace column exists only when the server sent at least one link (tracing and Grafana are optional). */
+  protected readonly hasTraces = computed(
+    () => this.runs.hasValue() && this.runs.value().some(({ traceUrl }) => traceUrl !== null)
+  );
+
   protected pickStrategy(value: string): void {
     this.strategy.set(BookingStrategySchema.parse(value));
   }

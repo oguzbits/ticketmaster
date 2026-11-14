@@ -8,11 +8,14 @@ import {
 } from '@app/shared';
 import { HttpStatus, Logger } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { Env } from '../../config/env.js';
 import { SystemClock } from '../../infrastructure/clock/system-clock.js';
 import { events, simulationRuns } from '../../infrastructure/database/schema.js';
 import { SlotLimiter } from '../../infrastructure/rate-limit/slot-limiter.js';
+import { currentTraceparent, withSpan } from '../../infrastructure/tracing/index.js';
+import { startTestTracing } from '../../infrastructure/tracing/testing/index.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
 import { SPEC_NOW } from '../../testing/time.js';
@@ -34,6 +37,11 @@ const SPEC_LOCK_TIMEOUT_MS = 300_000;
 const STRATEGY = BOOKING_STRATEGY.PESSIMISTIC;
 const REQUEST = { buyers: 10, seats: 5, strategy: STRATEGY };
 
+const GRAFANA_URL = 'http://localhost:3000';
+const traceIdOf = (traceparent: string | null) => traceparent?.split('-')[1];
+const NO_GRAFANA: Pick<Env, 'GRAFANA_URL'> = {};
+const WITH_GRAFANA: Pick<Env, 'GRAFANA_URL'> = { GRAFANA_URL };
+
 const queueDown = { xAdd: () => Promise.reject(new Error('redis down')) };
 
 describe('SimulationsService.start', () => {
@@ -47,7 +55,7 @@ describe('SimulationsService.start', () => {
   beforeAll(async () => {
     unlock = await lockSimulationRuns(db);
     redis = await openTestRedis();
-    service = new SimulationsService(db, redis, { now: () => NOW });
+    service = new SimulationsService(db, redis, { now: () => NOW }, NO_GRAFANA);
     service.streamKey = streamKey;
     // A venue to host the sandbox events (a fresh test database has none).
     await createTestEvent(db, { strategy: STRATEGY, seats: 0 });
@@ -88,6 +96,59 @@ describe('SimulationsService.start', () => {
       entries: await redis.xLen(streamKey),
     };
   }
+
+  describe('trace link', () => {
+    let stopTracing: (() => Promise<void>) | undefined;
+    afterEach(async () => {
+      await stopTracing?.();
+      stopTracing = undefined;
+    });
+
+    function withGrafana(env: Pick<Env, 'GRAFANA_URL'>): SimulationsService {
+      const linking = new SimulationsService(db, redis, { now: () => NOW }, env);
+      linking.streamKey = streamKey;
+      return linking;
+    }
+
+    const storedTraceparent = async (runId: string) =>
+      (await db.select().from(simulationRuns).where(eq(simulationRuns.id, runId)))[0]?.traceparent;
+
+    it('stores the traceparent of the active span and links to its trace', async () => {
+      stopTracing = startTestTracing().shutdown;
+      const linking = withGrafana(WITH_GRAFANA);
+      let active: string | null = null;
+
+      const run = await withSpan('probe', () => {
+        active = currentTraceparent();
+        return linking.start(REQUEST, randomUUID());
+      });
+
+      const traceId = traceIdOf(active);
+      expect(traceId).toMatch(/^[0-9a-f]{32}$/);
+      expect(await storedTraceparent(run.id)).toBe(active);
+      expect(run.traceUrl?.startsWith(`${GRAFANA_URL}/explore?`)).toBe(true);
+      expect(decodeURIComponent(run.traceUrl ?? '')).toContain(`"query":"${traceId}"`);
+      expect((await linking.find(run.id)).traceUrl).toBe(run.traceUrl);
+    });
+
+    it('has no link without GRAFANA_URL, and still stores the trace', async () => {
+      stopTracing = startTestTracing().shutdown;
+
+      const run = await withSpan('probe', () =>
+        withGrafana(NO_GRAFANA).start(REQUEST, randomUUID())
+      );
+
+      expect(run.traceUrl).toBeNull();
+      expect(await storedTraceparent(run.id)).not.toBeNull();
+    });
+
+    it('has no link and stores no trace for a run started outside a trace', async () => {
+      const run = await withGrafana(WITH_GRAFANA).start(REQUEST, randomUUID());
+
+      expect(run.traceUrl).toBeNull();
+      expect(await storedTraceparent(run.id)).toBeNull();
+    });
+  });
 
   it('refuses the third active run with 429 and writes nothing', async () => {
     await seedRun(SIMULATION_STATUS.QUEUED, 1000);
@@ -137,9 +198,12 @@ describe('SimulationsService.start', () => {
     // A request reads the clock before it gets the lock, so its reading can be older than the runs
     // that committed meanwhile: the clock goes back by a minute with every reading here.
     let reading = NOW.getTime();
-    const lagging = new SimulationsService(db, redis, {
-      now: () => new Date((reading -= 60_000)),
-    });
+    const lagging = new SimulationsService(
+      db,
+      redis,
+      { now: () => new Date((reading -= 60_000)) },
+      NO_GRAFANA
+    );
     lagging.streamKey = streamKey;
 
     await lagging.start(REQUEST, randomUUID());
@@ -162,7 +226,8 @@ describe('SimulationsService.start', () => {
           return redis.xAdd(key, id, message, xAddOptions);
         },
       },
-      { now: () => NOW }
+      { now: () => NOW },
+      NO_GRAFANA
     );
     recording.streamKey = streamKey;
 
@@ -227,7 +292,8 @@ describe('SimulationsService.start', () => {
     const failing = new SimulationsService(
       db,
       { set: () => Promise.reject(new Error('redis down')), xAdd: () => Promise.resolve('1-0') },
-      { now: () => NOW }
+      { now: () => NOW },
+      NO_GRAFANA
     );
 
     await expect(failing.start(REQUEST, adminId)).rejects.toThrow('redis down');
@@ -241,7 +307,8 @@ describe('SimulationsService.start', () => {
     const failing = new SimulationsService(
       db,
       { ...queueDown, set: () => Promise.resolve('OK') },
-      { now: () => NOW }
+      { now: () => NOW },
+      NO_GRAFANA
     );
 
     await expect(failing.start(REQUEST, adminId)).rejects.toThrow('redis down');
@@ -260,9 +327,8 @@ describe('SimulationsService.start', () => {
     const service = new FailsToDiscard(
       db,
       { ...queueDown, set: () => Promise.resolve('OK') },
-      {
-        now: () => NOW,
-      }
+      { now: () => NOW },
+      NO_GRAFANA
     );
 
     await expect(service.start(REQUEST, randomUUID())).rejects.toThrow('redis down');

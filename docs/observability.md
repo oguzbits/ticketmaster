@@ -57,6 +57,23 @@ not requests: `SQS.GetQueueUrl` of the API and of the worker (the queue lookup a
 PgBouncer sits between the processes and PostgreSQL, so the `server.address` of a `db.query` span is
 the pooler.
 
+## Trace link of a simulator run
+
+A run started with tracing on stores the `traceparent` of its start request
+(`simulation_runs.traceparent`). The worker takes the run from the Redis stream and runs it inside
+that trace (a `simulation.run` span with the run ID, then the `booking.hold.strategy` and
+`db.query` spans of every buyer), so the request and the run are one trace. The API adds
+`traceUrl` to a run: the Grafana Explore link on the `tempo` data source with the trace ID as the
+query, over the time of the run. The simulator page shows it as a "Trace" link in the table of
+finished runs; it opens in a new tab.
+
+`traceUrl` is null, and the page shows no link and no column, when `GRAFANA_URL` is not set (the
+Compose file sets it to `http://localhost:3000`, the Grafana of this profile; the value is the
+address of Grafana as the admin's browser reaches it), when tracing was off at the start, and for
+runs older than the column. A run writes about seven spans per buyer attempt into the one trace (a
+run of 50 buyers and 110 attempts gave 778 spans); Grafana shows them, a run of the maximum size is large enough to hit
+Tempo's per-trace size limit, and the trace is then cut off.
+
 ## Check it by hand
 
 A repeatable check, not a CI job: it needs the profile. Stop any `pnpm dev` worker first, or it

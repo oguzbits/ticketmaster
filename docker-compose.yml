@@ -167,6 +167,9 @@ services:
       # see docs/observability.md.
       TRACING_ENABLED: ${TRACING_ENABLED:-false}
       TRACING_OTLP_ENDPOINT: http://tempo:4318
+      # The trace link of a simulator run, as the admin's browser reaches Grafana; shown only when
+      # tracing is on.
+      GRAFANA_URL: ${GRAFANA_URL:-http://localhost:3000}
       # The API only serves tickets, but the tickets module builds the sender at start.
       SMTP_URL: smtp://mailpit:1025
     depends_on:

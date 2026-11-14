@@ -17,10 +17,14 @@ import {
 import { and, count, desc, eq, gte, inArray, lt, notExists, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
+import { APP_CONFIG } from '../../config/config.module.js';
+import type { Env } from '../../config/env.js';
 import { CLOCK, type Clock } from '../../core/clock.js';
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
 import { events, seats, simulationRuns, venues } from '../../infrastructure/database/schema.js';
 import { REDIS } from '../../infrastructure/redis/redis.module.js';
+import { currentTraceparent } from '../../infrastructure/tracing/index.js';
+import { traceLink } from './domain/trace-link.js';
 import {
   EMPTY_METRICS,
   SIMULATION_PROGRESS_TTL_SECONDS,
@@ -50,6 +54,8 @@ const SANDBOX_SECTION = 'SIM';
 const SEATS_PER_ROW = 20;
 const SANDBOX_SEAT_PRICE_CENTS = 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** The trace link's time range starts and ends this far outside the run (the request precedes the row). */
+const TRACE_WINDOW_MARGIN_MS = 60_000;
 /** Serializes the cap check of all starts, so parallel requests cannot all pass it. */
 const START_LOCK_KEY = 'simulation-start';
 
@@ -70,24 +76,12 @@ export interface ClaimedRun {
   seatIds: string[];
   /** The admin who started the run; the buyers book as this user, see `SimulationRunner`. */
   startedBy: string;
+  /** The trace of the request that started the run; the worker continues it. */
+  traceparent: string | null;
 }
 
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 type RunRow = typeof simulationRuns.$inferSelect;
-
-function toRun(row: RunRow): SimulationRun {
-  return {
-    id: row.id,
-    eventId: row.eventId,
-    strategy: row.strategy,
-    buyers: row.buyers,
-    seats: row.seats,
-    status: row.status,
-    metrics: row.metrics,
-    startedAt: row.startedAt.toISOString(),
-    finishedAt: row.finishedAt?.toISOString() ?? null,
-  };
-}
 
 @Injectable()
 export class SimulationsService {
@@ -98,8 +92,28 @@ export class SimulationsService {
   constructor(
     @Inject(DB) private readonly db: Database,
     @Inject(REDIS) private readonly queue: QueueWriter,
-    @Inject(CLOCK) private readonly clock: Clock
+    @Inject(CLOCK) private readonly clock: Clock,
+    @Inject(APP_CONFIG) private readonly env: Pick<Env, 'GRAFANA_URL'>
   ) {}
+
+  private toRun(row: RunRow): SimulationRun {
+    const window = {
+      from: new Date(row.startedAt.getTime() - TRACE_WINDOW_MARGIN_MS),
+      to: new Date(row.startedAt.getTime() + SIMULATION_RUN_TIMEOUT_MS + TRACE_WINDOW_MARGIN_MS),
+    };
+    return {
+      id: row.id,
+      eventId: row.eventId,
+      strategy: row.strategy,
+      buyers: row.buyers,
+      seats: row.seats,
+      status: row.status,
+      metrics: row.metrics,
+      startedAt: row.startedAt.toISOString(),
+      finishedAt: row.finishedAt?.toISOString() ?? null,
+      traceUrl: traceLink(this.env.GRAFANA_URL, row.traceparent, window),
+    };
+  }
 
   /**
    * One transaction under an advisory lock: the cap check, a fresh sandbox event of the admin with
@@ -109,6 +123,7 @@ export class SimulationsService {
    * nothing behind.
    */
   async start(input: StartSimulationRequest, adminId: string): Promise<SimulationRun> {
+    const traceparent = currentTraceparent();
     const run = await this.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${START_LOCK_KEY}))`);
       // Read under the lock: a reading from before it could miss runs that committed meanwhile.
@@ -145,10 +160,11 @@ export class SimulationsService {
           status: SIMULATION_STATUS.QUEUED,
           startedBy: adminId,
           startedAt: now,
+          traceparent,
         })
         .returning();
       if (row === undefined) throw new Error('run insert returned no row');
-      return toRun(row);
+      return this.toRun(row);
     });
     try {
       // Before the command, so the stream of a QUEUED run reads this key and not the row.
@@ -197,7 +213,7 @@ export class SimulationsService {
   async find(id: string): Promise<SimulationRun> {
     const [row] = await this.db.select().from(simulationRuns).where(eq(simulationRuns.id, id));
     if (row === undefined) throw new NotFoundException('Simulation run not found');
-    return toRun(row);
+    return this.toRun(row);
   }
 
   /** The latest finished runs, newest first: the strategy comparison. */
@@ -208,7 +224,7 @@ export class SimulationsService {
       .where(eq(simulationRuns.status, SIMULATION_STATUS.FINISHED))
       .orderBy(desc(simulationRuns.finishedAt))
       .limit(MAX_LISTED_RUNS);
-    return rows.map(toRun);
+    return rows.map((row) => this.toRun(row));
   }
 
   /**
@@ -231,6 +247,7 @@ export class SimulationsService {
       buyers: row.buyers,
       seatIds: seatRows.map(({ id }) => id),
       startedBy: row.startedBy,
+      traceparent: row.traceparent,
     };
   }
 

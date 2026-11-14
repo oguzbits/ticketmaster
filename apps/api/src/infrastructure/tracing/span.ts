@@ -7,6 +7,7 @@ export const SPAN_NAME = {
   QUEUE_PROCESS: 'queue.process',
   QUEUE_EFFECT: 'queue.effect',
   HOLD_STRATEGY: 'booking.hold.strategy',
+  SIMULATION_RUN: 'simulation.run',
   DB_QUERY: 'db.query',
   REDIS_COMMAND: 'redis.command',
 } as const;
@@ -15,6 +16,7 @@ export const SPAN_ATTR = {
   STRATEGY: 'booking.strategy',
   EFFECT: 'queue.effect',
   MESSAGE_ID: 'queue.message_id',
+  RUN_ID: 'simulation.run_id',
   DB_SYSTEM: 'db.system',
   DB_STATEMENT: 'db.statement',
   DB_OPERATION: 'db.operation',

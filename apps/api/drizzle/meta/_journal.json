@@ -71,6 +71,13 @@
       "when": 1794672811638,
       "tag": "0009_strange_red_ghost",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794675030424,
+      "tag": "0010_easy_young_avengers",
+      "breakpoints": true
     }
   ]
 }

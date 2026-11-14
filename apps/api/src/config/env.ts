@@ -65,6 +65,8 @@ export const EnvSchema = z.object({
     .url()
     .default(DEFAULT_TRACING_OTLP_ENDPOINT)
     .transform((url) => url.replace(/\/+$/, '')),
+  // Base URL of Grafana as the admin's browser reaches it; unset hides the trace link of a run.
+  GRAFANA_URL: z.url().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

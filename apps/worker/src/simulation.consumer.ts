@@ -11,6 +11,7 @@ import {
   SimulationRunner,
   SimulationsService,
 } from '@app/api/simulations';
+import { SPAN_ATTR, SPAN_NAME, withExtractedContext, withSpan } from '@app/api/tracing';
 import {
   SIMULATION_CONSUMER_GROUP,
   SIMULATION_STATUS,
@@ -136,7 +137,12 @@ export class SimulationConsumer implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(`dropped command ${entryId}: run ${runId} is unknown or already started`);
       return;
     }
-    await this.execute(runId, run);
+    // The trace of the request that started the run: its spans join the link the admin sees.
+    await withExtractedContext(run.traceparent, () =>
+      withSpan(SPAN_NAME.SIMULATION_RUN, () => this.execute(runId, run), {
+        attributes: { [SPAN_ATTR.RUN_ID]: runId },
+      })
+    );
   }
 
   /**
