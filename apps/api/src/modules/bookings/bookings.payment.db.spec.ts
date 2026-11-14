@@ -31,6 +31,7 @@ import type { BookingState } from './domain/booking-state-machine.js';
 import type { PaymentProvider } from './domain/payment-provider.js';
 import { HOLD_OUTCOME } from './domain/seat-reservation.js';
 import { createBookingsService } from './testing/create-bookings-service.js';
+import { RecordingMetrics } from './testing/recording-metrics.js';
 
 const NOW = SPEC_NOW;
 const SEAT_PRICE_CENTS = 1000;
@@ -80,12 +81,13 @@ describe('payment and cancel', () => {
   let redis: Redis;
   let service: BookingsService;
   let outbox: CrashingOutbox;
+  const metrics = new RecordingMetrics();
 
   beforeAll(async () => {
     redis = await openTestRedis();
     const clock = { now: () => now };
     outbox = new CrashingOutbox(db, clock, new FakeMessageQueue());
-    service = createBookingsService(db, redis, clock, provider, undefined, outbox);
+    service = createBookingsService(db, redis, clock, provider, undefined, outbox, metrics);
   });
   afterAll(async () => {
     await redis.quit();
@@ -505,5 +507,121 @@ describe('payment and cancel', () => {
     await service.cancel({ bookingId, userId });
 
     await expect(service.cancel({ bookingId, userId })).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  describe('metrics', () => {
+    const settled = (status: string) => ({ method: 'bookingSettled', args: [status] });
+    /** What the metrics port was told while `action` ran. */
+    async function recordedDuring<T>(action: () => Promise<T>) {
+      const before = metrics.calls.length;
+      await action();
+      return metrics.calls.slice(before);
+    }
+
+    it('a confirmed payment counts CONFIRMED once; the same key again counts nothing', async () => {
+      const { bookingId, userId } = await heldBooking();
+      const idempotencyKey = key('metrics-ok');
+
+      const first = await recordedDuring(() => service.pay({ bookingId, userId, idempotencyKey }));
+      const again = await recordedDuring(() => service.pay({ bookingId, userId, idempotencyKey }));
+
+      expect(first).toEqual([settled(BOOKING_STATUS.CONFIRMED)]);
+      expect(again).toEqual([]);
+    });
+
+    it('ten parallel payments with one key count once', async () => {
+      const { bookingId, userId } = await heldBooking();
+      const idempotencyKey = key('metrics-ten');
+      provider.chargeDelayMs = PARALLEL_CHARGE_MS;
+
+      const recorded = await recordedDuring(() =>
+        Promise.all(
+          Array.from({ length: 10 }, () => service.pay({ bookingId, userId, idempotencyKey }))
+        )
+      );
+
+      expect(recorded).toEqual([settled(BOOKING_STATUS.CONFIRMED)]);
+    });
+
+    it('two instances paying with one key at once count once: the one that lost the apply counts nothing', async () => {
+      const { bookingId, userId } = await heldBooking();
+      const idempotencyKey = key('metrics-instances');
+      provider.chargeDelayMs = PARALLEL_CHARGE_MS;
+      const other = createBookingsService(
+        db,
+        redis,
+        { now: () => now },
+        provider,
+        undefined,
+        outbox,
+        metrics
+      );
+
+      const recorded = await recordedDuring(() =>
+        Promise.all([
+          service.pay({ bookingId, userId, idempotencyKey }),
+          other.pay({ bookingId, userId, idempotencyKey }),
+        ])
+      );
+
+      expect(recorded).toEqual([settled(BOOKING_STATUS.CONFIRMED)]);
+    });
+
+    it('a failed charge counts the resulting CANCELLED once', async () => {
+      const { bookingId, userId } = await heldBooking();
+      provider.succeed = false;
+
+      const recorded = await recordedDuring(() =>
+        service.pay({ bookingId, userId, idempotencyKey: key('metrics-fail') })
+      );
+
+      expect(recorded).toEqual([settled(BOOKING_STATUS.CANCELLED)]);
+    });
+
+    it('an apply step that rolls back counts nothing; the retry counts once', async () => {
+      const { bookingId, userId } = await heldBooking();
+      const idempotencyKey = key('metrics-crash');
+      outbox.crashNext = true;
+
+      const crashed = await recordedDuring(() =>
+        expect(service.pay({ bookingId, userId, idempotencyKey })).rejects.toThrow('apply crashed')
+      );
+      const retried = await recordedDuring(() =>
+        service.pay({ bookingId, userId, idempotencyKey })
+      );
+
+      expect(crashed).toEqual([]);
+      expect(retried).toEqual([settled(BOOKING_STATUS.CONFIRMED)]);
+    });
+
+    it('a payment that finds the booking changed under it answers 409 and counts nothing', async () => {
+      const { bookingId, userId } = await heldBooking();
+      provider.duringCharge = async () => {
+        await db
+          .update(bookings)
+          .set({ status: BOOKING_STATUS.EXPIRED })
+          .where(eq(bookings.id, bookingId));
+      };
+
+      const recorded = await recordedDuring(() =>
+        expect(
+          service.pay({ bookingId, userId, idempotencyKey: key('metrics-conflict') })
+        ).rejects.toBeInstanceOf(ConflictException)
+      );
+
+      expect(recorded).toEqual([]);
+    });
+
+    it('a cancel counts CANCELLED once; a refused cancel counts nothing', async () => {
+      const { bookingId, userId } = await heldBooking();
+
+      const cancelled = await recordedDuring(() => service.cancel({ bookingId, userId }));
+      const refused = await recordedDuring(() =>
+        expect(service.cancel({ bookingId, userId })).rejects.toBeInstanceOf(ConflictException)
+      );
+
+      expect(cancelled).toEqual([settled(BOOKING_STATUS.CANCELLED)]);
+      expect(refused).toEqual([]);
+    });
   });
 });

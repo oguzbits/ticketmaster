@@ -12,12 +12,21 @@ import type { Redis } from '../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
 import { SPEC_NOW } from '../../testing/time.js';
+import { SeatReservations } from './adapters/seat-reservations.js';
 import type { BookingsService } from './bookings.service.js';
-import { HOLD_OUTCOME } from './domain/seat-reservation.js';
+import { HOLD_OUTCOME, type HoldResult } from './domain/seat-reservation.js';
 import { createBookingsService } from './testing/create-bookings-service.js';
+import { RecordingMetrics } from './testing/recording-metrics.js';
 
 const NOW = SPEC_NOW;
 const clock: Clock = { now: () => NOW };
+
+/** A strategy that always loses the race at the unique index, whatever the database holds. */
+class ViolatingReservations extends SeatReservations {
+  override hold(): Promise<HoldResult> {
+    return Promise.resolve({ outcome: HOLD_OUTCOME.CONSTRAINT_VIOLATION });
+  }
+}
 
 describe.each(Object.values(BOOKING_STRATEGY))('hold under %s', (strategy) => {
   const database = openTestDatabase();
@@ -133,5 +142,72 @@ describe.each(Object.values(BOOKING_STRATEGY))('hold under %s', (strategy) => {
 
     const held = await service.hold({ eventId, seatId, userId: owner });
     expect(held.outcome).toBe(HOLD_OUTCOME.PLACED);
+  });
+
+  describe('metrics', () => {
+    const attempted = (outcome: string) => ({ method: 'holdAttempted', args: [strategy, outcome] });
+
+    it('counts each attempt once with the strategy of the event and its outcome', async () => {
+      const metrics = new RecordingMetrics();
+      const counted = createBookingsService(
+        db,
+        redis,
+        clock,
+        undefined,
+        undefined,
+        undefined,
+        metrics
+      );
+      const { eventId, seatId } = await freeSeat();
+
+      await counted.hold({ eventId, seatId, userId: randomUUID() });
+      await counted.hold({ eventId, seatId, userId: randomUUID() });
+
+      expect(metrics.calls).toEqual([
+        attempted(HOLD_OUTCOME.PLACED),
+        attempted(HOLD_OUTCOME.SEAT_TAKEN),
+      ]);
+    });
+
+    it('counts a lost race at the unique index as CONSTRAINT_VIOLATION', async () => {
+      const metrics = new RecordingMetrics();
+      const violating = new ViolatingReservations(db, redis, clock, env.HOLD_TTL_SECONDS);
+      const counted = createBookingsService(
+        db,
+        redis,
+        clock,
+        undefined,
+        undefined,
+        undefined,
+        metrics,
+        violating
+      );
+      const { eventId, seatId } = await freeSeat();
+
+      await counted.hold({ eventId, seatId, userId: randomUUID() });
+
+      expect(metrics.calls).toEqual([attempted(HOLD_OUTCOME.CONSTRAINT_VIOLATION)]);
+    });
+
+    it('counts nothing for a seat that is not in the event', async () => {
+      const metrics = new RecordingMetrics();
+      const counted = createBookingsService(
+        db,
+        redis,
+        clock,
+        undefined,
+        undefined,
+        undefined,
+        metrics
+      );
+      const { eventId } = await freeSeat();
+      const other = await freeSeat();
+
+      await expect(
+        counted.hold({ eventId, seatId: other.seatId, userId: randomUUID() })
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(metrics.calls).toEqual([]);
+    });
   });
 });

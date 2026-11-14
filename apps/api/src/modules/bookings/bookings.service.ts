@@ -87,6 +87,7 @@ export class BookingsService {
       () => this.reservations.hold(event.strategy, input),
       { attributes: { [SPAN_ATTR.STRATEGY]: event.strategy } }
     );
+    this.ports.metrics.holdAttempted(event.strategy, result.outcome);
     if (result.outcome === HOLD_OUTCOME.PLACED) {
       await this.announce(result.bookingId, input);
     }
@@ -149,7 +150,11 @@ export class BookingsService {
     });
     this.flights.set(input.idempotencyKey, flight);
     const { state, seat } = await flight;
-    if (seat !== null) await this.announce(state.id, seat);
+    if (seat !== null) {
+      // Only the request that applied the result counts it (`seat` is null for a parallel one).
+      this.ports.metrics.bookingSettled(state.status);
+      await this.announce(state.id, seat);
+    }
     return state;
   }
 
@@ -248,6 +253,7 @@ export class BookingsService {
       );
       return { state: await storeTransition(tx, cancelled), seat };
     });
+    this.ports.metrics.bookingSettled(state.status);
     await this.announce(state.id, seat);
     return state;
   }
@@ -292,6 +298,7 @@ export class BookingsService {
         }
         return released;
       });
+      if (batch.length > 0) this.ports.metrics.bookingSettled(BOOKING_STATUS.EXPIRED, batch.length);
       await Promise.all(batch.map((b) => this.announce(b.id, b)));
       expired += batch.length;
       if (batch.length < EXPIRY_BATCH_SIZE) return expired;

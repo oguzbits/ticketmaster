@@ -6,6 +6,7 @@ import { ConfigModule } from './config/config.module.js';
 import { ClockModule } from './infrastructure/clock/clock.module.js';
 import { DatabaseModule } from './infrastructure/database/database.module.js';
 import { httpLogOptions } from './infrastructure/logging/http-log.js';
+import { MetricsModule } from './infrastructure/metrics/index.js';
 import { RateLimitGuard } from './infrastructure/rate-limit/rate-limit.guard.js';
 import { RateLimitModule } from './infrastructure/rate-limit/rate-limit.module.js';
 import { RedisModule } from './infrastructure/redis/redis.module.js';
@@ -26,6 +27,7 @@ import { WaitingRoomModule } from './modules/waiting-room/index.js';
     }),
     ConfigModule,
     ClockModule,
+    MetricsModule,
     DatabaseModule,
     RedisModule,
     RateLimitModule,

@@ -94,6 +94,13 @@ the route template (`/api/bookings/:id/payment`), `/api*path` for an unknown pat
 `UNMATCHED` for any other request no route matched, so a URL never becomes a series. Health probes,
 event streams and the scrape itself are not counted.
 
+Two counters come from the booking service, each increased only after the database transaction
+committed, so a rolled-back or refused action counts nothing: `tm_holds_total{strategy,outcome}`
+(one per hold attempt, outcome `PLACED`, `SEAT_TAKEN` or `CONSTRAINT_VIOLATION`) and
+`tm_bookings_settled_total{status}` (`CONFIRMED` or `CANCELLED` after a payment, `CANCELLED` after a
+cancel, `EXPIRED` by the expiry job once per batch). No ID of a user, booking, event or
+seat is ever a label.
+
 ## Check it by hand
 
 A repeatable check, not a CI job: it needs the profile. Stop any `pnpm dev` worker first, or it

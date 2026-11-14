@@ -3,6 +3,7 @@ import { ClockModule } from '@app/api/clock';
 import { ConfigModule } from '@app/api/config';
 import { DatabaseModule } from '@app/api/database';
 import { DemoModule } from '@app/api/demo';
+import { MetricsModule } from '@app/api/metrics';
 import { OutboxModule } from '@app/api/outbox';
 import { RedisModule } from '@app/api/redis';
 import { SimulationsModule } from '@app/api/simulations';
@@ -30,6 +31,7 @@ import { workerLogOptions } from './worker-logger.js';
     ScheduleModule.forRoot(),
     ConfigModule,
     ClockModule,
+    MetricsModule,
     DatabaseModule,
     RedisModule,
     BookingsModule,

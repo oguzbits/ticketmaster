@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { APP_CONFIG } from '../../config/config.module.js';
 import type { Env } from '../../config/env.js';
+import { BUSINESS_METRICS, type BusinessMetrics } from '../../core/business-metrics.js';
 import { CLOCK, type Clock } from '../../core/clock.js';
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
 import { REDIS, type Redis } from '../../infrastructure/redis/redis.module.js';
@@ -34,13 +35,23 @@ import { SEAT_CHANGE_PUBLISHER, type SeatChangePublisher } from './domain/seat-c
     },
     {
       provide: BOOKING_PORTS,
+      // One tuple parameter: the ports outgrew the four parameters a factory may take.
       useFactory: (
-        payments: PaymentProvider,
-        seatChanges: SeatChangePublisher,
-        outbox: OutboxService,
-        waitingRoom: WaitingRoomService
-      ): BookingPorts => ({ payments, seatChanges, outbox, waitingRoom }),
-      inject: [PAYMENT_PROVIDER, SEAT_CHANGE_PUBLISHER, OutboxService, WaitingRoomService],
+        ...[payments, seatChanges, outbox, waitingRoom, metrics]: [
+          PaymentProvider,
+          SeatChangePublisher,
+          OutboxService,
+          WaitingRoomService,
+          BusinessMetrics,
+        ]
+      ): BookingPorts => ({ payments, seatChanges, outbox, waitingRoom, metrics }),
+      inject: [
+        PAYMENT_PROVIDER,
+        SEAT_CHANGE_PUBLISHER,
+        OutboxService,
+        WaitingRoomService,
+        BUSINESS_METRICS,
+      ],
     },
     {
       provide: SEAT_CHANGE_PUBLISHER,

@@ -22,6 +22,7 @@ import { SYSTEM_ACTOR_ID } from './domain/booking-state-machine.js';
 import { PAYMENT_GRACE_SECONDS, type PaymentProvider } from './domain/payment-provider.js';
 import { HOLD_OUTCOME } from './domain/seat-reservation.js';
 import { createBookingsService } from './testing/create-bookings-service.js';
+import { RecordingMetrics } from './testing/recording-metrics.js';
 
 const START = EXPIRY_SPEC_START;
 const LOCK_WAIT_MS = 1500;
@@ -35,10 +36,19 @@ describe('expireHolds', () => {
   let now = START;
   let redis: Redis;
   let service: BookingsService;
+  const metrics = new RecordingMetrics();
 
   beforeAll(async () => {
     redis = await openTestRedis();
-    service = createBookingsService(db, redis, { now: () => now });
+    service = createBookingsService(
+      db,
+      redis,
+      { now: () => now },
+      undefined,
+      undefined,
+      undefined,
+      metrics
+    );
   });
   afterAll(async () => {
     await redis.quit();
@@ -90,6 +100,20 @@ describe('expireHolds', () => {
       toStatus: BOOKING_STATUS.EXPIRED,
       actorId: SYSTEM_ACTOR_ID,
     });
+  });
+
+  it('counts the expired holds once per run, and nothing for a run that expires none', async () => {
+    await holds(2, START);
+    const before = metrics.calls.length;
+
+    const expired = await service.expireHolds(new Date(START.getTime() + ttlMs));
+    const none = await service.expireHolds(new Date(0));
+
+    expect(expired).toBeGreaterThanOrEqual(2);
+    expect(none).toBe(0);
+    expect(metrics.calls.slice(before)).toEqual([
+      { method: 'bookingSettled', args: [BOOKING_STATUS.EXPIRED, expired] },
+    ]);
   });
 
   it('publishes AVAILABLE for each expired hold after the commit, and only for those', async () => {

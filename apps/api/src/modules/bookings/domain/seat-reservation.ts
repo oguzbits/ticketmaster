@@ -1,8 +1,6 @@
-export const HOLD_OUTCOME = {
-  PLACED: 'PLACED',
-  SEAT_TAKEN: 'SEAT_TAKEN',
-  CONSTRAINT_VIOLATION: 'CONSTRAINT_VIOLATION',
-} as const;
+import { HOLD_OUTCOME } from '../../../core/hold-outcome.js';
+
+export { HOLD_OUTCOME };
 
 export interface HoldInput {
   eventId: string;
