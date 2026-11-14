@@ -7,8 +7,8 @@ interface LoggedRequest {
 }
 
 /**
- * The request ID, cut to the audit column's limit: a client may send any `x-request-id`, and an
- * overlong value must not fail the change it belongs to. Throws without an ID (no logger ran).
+ * The request ID, cut to the audit column's limit: `requestId` already limits a client's value to the
+ * column's length; the cut keeps any other source of `req.id` from failing the change it belongs to. Throws without an ID (no logger ran).
  */
 export function requestIdOf(req: LoggedRequest): string {
   if (typeof req.id !== 'string' || req.id === '') {

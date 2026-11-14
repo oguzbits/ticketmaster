@@ -288,14 +288,16 @@ describe('events endpoints', () => {
         expect(row?.requestId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/);
       });
 
-      it('cuts a request ID longer than the column limit instead of failing the change', async () => {
+      it.each([
+        ['longer than the column limit', 'x'.repeat(AUDIT_LOG_LIMITS.REQUEST_ID_MAX + 1)],
+        ['an email address', 'a@b.de'],
+      ])('stores a generated request ID for a client one that is %s', async (_name, sent) => {
         const { eventId } = await createTestEvent(db, { strategy: STRATEGY, seats: 1 });
-        const long = 'x'.repeat(AUDIT_LOG_LIMITS.REQUEST_ID_MAX + 1);
 
-        await patch(eventId, SWITCH, ADMIN_TOKEN, long).expect(200);
+        await patch(eventId, SWITCH, ADMIN_TOKEN, sent).expect(200);
 
         const [row] = await auditRowsOfSubject(db, eventId);
-        expect(row?.requestId).toBe(long.slice(0, AUDIT_LOG_LIMITS.REQUEST_ID_MAX));
+        expect(row?.requestId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/);
       });
 
       it('writes no row for an event the caller may not touch or that does not exist', async () => {

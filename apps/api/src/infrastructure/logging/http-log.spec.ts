@@ -15,12 +15,15 @@ const LogLineSchema = z.object({ req: z.object({}).loose(), res: z.object({}).lo
 const REQUEST_ID = 'trace-42';
 const CLIENT_IP = '203.0.113.9';
 const TOKEN = 'secret-token';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-/;
 
 describe('http request log', () => {
   let server: http.Server | undefined;
   afterEach(() => new Promise((resolve) => server?.close(resolve)));
 
-  async function loggedLine(): Promise<{ raw: string; parsed: z.infer<typeof LogLineSchema> }> {
+  async function loggedLine(
+    requestId = REQUEST_ID
+  ): Promise<{ raw: string; parsed: z.infer<typeof LogLineSchema> }> {
     const lines: string[] = [];
     const stream = new Writable({
       write(chunk: Buffer, _encoding, done) {
@@ -40,7 +43,7 @@ describe('http request log', () => {
         authorization: `Bearer ${TOKEN}`,
         cookie: `session=${TOKEN}`,
         'x-forwarded-for': CLIENT_IP,
-        'x-request-id': REQUEST_ID,
+        'x-request-id': requestId,
       },
     });
     await vi.waitFor(() => expect(lines).toHaveLength(1));
@@ -53,6 +56,13 @@ describe('http request log', () => {
 
     expect(parsed.req).toEqual({ id: REQUEST_ID, method: 'GET', url: '/events?q=1' });
     expect(parsed.res).toEqual({ statusCode: 200 });
+  });
+
+  it('logs a generated id instead of a client id that could hold personal data', async () => {
+    const { raw, parsed } = await loggedLine('a@b.de');
+
+    expect(raw).not.toContain('a@b.de');
+    expect(parsed.req).toMatchObject({ id: expect.stringMatching(UUID) });
   });
 
   it('never writes headers or the client address', async () => {

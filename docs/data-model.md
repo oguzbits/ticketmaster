@@ -144,7 +144,9 @@ be deleted later (a demo user's cleanup), and a message must survive that.
 
 `audit_log` holds one row per audited state change (hold, payment, cancellation, event creation,
 strategy switch, waiting-room change, simulation start): who (`actor_id`), what (`action`,
-`subject_type`, `subject_id`) and the request that did it (`request_id`), IDs only. It is
+`subject_type`, `subject_id`) and the request that did it (`request_id`), IDs only. `request_id` is the caller's `x-request-id` only
+when it matches `^[A-Za-z0-9._-]{1,128}$`, otherwise a generated UUID, so no free text (an email
+address) reaches the table or the logs. It is
 append-only: `AuditService.record` is the only writer, it inserts on the transaction of the change
 (so a rolled-back change leaves no row), and nothing updates or deletes rows. The database does not
 enforce this (migrations are generated, a trigger would need a hand-written one). `at` comes from
