@@ -1,7 +1,11 @@
-import { expect, loginAs, openEvent, test } from './fixtures';
+import { expect, openEvent, test } from './fixtures';
 
-test('a customer logs in, holds a seat, pays and finds the confirmed booking', async ({ page }) => {
-  await loginAs(page, 'customer');
+// Uses the shared customer session: the demo login allows five per minute and address, and the
+// waiting-room spec needs a second customer.
+test('a customer holds a seat, pays and finds the confirmed booking', async ({
+  customerContext,
+}) => {
+  const page = await customerContext.newPage();
   await openEvent(page, 'Symphony Evening (pessimistic)');
 
   await page

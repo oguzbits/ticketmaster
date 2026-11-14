@@ -14,7 +14,13 @@ test('an organizer reaches the organizer screen with the events they own', async
 
 test('an admin switches the booking strategy of an event', async ({ page }) => {
   await loginAs(page, 'admin');
-  await page.getByRole('main').getByRole('link').first().click();
+  // A demo admin may switch only their sandbox events, and the list order of events that start
+  // at the same time is not defined.
+  await page
+    .getByRole('main')
+    .getByRole('link', { name: /^Your sandbox/ })
+    .first()
+    .click();
 
   await expect(page.getByRole('heading', { name: 'Booking strategy' })).toBeVisible();
   const current = (await page.getByText(/^Current strategy: /).textContent())?.split(': ')[1];

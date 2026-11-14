@@ -1,7 +1,7 @@
 import { type BrowserContext, expect, type Page, test as base } from '@playwright/test';
 
 /** Where the web app keeps its session (`SessionStore`). */
-const SESSION_KEY = 'session';
+export const SESSION_KEY = 'session';
 
 export type DemoRole = 'customer' | 'organizer' | 'admin';
 
