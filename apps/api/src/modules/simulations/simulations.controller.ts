@@ -8,6 +8,7 @@ import { Body, Controller, Get, type MessageEvent, Param, Post, Sse } from '@nes
 import { map, type Observable } from 'rxjs';
 import { z } from 'zod';
 
+import { RequestId } from '../../infrastructure/http/request-id.decorator.js';
 import { ZodPipe } from '../../infrastructure/http/zod.pipe.js';
 import { RateLimit } from '../../infrastructure/rate-limit/rate-limit.decorator.js';
 import { type AuthUser, CurrentUser, Public, Roles } from '../auth/index.js';
@@ -26,9 +27,10 @@ export class SimulationsController {
   @Post()
   start(
     @Body(new ZodPipe(StartSimulationRequestSchema)) body: StartSimulationRequest,
-    @CurrentUser() user: AuthUser
+    @CurrentUser() user: AuthUser,
+    @RequestId() requestId: string
   ): Promise<SimulationRun> {
-    return this.simulations.start(body, user.id);
+    return this.simulations.start(body, user.id, requestId);
   }
 
   @Roles(ROLE.ADMIN)

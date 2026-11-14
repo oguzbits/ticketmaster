@@ -3,6 +3,7 @@ import type { BusinessMetrics } from '../../../core/business-metrics.js';
 import type { Clock } from '../../../core/clock.js';
 import type { Database } from '../../../infrastructure/database/database.module.js';
 import type { Redis } from '../../../infrastructure/redis/redis.module.js';
+import { AuditService } from '../../audit/index.js';
 import { OutboxService } from '../../outbox/index.js';
 import { FakeMessageQueue } from '../../outbox/testing/index.js';
 import { RedisWaitingRoomStore, WaitingRoomService } from '../../waiting-room/index.js';
@@ -32,7 +33,12 @@ export function createBookingsService(
     loadEnv().HOLD_TTL_SECONDS
   )
 ): BookingsService {
-  const waitingRoom = new WaitingRoomService(db, clock, new RedisWaitingRoomStore(redis));
+  const waitingRoom = new WaitingRoomService(
+    db,
+    clock,
+    new RedisWaitingRoomStore(redis),
+    new AuditService(db, clock)
+  );
   return new BookingsService(db, reservations, clock, {
     payments,
     seatChanges: publisher,

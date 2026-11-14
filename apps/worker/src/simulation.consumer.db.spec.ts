@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 
+import { AuditService } from '@app/api/audit';
 import { BookingsService } from '@app/api/bookings';
 import { CLOCK } from '@app/api/clock';
 import { type Database, DB } from '@app/api/database';
@@ -122,7 +123,7 @@ describe('SimulationConsumer', () => {
 
   it('runs a queued run to the end: metrics in the row, progress key, message acknowledged', async () => {
     await startedConsumer();
-    const run = await simulations.start(REQUEST, randomUUID());
+    const run = await simulations.start(REQUEST, randomUUID(), randomUUID());
 
     await untilStatus(run, SIMULATION_STATUS.FINISHED);
     await untilAcknowledged();
@@ -140,7 +141,9 @@ describe('SimulationConsumer', () => {
     const traced = startTestTracing();
     stopTracing = traced.shutdown;
     await startedConsumer();
-    const run = await withSpan(ROOT_SPAN, () => simulations.start(REQUEST, randomUUID()));
+    const run = await withSpan(ROOT_SPAN, () =>
+      simulations.start(REQUEST, randomUUID(), randomUUID())
+    );
 
     await untilStatus(run, SIMULATION_STATUS.FINISHED);
 
@@ -165,9 +168,9 @@ describe('SimulationConsumer', () => {
         input.eventId === failingEvent ? Promise.reject(new Error('boom')) : bookings.hold(input)
       )
     );
-    const broken = await simulations.start(REQUEST, randomUUID());
+    const broken = await simulations.start(REQUEST, randomUUID(), randomUUID());
     failingEvent = broken.eventId;
-    const next = await simulations.start(REQUEST, randomUUID());
+    const next = await simulations.start(REQUEST, randomUUID(), randomUUID());
 
     await untilStatus(broken, SIMULATION_STATUS.FAILED);
     await untilStatus(next, SIMULATION_STATUS.FINISHED);
@@ -184,7 +187,12 @@ describe('SimulationConsumer', () => {
         return Promise.reject(new Error('database down'));
       }
     }
-    const store = new CannotFail(database, redis, { now: () => NOW }, {});
+    const store = new CannotFail(
+      database,
+      redis,
+      { now: () => NOW },
+      { env: {}, audit: new AuditService(database, { now: () => NOW }) }
+    );
     store.streamKey = streamKey;
     let failingEvent = '';
     await startedConsumer(
@@ -193,9 +201,9 @@ describe('SimulationConsumer', () => {
       ),
       store
     );
-    const broken = await simulations.start(REQUEST, randomUUID());
+    const broken = await simulations.start(REQUEST, randomUUID(), randomUUID());
     failingEvent = broken.eventId;
-    const next = await simulations.start(REQUEST, randomUUID());
+    const next = await simulations.start(REQUEST, randomUUID(), randomUUID());
 
     await untilAcknowledged();
     await untilStatus(next, SIMULATION_STATUS.FINISHED);
@@ -211,10 +219,15 @@ describe('SimulationConsumer', () => {
         return Promise.reject(new Error('database down'));
       }
     }
-    const store = new CannotFinish(database, redis, { now: () => NOW }, {});
+    const store = new CannotFinish(
+      database,
+      redis,
+      { now: () => NOW },
+      { env: {}, audit: new AuditService(database, { now: () => NOW }) }
+    );
     store.streamKey = streamKey;
     await startedConsumer(undefined, store);
-    const run = await simulations.start(REQUEST, randomUUID());
+    const run = await simulations.start(REQUEST, randomUUID(), randomUUID());
 
     await untilStatus(run, SIMULATION_STATUS.FAILED);
     await untilAcknowledged();
@@ -222,7 +235,7 @@ describe('SimulationConsumer', () => {
 
   it('keeps a run the reaper failed meanwhile FAILED: logs the run, writes no FINISHED progress', async () => {
     const warned = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
-    const run = await simulations.start(REQUEST, randomUUID());
+    const run = await simulations.start(REQUEST, randomUUID(), randomUUID());
     let reaped: Promise<void> | undefined;
     // The reaper's verdict arrives while the buyers are still booking.
     await startedConsumer(
@@ -257,7 +270,7 @@ describe('SimulationConsumer', () => {
       },
     });
     await startedConsumer(undefined, undefined, flaky);
-    const run = await simulations.start(REQUEST, randomUUID());
+    const run = await simulations.start(REQUEST, randomUUID(), randomUUID());
 
     await untilAcknowledged();
 
@@ -273,7 +286,7 @@ describe('SimulationConsumer', () => {
     await redis.xAdd(streamKey, '*', { runId: 'not-a-uuid' });
     const unknownRunId = randomUUID();
     await redis.xAdd(streamKey, '*', { runId: unknownRunId });
-    const run = await simulations.start(REQUEST, randomUUID());
+    const run = await simulations.start(REQUEST, randomUUID(), randomUUID());
 
     await untilStatus(run, SIMULATION_STATUS.FINISHED);
     await untilAcknowledged();
@@ -286,7 +299,7 @@ describe('SimulationConsumer', () => {
   it('runs a command that is delivered twice only once', async () => {
     const warned = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     await startedConsumer();
-    const run = await simulations.start(REQUEST, randomUUID());
+    const run = await simulations.start(REQUEST, randomUUID(), randomUUID());
     await untilStatus(run, SIMULATION_STATUS.FINISHED);
     const before = await simulations.find(run.id);
 
@@ -301,7 +314,7 @@ describe('SimulationConsumer', () => {
 
   it('runs an entry that was written before the group existed', async () => {
     // No consumer yet, so no group: the entry sits in a stream that only start() has created.
-    const run = await simulations.start(REQUEST, randomUUID());
+    const run = await simulations.start(REQUEST, randomUUID(), randomUUID());
     expect(await redis.xLen(streamKey)).toBe(1);
 
     await startedConsumer();
@@ -319,7 +332,7 @@ describe('SimulationConsumer', () => {
 
     async function rush(strategy: BookingStrategy) {
       await startedConsumer();
-      const run = await simulations.start({ ...RUSH, strategy }, randomUUID());
+      const run = await simulations.start({ ...RUSH, strategy }, randomUUID(), randomUUID());
       await expect
         .poll(() => statusOf(run), { timeout: RUSH_TIMEOUT_MS })
         .toBe(SIMULATION_STATUS.FINISHED);
@@ -366,8 +379,8 @@ describe('SimulationConsumer', () => {
       });
     await startedConsumer(slowRunner(takenByFirst));
     await startedConsumer(slowRunner(takenBySecond));
-    const first = await simulations.start(REQUEST, randomUUID());
-    const second = await simulations.start(REQUEST, randomUUID());
+    const first = await simulations.start(REQUEST, randomUUID(), randomUUID());
+    const second = await simulations.start(REQUEST, randomUUID(), randomUUID());
 
     await untilStatus(first, SIMULATION_STATUS.FINISHED);
     await untilStatus(second, SIMULATION_STATUS.FINISHED);
@@ -387,7 +400,7 @@ describe('SimulationConsumer', () => {
     await expect.poll(() => logged.mock.calls.length, { timeout: 5000 }).toBeGreaterThan(0);
     await sleep(ERROR_PAUSE_MS * 3);
 
-    const run = await simulations.start(REQUEST, randomUUID());
+    const run = await simulations.start(REQUEST, randomUUID(), randomUUID());
 
     await untilStatus(run, SIMULATION_STATUS.FINISHED);
   });

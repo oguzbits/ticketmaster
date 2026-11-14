@@ -9,3 +9,8 @@ import { toAuditEntry } from '../audit.service.js';
 export async function auditRows(db: Database): Promise<AuditEntry[]> {
   return (await db.select().from(auditLog).orderBy(asc(auditLog.id))).map(toAuditEntry);
 }
+
+/** The rows of one subject (an event, a booking, a run), oldest first. */
+export async function auditRowsOfSubject(db: Database, subjectId: string): Promise<AuditEntry[]> {
+  return (await auditRows(db)).filter((row) => row.subjectId === subjectId);
+}

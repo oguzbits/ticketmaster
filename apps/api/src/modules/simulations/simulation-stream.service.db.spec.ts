@@ -18,6 +18,7 @@ import type { Redis } from '../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
 import { SPEC_NOW } from '../../testing/time.js';
+import { AuditService } from '../audit/index.js';
 import {
   EMPTY_METRICS,
   SIMULATION_PROGRESS_TTL_SECONDS,
@@ -46,7 +47,12 @@ describe('SimulationStreamService', () => {
 
   beforeAll(async () => {
     redis = await openTestRedis();
-    const simulations = new SimulationsService(db, redis, { now: () => SPEC_NOW }, {});
+    const simulations = new SimulationsService(
+      db,
+      redis,
+      { now: () => SPEC_NOW },
+      { env: {}, audit: new AuditService(db, { now: () => SPEC_NOW }) }
+    );
     const slots = new SlotLimiter(redis, new SystemClock());
     service = new SimulationStreamService(redis, simulations, slots);
     other = new SimulationStreamService(redis, simulations, slots);

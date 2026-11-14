@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  AUDIT_ACTION,
+  AUDIT_SUBJECT,
   BOOKING_STRATEGY,
   SIMULATION_STATUS,
   SimulationProgressSchema,
@@ -19,6 +21,8 @@ import { startTestTracing } from '../../infrastructure/tracing/testing/index.js'
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
 import { SPEC_NOW } from '../../testing/time.js';
+import { AuditService } from '../audit/index.js';
+import { auditRows, auditRowsOfSubject } from '../audit/testing/index.js';
 import { EMPTY_METRICS, simulationProgressKey } from './simulation-progress.js';
 import { SimulationStreamService } from './simulation-stream.service.js';
 import {
@@ -55,7 +59,12 @@ describe('SimulationsService.start', () => {
   beforeAll(async () => {
     unlock = await lockSimulationRuns(db);
     redis = await openTestRedis();
-    service = new SimulationsService(db, redis, { now: () => NOW }, NO_GRAFANA);
+    service = new SimulationsService(
+      db,
+      redis,
+      { now: () => NOW },
+      { env: NO_GRAFANA, audit: new AuditService(db, { now: () => NOW }) }
+    );
     service.streamKey = streamKey;
     // A venue to host the sandbox events (a fresh test database has none).
     await createTestEvent(db, { strategy: STRATEGY, seats: 0 });
@@ -85,7 +94,7 @@ describe('SimulationsService.start', () => {
   }
 
   async function startFor(adminId: string) {
-    return service.start(REQUEST, adminId);
+    return service.start(REQUEST, adminId, randomUUID());
   }
 
   /** What `start` must not leave behind when it refuses: events, run rows and queue entries. */
@@ -97,6 +106,39 @@ describe('SimulationsService.start', () => {
     };
   }
 
+  describe('audit', () => {
+    it('writes one SIMULATION_STARTED row with the admin, the run and the request ID', async () => {
+      const adminId = randomUUID();
+
+      const run = await service.start(REQUEST, adminId, 'req-sim-1');
+
+      expect(await auditRowsOfSubject(db, run.id)).toMatchObject([
+        {
+          actorId: adminId,
+          action: AUDIT_ACTION.SIMULATION_STARTED,
+          subjectType: AUDIT_SUBJECT.SIMULATION_RUN,
+          subjectId: run.id,
+          requestId: 'req-sim-1',
+        },
+      ]);
+    });
+
+    it('writes no row for a start the cap refuses', async () => {
+      await seedRun(SIMULATION_STATUS.RUNNING, 1000);
+      await seedRun(SIMULATION_STATUS.RUNNING, 1000);
+      const adminId = randomUUID();
+      const requestId = `req-${randomUUID()}`;
+
+      await expect(service.start(REQUEST, adminId, requestId)).rejects.toMatchObject({
+        status: HttpStatus.TOO_MANY_REQUESTS,
+      });
+
+      const { runs } = await footprint(adminId);
+      expect(runs).toEqual([]);
+      expect((await auditRows(db)).filter((row) => row.requestId === requestId)).toEqual([]);
+    });
+  });
+
   describe('trace link', () => {
     let stopTracing: (() => Promise<void>) | undefined;
     afterEach(async () => {
@@ -105,7 +147,12 @@ describe('SimulationsService.start', () => {
     });
 
     function withGrafana(env: Pick<Env, 'GRAFANA_URL'>): SimulationsService {
-      const linking = new SimulationsService(db, redis, { now: () => NOW }, env);
+      const linking = new SimulationsService(
+        db,
+        redis,
+        { now: () => NOW },
+        { env: env, audit: new AuditService(db, { now: () => NOW }) }
+      );
       linking.streamKey = streamKey;
       return linking;
     }
@@ -120,7 +167,7 @@ describe('SimulationsService.start', () => {
 
       const run = await withSpan('probe', () => {
         active = currentTraceparent();
-        return linking.start(REQUEST, randomUUID());
+        return linking.start(REQUEST, randomUUID(), randomUUID());
       });
 
       const traceId = traceIdOf(active);
@@ -135,7 +182,7 @@ describe('SimulationsService.start', () => {
       stopTracing = startTestTracing().shutdown;
 
       const run = await withSpan('probe', () =>
-        withGrafana(NO_GRAFANA).start(REQUEST, randomUUID())
+        withGrafana(NO_GRAFANA).start(REQUEST, randomUUID(), randomUUID())
       );
 
       expect(run.traceUrl).toBeNull();
@@ -143,7 +190,7 @@ describe('SimulationsService.start', () => {
     });
 
     it('has no link and stores no trace for a run started outside a trace', async () => {
-      const run = await withGrafana(WITH_GRAFANA).start(REQUEST, randomUUID());
+      const run = await withGrafana(WITH_GRAFANA).start(REQUEST, randomUUID(), randomUUID());
 
       expect(run.traceUrl).toBeNull();
       expect(await storedTraceparent(run.id)).toBeNull();
@@ -202,14 +249,14 @@ describe('SimulationsService.start', () => {
       db,
       redis,
       { now: () => new Date((reading -= 60_000)) },
-      NO_GRAFANA
+      { env: NO_GRAFANA, audit: new AuditService(db, { now: () => NOW }) }
     );
     lagging.streamKey = streamKey;
 
-    await lagging.start(REQUEST, randomUUID());
-    await lagging.start(REQUEST, randomUUID());
+    await lagging.start(REQUEST, randomUUID(), randomUUID());
+    await lagging.start(REQUEST, randomUUID(), randomUUID());
 
-    await expect(lagging.start(REQUEST, randomUUID())).rejects.toMatchObject({
+    await expect(lagging.start(REQUEST, randomUUID(), randomUUID())).rejects.toMatchObject({
       status: HttpStatus.TOO_MANY_REQUESTS,
     });
   });
@@ -227,11 +274,11 @@ describe('SimulationsService.start', () => {
         },
       },
       { now: () => NOW },
-      NO_GRAFANA
+      { env: NO_GRAFANA, audit: new AuditService(db, { now: () => NOW }) }
     );
     recording.streamKey = streamKey;
 
-    const run = await recording.start(REQUEST, randomUUID());
+    const run = await recording.start(REQUEST, randomUUID(), randomUUID());
 
     expect(options).toEqual([
       {
@@ -293,10 +340,10 @@ describe('SimulationsService.start', () => {
       db,
       { set: () => Promise.reject(new Error('redis down')), xAdd: () => Promise.resolve('1-0') },
       { now: () => NOW },
-      NO_GRAFANA
+      { env: NO_GRAFANA, audit: new AuditService(db, { now: () => NOW }) }
     );
 
-    await expect(failing.start(REQUEST, adminId)).rejects.toThrow('redis down');
+    await expect(failing.start(REQUEST, adminId, randomUUID())).rejects.toThrow('redis down');
 
     const { events: leftEvents, runs, entries } = await footprint(adminId);
     expect([leftEvents.length, runs.length, entries]).toEqual([0, 0, before.entries]);
@@ -308,10 +355,10 @@ describe('SimulationsService.start', () => {
       db,
       { ...queueDown, set: () => Promise.resolve('OK') },
       { now: () => NOW },
-      NO_GRAFANA
+      { env: NO_GRAFANA, audit: new AuditService(db, { now: () => NOW }) }
     );
 
-    await expect(failing.start(REQUEST, adminId)).rejects.toThrow('redis down');
+    await expect(failing.start(REQUEST, adminId, randomUUID())).rejects.toThrow('redis down');
 
     const { events: leftEvents, runs } = await footprint(adminId);
     expect([leftEvents.length, runs.length]).toEqual([0, 0]);
@@ -328,10 +375,10 @@ describe('SimulationsService.start', () => {
       db,
       { ...queueDown, set: () => Promise.resolve('OK') },
       { now: () => NOW },
-      NO_GRAFANA
+      { env: NO_GRAFANA, audit: new AuditService(db, { now: () => NOW }) }
     );
 
-    await expect(service.start(REQUEST, randomUUID())).rejects.toThrow('redis down');
+    await expect(service.start(REQUEST, randomUUID(), randomUUID())).rejects.toThrow('redis down');
 
     expect(logged).toHaveBeenCalledTimes(1);
     logged.mockRestore();

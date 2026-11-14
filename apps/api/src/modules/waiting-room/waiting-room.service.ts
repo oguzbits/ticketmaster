@@ -1,4 +1,10 @@
-import { type EventSummary, ROLE, type WaitingRoomStatus } from '@app/shared';
+import {
+  AUDIT_ACTION,
+  AUDIT_SUBJECT,
+  type EventSummary,
+  ROLE,
+  type WaitingRoomStatus,
+} from '@app/shared';
 import {
   ConflictException,
   ForbiddenException,
@@ -12,6 +18,7 @@ import { and, eq, isNotNull, isNull, or } from 'drizzle-orm';
 import { CLOCK, type Clock } from '../../core/clock.js';
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
 import { demoUsers, events, venues } from '../../infrastructure/database/schema.js';
+import { AuditService } from '../audit/index.js';
 import type { AuthUser } from '../auth/index.js';
 import {
   ADMISSION_BATCH_SIZE,
@@ -29,7 +36,8 @@ export class WaitingRoomService {
   constructor(
     @Inject(DB) private readonly db: Database,
     @Inject(CLOCK) private readonly clock: Clock,
-    @Inject(WAITING_ROOM_STORE) private readonly store: WaitingRoomStore
+    @Inject(WAITING_ROOM_STORE) private readonly store: WaitingRoomStore,
+    private readonly audit: AuditService
   ) {}
 
   /** NotFound for an event the caller cannot see, Conflict when the event has no waiting room. */
@@ -78,18 +86,28 @@ export class WaitingRoomService {
   async setCapacity(
     eventId: string,
     capacity: number | null,
-    caller: AuthUser
+    caller: AuthUser,
+    requestId: string
   ): Promise<EventSummary> {
     const owner = eq(events.ownerId, caller.id);
     const scope = caller.roles.includes(ROLE.ADMIN)
       ? or(owner, await this.adminScope(caller.id))
       : owner;
-    const [updated] = await this.db
-      .update(events)
-      .set({ waitingRoomCapacity: capacity })
-      .where(and(eq(events.id, eventId), scope))
-      .returning({ id: events.id });
-    if (updated === undefined) throw new NotFoundException('Event not found');
+    await this.db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(events)
+        .set({ waitingRoomCapacity: capacity })
+        .where(and(eq(events.id, eventId), scope))
+        .returning({ id: events.id });
+      if (updated === undefined) throw new NotFoundException('Event not found');
+      await this.audit.record(tx, {
+        actorId: caller.id,
+        action: AUDIT_ACTION.WAITING_ROOM_SETTINGS_CHANGED,
+        subjectType: AUDIT_SUBJECT.EVENT,
+        subjectId: eventId,
+        requestId,
+      });
+    });
     const [event] = await this.db
       .select({
         id: events.id,

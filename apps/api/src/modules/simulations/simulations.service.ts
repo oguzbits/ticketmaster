@@ -1,4 +1,6 @@
 import {
+  AUDIT_ACTION,
+  AUDIT_SUBJECT,
   SIMULATION_STATUS,
   SIMULATION_STREAM_KEY,
   type SimulationMetrics,
@@ -17,13 +19,13 @@ import {
 import { and, count, desc, eq, gte, inArray, lt, notExists, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
-import { APP_CONFIG } from '../../config/config.module.js';
 import type { Env } from '../../config/env.js';
 import { CLOCK, type Clock } from '../../core/clock.js';
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
 import { events, seats, simulationRuns, venues } from '../../infrastructure/database/schema.js';
 import { REDIS } from '../../infrastructure/redis/redis.module.js';
 import { currentTraceparent } from '../../infrastructure/tracing/index.js';
+import { AuditService } from '../audit/index.js';
 import { traceLink } from './domain/trace-link.js';
 import {
   EMPTY_METRICS,
@@ -83,6 +85,14 @@ export interface ClaimedRun {
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 type RunRow = typeof simulationRuns.$inferSelect;
 
+/** What the service needs besides the database, the queue and the clock. */
+export interface SimulationDeps {
+  env: Pick<Env, 'GRAFANA_URL'>;
+  audit: AuditService;
+}
+
+export const SIMULATION_DEPS = Symbol('SIMULATION_DEPS');
+
 @Injectable()
 export class SimulationsService {
   // Public so a spec can use a stream of its own.
@@ -93,7 +103,7 @@ export class SimulationsService {
     @Inject(DB) private readonly db: Database,
     @Inject(REDIS) private readonly queue: QueueWriter,
     @Inject(CLOCK) private readonly clock: Clock,
-    @Inject(APP_CONFIG) private readonly env: Pick<Env, 'GRAFANA_URL'>
+    @Inject(SIMULATION_DEPS) private readonly deps: SimulationDeps
   ) {}
 
   private toRun(row: RunRow): SimulationRun {
@@ -111,7 +121,7 @@ export class SimulationsService {
       metrics: row.metrics,
       startedAt: row.startedAt.toISOString(),
       finishedAt: row.finishedAt?.toISOString() ?? null,
-      traceUrl: traceLink(this.env.GRAFANA_URL, row.traceparent, window),
+      traceUrl: traceLink(this.deps.env.GRAFANA_URL, row.traceparent, window),
     };
   }
 
@@ -122,38 +132,22 @@ export class SimulationsService {
    * fails the sandbox event is deleted (its seats and the run cascade): a failed start leaves
    * nothing behind.
    */
-  async start(input: StartSimulationRequest, adminId: string): Promise<SimulationRun> {
+  async start(
+    input: StartSimulationRequest,
+    adminId: string,
+    requestId: string
+  ): Promise<SimulationRun> {
     const traceparent = currentTraceparent();
     const run = await this.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${START_LOCK_KEY}))`);
       // Read under the lock: a reading from before it could miss runs that committed meanwhile.
       const now = this.clock.now();
       await this.assertBelowCap(tx, now);
-      const [venue] = await tx.select({ id: venues.id }).from(venues).orderBy(venues.name).limit(1);
-      if (venue === undefined) throw new Error('a simulation needs a venue, none exists');
-      const [event] = await tx
-        .insert(events)
-        .values({
-          venueId: venue.id,
-          name: `Rush ${input.strategy} ${input.buyers} buyers`,
-          startsAt: new Date(now.getTime() + DAY_MS),
-          strategy: input.strategy,
-          ownerId: adminId,
-          // Private to the admin, so the event never shows in the public list.
-          sandboxUserId: adminId,
-        })
-        .returning({ id: events.id });
-      if (event === undefined) throw new Error('event insert returned no row');
-      await tx.execute(sql`
-        insert into ${seats} (event_id, section, row, number, price_cents)
-        select ${event.id}::uuid, ${SANDBOX_SECTION}, (n - 1) / ${SEATS_PER_ROW} + 1,
-          (n - 1) % ${SEATS_PER_ROW} + 1, ${SANDBOX_SEAT_PRICE_CENTS}
-        from generate_series(1, ${input.seats}::int) as n
-      `);
+      const eventId = await this.insertSandboxEvent(tx, input, adminId, now);
       const [row] = await tx
         .insert(simulationRuns)
         .values({
-          eventId: event.id,
+          eventId,
           strategy: input.strategy,
           buyers: input.buyers,
           seats: input.seats,
@@ -164,6 +158,13 @@ export class SimulationsService {
         })
         .returning();
       if (row === undefined) throw new Error('run insert returned no row');
+      await this.deps.audit.record(tx, {
+        actorId: adminId,
+        action: AUDIT_ACTION.SIMULATION_STARTED,
+        subjectType: AUDIT_SUBJECT.SIMULATION_RUN,
+        subjectId: row.id,
+        requestId,
+      });
       return this.toRun(row);
     });
     try {
@@ -184,6 +185,37 @@ export class SimulationsService {
       throw error;
     }
     return run;
+  }
+
+  /** The admin's private sandbox event with `input.seats` generated seats; returns its ID. */
+  private async insertSandboxEvent(
+    tx: Tx,
+    input: StartSimulationRequest,
+    adminId: string,
+    now: Date
+  ): Promise<string> {
+    const [venue] = await tx.select({ id: venues.id }).from(venues).orderBy(venues.name).limit(1);
+    if (venue === undefined) throw new Error('a simulation needs a venue, none exists');
+    const [event] = await tx
+      .insert(events)
+      .values({
+        venueId: venue.id,
+        name: `Rush ${input.strategy} ${input.buyers} buyers`,
+        startsAt: new Date(now.getTime() + DAY_MS),
+        strategy: input.strategy,
+        ownerId: adminId,
+        // Private to the admin, so the event never shows in the public list.
+        sandboxUserId: adminId,
+      })
+      .returning({ id: events.id });
+    if (event === undefined) throw new Error('event insert returned no row');
+    await tx.execute(sql`
+      insert into ${seats} (event_id, section, row, number, price_cents)
+      select ${event.id}::uuid, ${SANDBOX_SECTION}, (n - 1) / ${SEATS_PER_ROW} + 1,
+        (n - 1) % ${SEATS_PER_ROW} + 1, ${SANDBOX_SEAT_PRICE_CENTS}
+      from generate_series(1, ${input.seats}::int) as n
+    `);
+    return event.id;
   }
 
   /** Deletes a sandbox event; its seats, bookings and run go with it (foreign keys cascade). */

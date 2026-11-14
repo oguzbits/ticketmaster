@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  AUDIT_ACTION,
+  AUDIT_SUBJECT,
   BOOKING_STATUS,
   BOOKING_STRATEGY,
   type BookingStatus,
@@ -33,6 +35,7 @@ import { RATE_LIMIT } from '../../infrastructure/rate-limit/rate-limit.decorator
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { fakeTokenVerifier, randomClientAddress } from '../../testing/http.js';
 import { SPEC_NOW } from '../../testing/time.js';
+import { auditRows, auditRowsOfSubject } from '../audit/testing/index.js';
 import { TOKEN_VERIFIER } from '../auth/index.js';
 import { MAX_EVENTS_PER_OWNER } from './organizer.service.js';
 
@@ -165,6 +168,23 @@ describe('organizer endpoints', () => {
         caller
       );
 
+    it('writes one audit row with the owner, the event and the request ID', async () => {
+      const venueId = await venueWith(PRICED);
+
+      const created = await create(venueId, 'a').set('X-Request-Id', 'req-create-1').expect(201);
+
+      const eventId = EventSummarySchema.parse(created.body).id;
+      expect(await auditRowsOfSubject(db, eventId)).toMatchObject([
+        {
+          actorId: ORGANIZER_A.id,
+          action: AUDIT_ACTION.EVENT_CREATED,
+          subjectType: AUDIT_SUBJECT.EVENT,
+          subjectId: eventId,
+          requestId: 'req-create-1',
+        },
+      ]);
+    });
+
     it('copies every seat of the venue with the price of its section', async () => {
       const venueId = await venueWith(PRICED);
 
@@ -281,6 +301,8 @@ describe('organizer endpoints', () => {
 
         expect(refused.body).toMatchObject({ message: expect.stringContaining('20') });
         expect(await db.select().from(events).where(eq(events.name, name))).toEqual([]);
+        const rows = (await auditRows(db)).filter((row) => row.actorId === FULL_ORGANIZER.id);
+        expect(rows).toHaveLength(1);
       });
 
       it('another owner is not affected', async () => {
@@ -322,9 +344,12 @@ describe('organizer endpoints', () => {
       ]);
       const name = `half ${randomUUID()}`;
 
-      await create(venueId, 'a', { name }).expect(500);
+      const requestId = `req-${randomUUID()}`;
+
+      await create(venueId, 'a', { name }).set('X-Request-Id', requestId).expect(500);
 
       expect(await db.select().from(events).where(eq(events.name, name))).toEqual([]);
+      expect((await auditRows(db)).filter((row) => row.requestId === requestId)).toEqual([]);
     });
   });
 

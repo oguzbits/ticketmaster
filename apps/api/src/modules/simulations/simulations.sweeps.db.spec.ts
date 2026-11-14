@@ -18,6 +18,7 @@ import {
   simulationRuns,
 } from '../../infrastructure/database/schema.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
+import { AuditService } from '../audit/index.js';
 import { EMPTY_METRICS } from './simulation-progress.js';
 import {
   SIMULATION_RETENTION_SECONDS,
@@ -46,7 +47,7 @@ describe('SimulationsService sweeps', () => {
         xAdd: () => Promise.reject(new Error('unused')),
       },
       { now: () => NOW },
-      {}
+      { env: {}, audit: new AuditService(db, { now: () => NOW }) }
     );
   });
   beforeEach(async () => {

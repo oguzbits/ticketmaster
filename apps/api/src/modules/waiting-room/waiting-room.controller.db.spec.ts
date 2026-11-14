@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  AUDIT_ACTION,
+  AUDIT_SUBJECT,
   BOOKING_STRATEGY,
   EventSummarySchema,
   ROLE,
@@ -22,6 +24,7 @@ import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { fakeTokenVerifier, randomClientAddress } from '../../testing/http.js';
 import { lockSpecs } from '../../testing/spec-lock.js';
 import { SPEC_NOW } from '../../testing/time.js';
+import { auditRowsOfSubject } from '../audit/testing/index.js';
 import { TOKEN_VERIFIER } from '../auth/index.js';
 
 // Every call is a millisecond later: users who join in a row keep the order they joined in.
@@ -178,6 +181,33 @@ describe('waiting room endpoints', () => {
       expect(EventSummarySchema.parse(cleared.body).waitingRoomCapacity).toBeNull();
       const [row] = await db.select().from(events).where(eq(events.id, eventId));
       expect(row?.waitingRoomCapacity).toBeNull();
+    });
+
+    it('writes one audit row with the caller, the event and the request ID', async () => {
+      const eventId = await newEvent({ ownerId: TOKENS.organizer.id });
+
+      await put(eventId, 7, 'organizer').set('X-Request-Id', 'req-room-1').expect(200);
+
+      expect(await auditRowsOfSubject(db, eventId)).toMatchObject([
+        {
+          actorId: TOKENS.organizer.id,
+          action: AUDIT_ACTION.WAITING_ROOM_SETTINGS_CHANGED,
+          subjectType: AUDIT_SUBJECT.EVENT,
+          subjectId: eventId,
+          requestId: 'req-room-1',
+        },
+      ]);
+    });
+
+    it('writes no audit row for an event the caller may not change', async () => {
+      const foreign = await newEvent({ ownerId: TOKENS.organizer.id });
+      const sandbox = await newEvent({ sandboxUserId: TOKENS.otherDemoAdmin.id });
+
+      await put(foreign, 9, 'other').expect(404);
+      await put(sandbox, 9, 'demoAdmin').expect(404);
+
+      expect(await auditRowsOfSubject(db, foreign)).toEqual([]);
+      expect(await auditRowsOfSubject(db, sandbox)).toEqual([]);
     });
 
     it('an admin sets the capacity of a public event', async () => {

@@ -1,4 +1,6 @@
 import {
+  AUDIT_ACTION,
+  AUDIT_SUBJECT,
   BOOKING_STATUS,
   type BookingStatus,
   type CreateEventRequest,
@@ -16,7 +18,7 @@ import {
 import { asc, count, eq, inArray, sql } from 'drizzle-orm';
 
 import { CLOCK, type Clock } from '../../core/clock.js';
-import { type Database, DB } from '../../infrastructure/database/database.module.js';
+import { type Database, DB, type Tx } from '../../infrastructure/database/database.module.js';
 import {
   bookings,
   demoUsers,
@@ -25,6 +27,7 @@ import {
   venues,
   venueSeats,
 } from '../../infrastructure/database/schema.js';
+import { AuditService } from '../audit/index.js';
 
 /** Events one owner may have; every event copies a venue's seats, so the table cannot grow unbounded. */
 export const MAX_EVENTS_PER_OWNER = 20;
@@ -33,28 +36,25 @@ export const MAX_EVENTS_PER_OWNER = 20;
 export class OrganizerService {
   constructor(
     @Inject(DB) private readonly db: Database,
-    @Inject(CLOCK) private readonly clock: Clock
+    @Inject(CLOCK) private readonly clock: Clock,
+    private readonly audit: AuditService
   ) {}
 
   /**
    * One transaction: the event and a copy of the venue's seats with their prices. The event of a
    * demo user is a sandbox event, so a visitor's event stays private to them.
    */
-  async createEvent(input: CreateEventRequest, ownerId: string): Promise<EventSummary> {
+  async createEvent(
+    input: CreateEventRequest,
+    ownerId: string,
+    requestId: string
+  ): Promise<EventSummary> {
     const startsAt = new Date(input.startsAt);
     if (startsAt.getTime() <= this.clock.now().getTime()) {
       throw new BadRequestException('startsAt must lie in the future');
     }
     return this.db.transaction(async (tx) => {
-      // Serializes one owner's creations, so parallel requests cannot all pass the count below.
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${ownerId}))`);
-      const [owned] = await tx
-        .select({ total: count() })
-        .from(events)
-        .where(eq(events.ownerId, ownerId));
-      if ((owned?.total ?? 0) >= MAX_EVENTS_PER_OWNER) {
-        throw new ConflictException(`At most ${MAX_EVENTS_PER_OWNER} events per organizer`);
-      }
+      await this.assertBelowCap(tx, ownerId);
       const [venue] = await tx
         .select({ id: venues.id, name: venues.name })
         .from(venues)
@@ -77,6 +77,13 @@ export class OrganizerService {
         })
         .returning({ id: events.id });
       if (event === undefined) throw new Error('event insert returned no row');
+      await this.audit.record(tx, {
+        actorId: ownerId,
+        action: AUDIT_ACTION.EVENT_CREATED,
+        subjectType: AUDIT_SUBJECT.EVENT,
+        subjectId: event.id,
+        requestId,
+      });
       // One INSERT ... SELECT in the database; drizzle's insert-select wants every column of seats.
       await tx.execute(sql`
         insert into ${seats} (event_id, section, row, number, price_cents)
@@ -93,6 +100,18 @@ export class OrganizerService {
         waitingRoomCapacity: input.waitingRoomCapacity,
       };
     });
+  }
+
+  /** Serializes one owner's creations, so parallel requests cannot all pass the count. */
+  private async assertBelowCap(tx: Tx, ownerId: string): Promise<void> {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${ownerId}))`);
+    const [owned] = await tx
+      .select({ total: count() })
+      .from(events)
+      .where(eq(events.ownerId, ownerId));
+    if ((owned?.total ?? 0) >= MAX_EVENTS_PER_OWNER) {
+      throw new ConflictException(`At most ${MAX_EVENTS_PER_OWNER} events per organizer`);
+    }
   }
 
   listVenues(): Promise<Venue[]> {

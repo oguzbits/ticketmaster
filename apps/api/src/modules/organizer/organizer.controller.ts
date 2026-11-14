@@ -8,6 +8,7 @@ import {
 } from '@app/shared';
 import { Body, Controller, Get, Post } from '@nestjs/common';
 
+import { RequestId } from '../../infrastructure/http/request-id.decorator.js';
 import { ZodPipe } from '../../infrastructure/http/zod.pipe.js';
 import { RateLimit } from '../../infrastructure/rate-limit/rate-limit.decorator.js';
 import { type AuthUser, CurrentUser, Roles } from '../auth/index.js';
@@ -34,8 +35,9 @@ export class OrganizerController {
   @Post('events')
   create(
     @Body(new ZodPipe(CreateEventRequestSchema)) body: CreateEventRequest,
-    @CurrentUser() user: AuthUser
+    @CurrentUser() user: AuthUser,
+    @RequestId() requestId: string
   ): Promise<EventSummary> {
-    return this.organizer.createEvent(body, user.id);
+    return this.organizer.createEvent(body, user.id, requestId);
   }
 }

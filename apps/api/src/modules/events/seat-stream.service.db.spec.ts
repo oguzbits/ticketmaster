@@ -10,6 +10,7 @@ import { SlotLimiter } from '../../infrastructure/rate-limit/slot-limiter.js';
 import type { Redis } from '../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
+import { AuditService } from '../audit/index.js';
 import { seatChannel } from '../bookings/index.js';
 import { EventsService } from './events.service.js';
 import {
@@ -33,7 +34,7 @@ const OTHER_ADDRESS = '10.0.0.2';
 describe('SeatStreamService', () => {
   const database = openTestDatabase();
   const { db } = database;
-  const events = new EventsService(db);
+  const events = new EventsService(db, new AuditService(db, new SystemClock()));
   let redis: Redis;
   let snapshotGate: Promise<void> = Promise.resolve();
   let service: SeatStreamService;
@@ -256,8 +257,16 @@ describe('SeatStreamService limits', () => {
 
   beforeAll(async () => {
     redis = await openTestRedis();
-    service = new SeatStreamService(redis, new EventsService(db), slotsOf(redis));
-    other = new SeatStreamService(redis, new EventsService(db), slotsOf(redis));
+    service = new SeatStreamService(
+      redis,
+      new EventsService(db, new AuditService(db, new SystemClock())),
+      slotsOf(redis)
+    );
+    other = new SeatStreamService(
+      redis,
+      new EventsService(db, new AuditService(db, new SystemClock())),
+      slotsOf(redis)
+    );
     for (const instance of services()) {
       instance.slotKeyPrefix = keyPrefix;
       await instance.onModuleInit();
@@ -392,7 +401,7 @@ describe('SeatStreamService limits', () => {
     const broken = ownSlotKeys(
       new SeatStreamService(
         redis,
-        new EventsService(db),
+        new EventsService(db, new AuditService(db, new SystemClock())),
         new FailingAddressSlots(redis, new SystemClock())
       )
     );
@@ -448,7 +457,11 @@ describe('SeatStreamService after the subscriber connection was lost', () => {
     const duplicate = redis.duplicate.bind(redis);
     vi.spyOn(redis, 'duplicate').mockImplementation(() => duplicate({ name }));
     const service = ownSlotKeys(
-      new SeatStreamService(redis, new EventsService(db), slotsOf(redis))
+      new SeatStreamService(
+        redis,
+        new EventsService(db, new AuditService(db, new SystemClock())),
+        slotsOf(redis)
+      )
     );
     await service.onModuleInit();
     const { eventId } = await createTestEvent(db, {
@@ -478,7 +491,11 @@ describe('SeatStreamService shutdown', () => {
   it('completes the open streams and closes its Redis connection', async () => {
     const redis = await openTestRedis();
     const service = ownSlotKeys(
-      new SeatStreamService(redis, new EventsService(database.db), slotsOf(redis))
+      new SeatStreamService(
+        redis,
+        new EventsService(database.db, new AuditService(database.db, new SystemClock())),
+        slotsOf(redis)
+      )
     );
     await service.onModuleInit();
     const { eventId } = await createTestEvent(database.db, {

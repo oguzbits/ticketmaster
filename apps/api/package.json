@@ -8,6 +8,10 @@
     "drizzle"
   ],
   "exports": {
+    "./audit": {
+      "types": "./dist/modules/audit/index.d.ts",
+      "default": "./dist/modules/audit/index.js"
+    },
     "./bookings": {
       "types": "./dist/modules/bookings/index.d.ts",
       "default": "./dist/modules/bookings/index.js"

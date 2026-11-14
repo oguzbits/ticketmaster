@@ -8,6 +8,7 @@ import {
 import { Body, Controller, Get, Param, Patch } from '@nestjs/common';
 import { z } from 'zod';
 
+import { RequestId } from '../../infrastructure/http/request-id.decorator.js';
 import { ZodPipe } from '../../infrastructure/http/zod.pipe.js';
 import { type AuthUser, CurrentUser, OptionalUser, Public, Roles } from '../auth/index.js';
 import { EventsService } from './events.service.js';
@@ -36,8 +37,9 @@ export class EventsController {
   setStrategy(
     @Param('id', new ZodPipe(z.uuid())) id: string,
     @Body(new ZodPipe(SetStrategyRequestSchema)) body: SetStrategyRequest,
-    @CurrentUser() user: AuthUser
+    @CurrentUser() user: AuthUser,
+    @RequestId() requestId: string
   ): Promise<EventSummary> {
-    return this.events.setStrategy(id, body.strategy, user.id);
+    return this.events.setStrategy(id, body.strategy, user.id, requestId);
   }
 }

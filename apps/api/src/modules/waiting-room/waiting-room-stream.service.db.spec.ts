@@ -11,6 +11,7 @@ import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
 import { lockSpecs } from '../../testing/spec-lock.js';
 import { SPEC_NOW } from '../../testing/time.js';
+import { AuditService } from '../audit/index.js';
 import { RedisWaitingRoomStore } from './adapters/redis-waiting-room-store.js';
 import { WaitingRoomService } from './waiting-room.service.js';
 import { WaitingRoomStreamService } from './waiting-room-stream.service.js';
@@ -34,7 +35,12 @@ describe('WaitingRoomStreamService', () => {
     unlock = await lockSpecs(db, 'waiting-room');
     redis = await openTestRedis();
     store = new RedisWaitingRoomStore(redis);
-    const service = new WaitingRoomService(db, { now: () => SPEC_NOW }, store);
+    const service = new WaitingRoomService(
+      db,
+      { now: () => SPEC_NOW },
+      store,
+      new AuditService(db, { now: () => SPEC_NOW })
+    );
     stream = new WaitingRoomStreamService(service, new SlotLimiter(redis, { now: () => SPEC_NOW }));
     stream.pollMs = POLL_MS;
     stream.slotKey = slotKey;

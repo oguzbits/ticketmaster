@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  AUDIT_ACTION,
+  AUDIT_LOG_LIMITS,
+  AUDIT_SUBJECT,
   BOOKING_STATUS,
   BOOKING_STRATEGY,
   BookingSchema,
@@ -25,6 +28,7 @@ import { bookings, demoUsers } from '../../infrastructure/database/schema.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { fakeTokenVerifier, randomClientAddress } from '../../testing/http.js';
 import { EXPIRY_SPEC_END, SPEC_NOW } from '../../testing/time.js';
+import { auditRowsOfSubject } from '../audit/testing/index.js';
 import { TOKEN_VERIFIER } from '../auth/index.js';
 
 const STRATEGY = BOOKING_STRATEGY.PESSIMISTIC;
@@ -33,6 +37,7 @@ const OTHER_USER = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
 const OWNER_TOKEN = 'sandbox-owner';
 const OTHER_TOKEN = 'other-user';
 const ADMIN_TOKEN = 'admin';
+const ADMIN = { id: randomUUID(), roles: [ROLE.ADMIN] };
 const ORGANIZER_TOKEN = 'organizer';
 const DEMO_ADMIN = { id: randomUUID(), roles: [ROLE.ADMIN] };
 const OTHER_DEMO_ADMIN = { id: randomUUID(), roles: [ROLE.ADMIN] };
@@ -56,7 +61,7 @@ describe('events endpoints', () => {
         fakeTokenVerifier({
           [OWNER_TOKEN]: SANDBOX_OWNER,
           [OTHER_TOKEN]: OTHER_USER,
-          [ADMIN_TOKEN]: { id: randomUUID(), roles: [ROLE.ADMIN] },
+          [ADMIN_TOKEN]: ADMIN,
           [ORGANIZER_TOKEN]: { id: randomUUID(), roles: [ROLE.ORGANIZER] },
           [DEMO_ADMIN_TOKEN]: DEMO_ADMIN,
           [OTHER_DEMO_ADMIN_TOKEN]: OTHER_DEMO_ADMIN,
@@ -199,12 +204,13 @@ describe('events endpoints', () => {
     await get('/api/events/not-a-uuid').expect(400);
   });
   describe('PATCH /api/events/:id/strategy', () => {
-    const patch = (eventId: string, body: object, token?: string) => {
+    const patch = (eventId: string, body: object, token?: string, requestId?: string) => {
       const call = request(app.getHttpServer())
         .patch(`/api/events/${eventId}/strategy`)
         .set('X-Forwarded-For', randomClientAddress())
         .send(body);
-      return token === undefined ? call : call.set('Authorization', `Bearer ${token}`);
+      const sent = requestId === undefined ? call : call.set('X-Request-Id', requestId);
+      return token === undefined ? sent : sent.set('Authorization', `Bearer ${token}`);
     };
     const hold = async (eventId: string, seatId: string): Promise<string> => {
       const response = await request(app.getHttpServer())
@@ -252,6 +258,68 @@ describe('events endpoints', () => {
         EXPIRY_SPEC_END.getTime()
       );
       expect(await strategyOfBooking(after)).toBe(BOOKING_STRATEGY.NAIVE);
+    });
+
+    describe('audit', () => {
+      const SWITCH = { strategy: BOOKING_STRATEGY.NAIVE };
+
+      it('writes one row with the caller, the event and the request ID the client sent', async () => {
+        const { eventId } = await createTestEvent(db, { strategy: STRATEGY, seats: 1 });
+
+        await patch(eventId, SWITCH, ADMIN_TOKEN, 'req-switch-1').expect(200);
+
+        expect(await auditRowsOfSubject(db, eventId)).toMatchObject([
+          {
+            actorId: ADMIN.id,
+            action: AUDIT_ACTION.EVENT_STRATEGY_SWITCHED,
+            subjectType: AUDIT_SUBJECT.EVENT,
+            subjectId: eventId,
+            requestId: 'req-switch-1',
+          },
+        ]);
+      });
+
+      it('stores a generated request ID when the client sends none', async () => {
+        const { eventId } = await createTestEvent(db, { strategy: STRATEGY, seats: 1 });
+
+        await patch(eventId, SWITCH, ADMIN_TOKEN).expect(200);
+
+        const [row] = await auditRowsOfSubject(db, eventId);
+        expect(row?.requestId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/);
+      });
+
+      it('cuts a request ID longer than the column limit instead of failing the change', async () => {
+        const { eventId } = await createTestEvent(db, { strategy: STRATEGY, seats: 1 });
+        const long = 'x'.repeat(AUDIT_LOG_LIMITS.REQUEST_ID_MAX + 1);
+
+        await patch(eventId, SWITCH, ADMIN_TOKEN, long).expect(200);
+
+        const [row] = await auditRowsOfSubject(db, eventId);
+        expect(row?.requestId).toBe(long.slice(0, AUDIT_LOG_LIMITS.REQUEST_ID_MAX));
+      });
+
+      it('writes no row for an event the caller may not touch or that does not exist', async () => {
+        const sandbox = await createTestEvent(db, {
+          strategy: STRATEGY,
+          seats: 1,
+          sandboxUserId: DEMO_ADMIN.id,
+        });
+        const unknown = randomUUID();
+
+        await patch(sandbox.eventId, SWITCH, ADMIN_TOKEN).expect(404);
+        await patch(unknown, SWITCH, ADMIN_TOKEN).expect(404);
+
+        expect(await auditRowsOfSubject(db, sandbox.eventId)).toEqual([]);
+        expect(await auditRowsOfSubject(db, unknown)).toEqual([]);
+      });
+
+      it('writes no row for a refused role', async () => {
+        const { eventId } = await createTestEvent(db, { strategy: STRATEGY, seats: 1 });
+
+        await patch(eventId, SWITCH, OTHER_TOKEN).expect(403);
+
+        expect(await auditRowsOfSubject(db, eventId)).toEqual([]);
+      });
     });
 
     describe('a demo admin is scoped to their sandbox', () => {

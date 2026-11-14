@@ -9,6 +9,7 @@ import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
 import { lockSpecs } from '../../testing/spec-lock.js';
 import { SPEC_NOW } from '../../testing/time.js';
+import { AuditService } from '../audit/index.js';
 import { RedisWaitingRoomStore } from './adapters/redis-waiting-room-store.js';
 import { ADMISSION_TTL_SECONDS } from './domain/admission-policy.js';
 import { WaitingRoomService } from './waiting-room.service.js';
@@ -28,7 +29,12 @@ describe('WaitingRoomService', () => {
     // admitDue works on every event with a waiting room, so no other file may queue meanwhile.
     unlock = await lockSpecs(db, 'waiting-room');
     redis = await openTestRedis();
-    service = new WaitingRoomService(db, { now: () => now }, new RedisWaitingRoomStore(redis));
+    service = new WaitingRoomService(
+      db,
+      { now: () => now },
+      new RedisWaitingRoomStore(redis),
+      new AuditService(db, { now: () => now })
+    );
   });
   afterAll(async () => {
     await unlock();

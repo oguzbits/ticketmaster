@@ -21,6 +21,7 @@ import {
 import { map, type Observable } from 'rxjs';
 import { z } from 'zod';
 
+import { RequestId } from '../../infrastructure/http/request-id.decorator.js';
 import { ZodPipe } from '../../infrastructure/http/zod.pipe.js';
 import { type AuthUser, CurrentUser, Roles } from '../auth/index.js';
 import { WaitingRoomService } from './waiting-room.service.js';
@@ -77,8 +78,9 @@ export class WaitingRoomController {
   settings(
     @Param('id', new ZodPipe(z.uuid())) id: string,
     @Body(new ZodPipe(SetWaitingRoomRequestSchema)) body: SetWaitingRoomRequest,
-    @CurrentUser() user: AuthUser
+    @CurrentUser() user: AuthUser,
+    @RequestId() requestId: string
   ): Promise<EventSummary> {
-    return this.waitingRoom.setCapacity(id, body.capacity, user);
+    return this.waitingRoom.setCapacity(id, body.capacity, user, requestId);
   }
 }

@@ -1,4 +1,10 @@
-import type { BookingStrategy, EventDetail, EventSummary } from '@app/shared';
+import {
+  AUDIT_ACTION,
+  AUDIT_SUBJECT,
+  type BookingStrategy,
+  type EventDetail,
+  type EventSummary,
+} from '@app/shared';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, eq, inArray, isNull, or, type SQL, sql } from 'drizzle-orm';
 
@@ -10,6 +16,7 @@ import {
   seats,
   venues,
 } from '../../infrastructure/database/schema.js';
+import { AuditService } from '../audit/index.js';
 import { ACTIVE_BOOKING_STATUSES, seatStatusOf } from '../bookings/index.js';
 
 /** Public events, plus the sandbox events of the caller. */
@@ -30,7 +37,10 @@ const summaryColumns = {
 
 @Injectable()
 export class EventsService {
-  constructor(@Inject(DB) private readonly db: Database) {}
+  constructor(
+    @Inject(DB) private readonly db: Database,
+    private readonly audit: AuditService
+  ) {}
 
   async list(userId: string | null): Promise<EventSummary[]> {
     const rows = await this.db
@@ -59,7 +69,8 @@ export class EventsService {
   async setStrategy(
     id: string,
     strategy: BookingStrategy,
-    callerId: string
+    callerId: string,
+    requestId: string
   ): Promise<EventSummary> {
     const [demoUser] = await this.db
       .select({ userId: demoUsers.userId })
@@ -67,12 +78,21 @@ export class EventsService {
       .where(eq(demoUsers.userId, callerId));
     const scope =
       demoUser === undefined ? isNull(events.sandboxUserId) : eq(events.sandboxUserId, callerId);
-    const [updated] = await this.db
-      .update(events)
-      .set({ strategy })
-      .where(and(eq(events.id, id), scope))
-      .returning({ id: events.id });
-    if (updated === undefined) throw new NotFoundException('Event not found');
+    await this.db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(events)
+        .set({ strategy })
+        .where(and(eq(events.id, id), scope))
+        .returning({ id: events.id });
+      if (updated === undefined) throw new NotFoundException('Event not found');
+      await this.audit.record(tx, {
+        actorId: callerId,
+        action: AUDIT_ACTION.EVENT_STRATEGY_SWITCHED,
+        subjectType: AUDIT_SUBJECT.EVENT,
+        subjectId: id,
+        requestId,
+      });
+    });
     const [event] = await this.db
       .select(summaryColumns)
       .from(events)
