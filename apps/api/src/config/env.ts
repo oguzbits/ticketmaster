@@ -9,6 +9,7 @@ const DEFAULT_KEYCLOAK_DEMO_CLIENT_ID = 'api-demo';
 const DEFAULT_DEMO_USER_TTL_SECONDS = 3600;
 const DEFAULT_AWS_REGION = 'us-east-1';
 const DEFAULT_MAIL_FROM = 'tickets@ticketmaster-klon.invalid';
+const DEFAULT_TRACING_OTLP_ENDPOINT = 'http://localhost:4318';
 
 export const NODE_ENV = {
   DEVELOPMENT: 'development',
@@ -57,6 +58,13 @@ export const EnvSchema = z.object({
   // Required here; parseEnv fills the local mail sink when NODE_ENV is not production.
   SMTP_URL: z.url(),
   MAIL_FROM: z.email().default(DEFAULT_MAIL_FROM),
+  // Off by default and in every test: nothing is hooked, exported or subscribed.
+  TRACING_ENABLED: z.stringbool().default(false),
+  // Base URL of an OTLP/HTTP receiver; '/v1/traces' is appended, so a trailing slash is stripped.
+  TRACING_OTLP_ENDPOINT: z
+    .url()
+    .default(DEFAULT_TRACING_OTLP_ENDPOINT)
+    .transform((url) => url.replace(/\/+$/, '')),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

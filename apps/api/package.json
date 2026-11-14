@@ -56,6 +56,10 @@
       "types": "./dist/infrastructure/clock/index.d.ts",
       "default": "./dist/infrastructure/clock/index.js"
     },
+    "./tracing": {
+      "types": "./dist/infrastructure/tracing/index.d.ts",
+      "default": "./dist/infrastructure/tracing/index.js"
+    },
     "./tickets": {
       "types": "./dist/modules/tickets/index.d.ts",
       "default": "./dist/modules/tickets/index.js"
@@ -78,9 +82,21 @@
     "@nestjs/common": "^12.4.2",
     "@nestjs/core": "^12.4.2",
     "@nestjs/platform-express": "^12.4.2",
+    "@opentelemetry/api": "1.10.0",
+    "@opentelemetry/context-async-hooks": "3.1.1",
+    "@opentelemetry/core": "3.1.1",
+    "@opentelemetry/exporter-trace-otlp-http": "0.301.2",
+    "@opentelemetry/instrumentation": "0.301.2",
+    "@opentelemetry/instrumentation-aws-sdk": "0.80.0",
+    "@opentelemetry/instrumentation-express": "0.73.0",
+    "@opentelemetry/instrumentation-http": "0.301.2",
+    "@opentelemetry/otlp-exporter-base": "0.301.2",
+    "@opentelemetry/resources": "3.1.1",
+    "@opentelemetry/sdk-trace": "3.1.1",
     "dejavu-fonts-ttf": "^2.37.3",
     "drizzle-orm": "^0.45.4",
     "helmet": "^8.3.0",
+    "import-in-the-middle": "3.6.0",
     "jose": "^6.2.17",
     "nestjs-pino": "^5.3.1",
     "nodemailer": "^10.5.0",

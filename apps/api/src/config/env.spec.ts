@@ -10,6 +10,7 @@ const LOCAL_AWS_ENDPOINT_URL = 'http://localhost:45660';
 const LOCAL_AWS_CREDENTIAL = 'test';
 const LOCAL_SMTP_URL = 'smtp://localhost:1025';
 const DEFAULT_MAIL_FROM = 'tickets@ticketmaster-klon.invalid';
+const LOCAL_OTLP_ENDPOINT = 'http://localhost:4318';
 
 const PRODUCTION_BASE = {
   NODE_ENV: 'production',
@@ -46,6 +47,8 @@ describe('parseEnv', () => {
       AWS_SECRET_ACCESS_KEY: LOCAL_AWS_CREDENTIAL,
       SMTP_URL: LOCAL_SMTP_URL,
       MAIL_FROM: DEFAULT_MAIL_FROM,
+      TRACING_ENABLED: false,
+      TRACING_OTLP_ENDPOINT: LOCAL_OTLP_ENDPOINT,
     });
   });
 
@@ -194,5 +197,18 @@ describe('parseEnv', () => {
   it('SMTP_URL must be a URL and MAIL_FROM an address', () => {
     expect(() => parseEnv({ SMTP_URL: 'not a url' })).toThrow(/SMTP_URL/);
     expect(() => parseEnv({ MAIL_FROM: 'nobody' })).toThrow(/MAIL_FROM/);
+  });
+
+  it('has tracing off by default and switches it on with the string true', () => {
+    expect(parseEnv({}).TRACING_ENABLED).toBe(false);
+    expect(parseEnv({ TRACING_ENABLED: 'true' }).TRACING_ENABLED).toBe(true);
+    expect(parseEnv({ TRACING_ENABLED: 'false' }).TRACING_ENABLED).toBe(false);
+  });
+
+  it('names TRACING_OTLP_ENDPOINT when it is not a URL, and strips trailing slashes', () => {
+    expect(() => parseEnv({ TRACING_OTLP_ENDPOINT: 'not a url' })).toThrow(/TRACING_OTLP_ENDPOINT/);
+    expect(parseEnv({ TRACING_OTLP_ENDPOINT: 'http://tempo:4318/' }).TRACING_OTLP_ENDPOINT).toBe(
+      'http://tempo:4318'
+    );
   });
 });

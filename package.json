@@ -79,7 +79,14 @@
       "apps/api": {
         "entry": [
           "src/main.ts",
+          "src/tracing.preload.ts",
           "src/infrastructure/database/migrate.ts"
+        ]
+      },
+      "apps/worker": {
+        "entry": [
+          "src/main.ts",
+          "src/tracing.preload.ts"
         ]
       }
     }

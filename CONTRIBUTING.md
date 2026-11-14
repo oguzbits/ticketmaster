@@ -78,6 +78,8 @@ variable with a comment; the table is generated (`pnpm docs:generate`).
 | `AWS_SECRET_ACCESS_KEY` | required |
 | `SMTP_URL` | required |
 | `MAIL_FROM` | default `tickets@ticketmaster-klon.invalid` |
+| `TRACING_ENABLED` | default `false` |
+| `TRACING_OTLP_ENDPOINT` | optional |
 <!-- /generated -->
 
 ## Commands
