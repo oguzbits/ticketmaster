@@ -136,6 +136,11 @@ follows, then phase 2. Still open from earlier notes:
 - **A payment key stays claimed on a `HELD` booking that is never retried.** The expiry job spares
   such a booking for `PAYMENT_GRACE_SECONDS` (120) past its hold and expires it after that; the
   key is not released earlier, and a customer who abandons the payment keeps the seat until then.
+- **A charge that throws after the claim leaves the booking stuck.** The key stays claimed on the
+  `HELD` booking: the customer cannot cancel it (409, a payment may be in flight) and cannot pay it
+  with a new key (409, another payment is in progress) until the hold TTL plus the grace has passed
+  and the expiry job releases the seat; only a retry with the same key can finish it. The claim
+  should be released on a definite provider error (a response, not a timeout).
 - **No refund when a charge succeeds after the booking left `HELD`.** The payment runs outside
   the transaction, so a cancel or an expiry can land while the provider answers. The apply step
   then answers 409, stores nothing and logs the booking ID; the money is not returned. Needs a
@@ -158,6 +163,11 @@ follows, then phase 2. Still open from earlier notes:
   handler that is slow enough to need them (slice B). A message that does not parse or whose
   handler keeps failing is received `MAX_RECEIVE_COUNT` times (visibility timeout 30 s each)
   before it reaches the dead-letter queue; the queue has no replay tool yet.
+- **The queue consumer does not extend the visibility timeout.** A handler that runs longer than
+  the 30 s visibility timeout sees its message delivered again while it is still working (the
+  dedupe record serializes the two, but the receive count rises toward the dead-letter queue).
+  Irrelevant while the handler only logs; slice B (mail, PDF) needs a heartbeat that extends the
+  timeout, or a longer timeout.
 - **Initial web bundle is about 790 kB**, over the 500 kB warning budget. Zod makes up a large part of it.
   Measure, then decide (lazy routes, `zod/mini`).
 - **A running hold is not restored after a reload.** The seat map keeps the customer's hold in the
