@@ -119,3 +119,9 @@ Boot two `AppModule` apps (the pattern of `seat-stream.controller.db.spec.ts`: `
 ## Out of scope
 
 Waiting room (slice D), infrastructure as code (slice E), autoscaling, several workers, health-based removal in PgBouncer, replacing the AWS emulator.
+
+## Ledger
+
+Native run in one session: tasks 1 to 5 plus one whole-branch review (strongest model, 93,584
+subagent tokens, 5 min) and one fix pass. Task 4 and the final fix were pushed with a green CI run
+each; `pnpm e2e` ran four times (red, green, mutation, task-done). No implementer subagents.
