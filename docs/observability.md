@@ -152,8 +152,8 @@ Grafana loads four dashboards into the folder `ticketmaster` at start
 (`docker/observability/grafana/provisioning/dashboards/`, data source `prometheus`; the files are
 read-only in the UI, change the JSON): `API` (request rate, 5xx ratio and p50/p95/p99 per route
 template, queries in flight against the pool size of 20; the database host the services see is
-PgBouncer), `Bookings` (holds per second by strategy and outcome, `SEAT_TAKEN` ratio per strategy,
-settled bookings by status, expired holds), `Queue and outbox` (age of the oldest outbox row with a
+PgBouncer; the event cache hit ratio, `HIT` over `HIT` and `MISS` of `tm_cache_requests_total`),
+`Bookings` (holds per second by strategy and outcome, `SEAT_TAKEN` ratio per strategy, settled bookings by status, expired holds), `Queue and outbox` (age of the oldest outbox row with a
 line at `OUTBOX_STUCK_SECONDS`, depth of the booking queue and its dead-letter queue, queue effects
 by outcome) and `Waiting room`. A panel shows a gap, not 0, while the process that reports its
 metric is down; a counter series starts with its first event, so a rate panel such as expired holds

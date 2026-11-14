@@ -367,6 +367,65 @@
           "sort": "desc"
         }
       }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Event cache hit ratio",
+      "description": "Share of event-page reads (list and detail) served from Redis: HIT over HIT and MISS. A gap when no read went to the cache, which is also the case with EVENT_CACHE_TTL_SECONDS=0. A read that fell through after a Redis error (ERROR) is in neither part.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(tm_cache_requests_total{result=\"HIT\"}[5m])) / sum(rate(tm_cache_requests_total{result=~\"HIT|MISS\"}[5m]))",
+          "legendFormat": "hit ratio"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "spanNulls": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
     }
   ]
 }
