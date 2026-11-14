@@ -5,10 +5,13 @@ import {
   type ExecutionContext,
   HttpException,
   HttpStatus,
+  Inject,
   Injectable,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 
+import { APP_CONFIG } from '../../config/config.module.js';
+import type { Env } from '../../config/env.js';
 import type { AuthUser } from '../../modules/auth/index.js';
 import { RATE_LIMIT, RATE_LIMIT_KEY, type RateLimitName } from './rate-limit.decorator.js';
 import { RateLimiter } from './rate-limiter.js';
@@ -58,7 +61,8 @@ interface LimitedResponse {
 export class RateLimitGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
-    private readonly limiter: RateLimiter
+    private readonly limiter: RateLimiter,
+    @Inject(APP_CONFIG) private readonly env: Env
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -79,7 +83,12 @@ export class RateLimitGuard implements CanActivate {
 
   private async count(response: LimitedResponse, key: string, name: RateLimitName): Promise<void> {
     const { limit, windowSeconds } = RATE_LIMIT[name];
-    const { allowed, retryAfterSeconds } = await this.limiter.hit(key, limit, windowSeconds);
+    // RATE_LIMIT_SCALE is 1 except in load runs, where one client address would exhaust the limit.
+    const { allowed, retryAfterSeconds } = await this.limiter.hit(
+      key,
+      limit * this.env.RATE_LIMIT_SCALE,
+      windowSeconds
+    );
     if (allowed) return;
     response.setHeader('Retry-After', String(retryAfterSeconds));
     throw new HttpException('Too Many Requests', HttpStatus.TOO_MANY_REQUESTS);

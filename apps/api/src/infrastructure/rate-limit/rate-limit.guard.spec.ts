@@ -5,6 +5,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
+import { APP_CONFIG, loadEnv } from '../../config/config.module.js';
 import { AUTH_GUARD_PROVIDERS, Public, TOKEN_VERIFIER } from '../../modules/auth/index.js';
 import { RATE_LIMIT, RateLimit } from './rate-limit.decorator.js';
 import { rateLimitAddress, RateLimitGuard } from './rate-limit.guard.js';
@@ -42,32 +43,38 @@ class ProbeController {
   }
 }
 
+async function createProbeApp(limiter: FakeLimiter, scale: number): Promise<INestApplication> {
+  const moduleRef = await Test.createTestingModule({
+    controllers: [ProbeController],
+    providers: [
+      ...AUTH_GUARD_PROVIDERS,
+      { provide: APP_GUARD, useClass: RateLimitGuard },
+      { provide: RateLimiter, useValue: limiter },
+      { provide: APP_CONFIG, useValue: { ...loadEnv(), RATE_LIMIT_SCALE: scale } },
+      {
+        provide: TOKEN_VERIFIER,
+        useValue: {
+          verify: (token: string) =>
+            token === 'good'
+              ? Promise.resolve({ id: USER_ID, roles: [ROLE.CUSTOMER] })
+              : Promise.reject(new UnauthorizedException()),
+        },
+      },
+    ],
+  }).compile();
+  const app = moduleRef.createNestApplication();
+  // So a spec can pick the client address with X-Forwarded-For.
+  app.getHttpAdapter().getInstance().set('trust proxy', true);
+  await app.init();
+  return app;
+}
+
 describe('RateLimitGuard', () => {
   let app: INestApplication;
   const limiter = new FakeLimiter();
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({
-      controllers: [ProbeController],
-      providers: [
-        ...AUTH_GUARD_PROVIDERS,
-        { provide: APP_GUARD, useClass: RateLimitGuard },
-        { provide: RateLimiter, useValue: limiter },
-        {
-          provide: TOKEN_VERIFIER,
-          useValue: {
-            verify: (token: string) =>
-              token === 'good'
-                ? Promise.resolve({ id: USER_ID, roles: [ROLE.CUSTOMER] })
-                : Promise.reject(new UnauthorizedException()),
-          },
-        },
-      ],
-    }).compile();
-    app = moduleRef.createNestApplication();
-    // So a spec can pick the client address with X-Forwarded-For.
-    app.getHttpAdapter().getInstance().set('trust proxy', true);
-    await app.init();
+    app = await createProbeApp(limiter, 1);
   });
   afterAll(() => app.close());
   beforeEach(() => {
@@ -113,6 +120,26 @@ describe('RateLimitGuard', () => {
 
     await get('/probe/strict', undefined, '2001:db8:1:2:ffff::9').expect(429);
     await get('/probe/strict', undefined, '2001:db8:1:3::1').expect(200);
+  });
+});
+
+describe('RateLimitGuard with RATE_LIMIT_SCALE', () => {
+  const SCALE = 3;
+  let app: INestApplication;
+  const limiter = new FakeLimiter();
+
+  beforeAll(async () => {
+    app = await createProbeApp(limiter, SCALE);
+  });
+  afterAll(() => app.close());
+
+  it('lets limit times scale requests through and refuses the next', async () => {
+    const allowed = RATE_LIMIT.DEMO_LOGIN.limit * SCALE;
+    for (let hit = 0; hit < allowed; hit++) {
+      await request(app.getHttpServer()).get('/probe/strict').expect(200);
+    }
+
+    await request(app.getHttpServer()).get('/probe/strict').expect(429);
   });
 });
 

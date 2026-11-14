@@ -53,6 +53,7 @@ describe('parseEnv', () => {
       METRICS_PORT: 9464,
       METRICS_HOST: '127.0.0.1',
       EVENT_CACHE_TTL_SECONDS: 30,
+      RATE_LIMIT_SCALE: 1,
     });
   });
 
