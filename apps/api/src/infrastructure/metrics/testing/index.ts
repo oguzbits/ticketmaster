@@ -40,7 +40,7 @@ export function startTestMetrics(): {
 } {
   const reader = new CollectingReader();
   const handle = startMetrics(
-    { METRICS_ENABLED: true, METRICS_PORT: 9464 },
+    { METRICS_ENABLED: true, METRICS_PORT: 9464, METRICS_HOST: '127.0.0.1' },
     { serviceName: SERVICE_NAME.API, reader }
   );
   if (!handle) throw new Error('metrics did not start');

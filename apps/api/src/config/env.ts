@@ -11,6 +11,7 @@ const DEFAULT_AWS_REGION = 'us-east-1';
 const DEFAULT_MAIL_FROM = 'tickets@ticketmaster-klon.invalid';
 const DEFAULT_TRACING_OTLP_ENDPOINT = 'http://localhost:4318';
 const DEFAULT_METRICS_PORT = 9464;
+const DEFAULT_METRICS_HOST = '127.0.0.1';
 
 export const NODE_ENV = {
   DEVELOPMENT: 'development',
@@ -70,6 +71,9 @@ export const EnvSchema = z.object({
   METRICS_ENABLED: z.stringbool().default(false),
   // Port of the Prometheus scrape endpoint (`/metrics`); served by its own listener, never by the app.
   METRICS_PORT: z.coerce.number().int().min(1).max(MAX_PORT).default(DEFAULT_METRICS_PORT),
+  // Interface of that listener. Loopback by default; Compose sets 0.0.0.0 so the scraper container
+  // can reach it. The scrape holds counts per route template, no IDs and no personal data.
+  METRICS_HOST: z.ipv4().default(DEFAULT_METRICS_HOST),
   // Base URL of Grafana as the admin's browser reaches it; unset hides the trace link of a run.
   GRAFANA_URL: z.url().optional(),
 });

@@ -82,8 +82,8 @@ Tempo's per-trace size limit, and the trace is then cut off.
 
 Prometheus-format metrics are off by default and in every test project (`METRICS_ENABLED=false`).
 With `METRICS_ENABLED=true` the API and the worker each serve `/metrics` from their own listener on
-`METRICS_PORT` (default 9464, bound to all interfaces of the process, not published by Compose, no
-personal data in it). A port that cannot be bound stops the process, so two processes on one host
+`METRICS_PORT` (default 9464) on the interface `METRICS_HOST` (default `127.0.0.1`; Compose sets
+`0.0.0.0` so the scraper can reach it, and does not publish the port; no personal data in it). A port that cannot be bound stops the process, so two processes on one host
 need different ports. The flags are independent of `TRACING_ENABLED`; either one makes the preload
 register the HTTP instrumentation, once. The decision and the spike are in
 [ADR 0008](adr/0008-metrics-with-opentelemetry.md).

@@ -96,18 +96,24 @@ Node v26.12.0 with Express 5.3.0.
 
 ### Listener
 
-`PrometheusExporter` binds `localhost` unless told otherwise, which a scraper in another container
-cannot reach. It is bound to `0.0.0.0`. Compose does not publish the port; a process started on a
-host exposes it to the local network. The scrape holds counts and durations per route template and
-fixed label values, no IDs and no personal data. A port that cannot be bound stops the process
-(fail fast: metrics were asked for), so two processes on one host need different `METRICS_PORT`.
+`PrometheusExporter` binds the interface in `METRICS_HOST`, default `127.0.0.1` (loopback). A
+scraper in another container cannot reach that, so Compose sets `0.0.0.0` and does not publish the
+port; a process started on a host with `0.0.0.0` exposes it to the local network. The scrape holds
+counts and durations per route template and fixed label values, no IDs and no personal data. A port
+that cannot be bound stops the process (fail fast: metrics were asked for): the exporter reports
+the `listen` error to a callback that rethrows it inside a promise handler, which is an unhandled
+rejection. Two processes on one host need different `METRICS_PORT` values. The rethrow is pinned by
+a unit test of `failOnBindError`; a test that binds a busy port would make the test runner report
+the unhandled rejection and fail the run, so there is none.
 
 ### Registration and shutdown
 
 `startMetrics` builds the `MeterProvider` (resource `service.name`, the view, one reader) and
 registers it globally; the reader is the Prometheus exporter unless a test passes its own. Shutdown
 releases the instrumentation, shuts the provider down (which closes the listener) and disables the
-global provider. Both preloads start metrics after tracing and shut it down on `SIGTERM`.
+global provider. `startTelemetry` (`infrastructure/telemetry`) is what both preloads call: with
+either flag on it registers the ESM hooks, starts tracing and then metrics and stops both on
+`SIGTERM`; with both off it imports and registers nothing.
 
 ### Rejected
 
@@ -124,7 +130,7 @@ global provider. Both preloads start metrics after tracing and shut it down on `
   fixed values for the route).
 - Bad: the unmatched-route label depends on a view that must be kept in step with the
   instrumentation's attribute names.
-- Bad: `0.0.0.0` makes the port reachable by anything on the network of the process.
+- Bad: with `METRICS_HOST=0.0.0.0` the port is reachable by anything on the network of the process.
 - Bad: ESM hook registration stays a precondition; without the preload the route label is missing
   and every request reads `UNMATCHED`.
 

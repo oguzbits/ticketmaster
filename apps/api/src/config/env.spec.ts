@@ -51,6 +51,7 @@ describe('parseEnv', () => {
       TRACING_OTLP_ENDPOINT: LOCAL_OTLP_ENDPOINT,
       METRICS_ENABLED: false,
       METRICS_PORT: 9464,
+      METRICS_HOST: '127.0.0.1',
     });
   });
 
@@ -214,6 +215,12 @@ describe('parseEnv', () => {
     });
     expect(() => parseEnv({ METRICS_PORT: '0' })).toThrow(/METRICS_PORT/);
     expect(() => parseEnv({ METRICS_PORT: '65536' })).toThrow(/METRICS_PORT/);
+  });
+
+  it('listens for metrics on loopback unless METRICS_HOST says otherwise, and names a bad host', () => {
+    expect(parseEnv({}).METRICS_HOST).toBe('127.0.0.1');
+    expect(parseEnv({ METRICS_HOST: '0.0.0.0' }).METRICS_HOST).toBe('0.0.0.0');
+    expect(() => parseEnv({ METRICS_HOST: 'localhost' })).toThrow(/METRICS_HOST/);
   });
 
   it('names TRACING_OTLP_ENDPOINT when it is not a URL, and strips trailing slashes', () => {

@@ -12,9 +12,6 @@ export interface MetricsHandle {
 }
 
 const RESOURCE_SERVICE_NAME = 'service.name';
-// The scraper is another container, so the listener cannot stay on localhost. Compose does not
-// publish the port; a process started on a host exposes it to the network, and it holds no personal data.
-const METRICS_HOST = '0.0.0.0';
 
 /**
  * The request histogram carries exactly method, route template and status. The instrumentation
@@ -34,11 +31,13 @@ const REQUEST_HISTOGRAM_VIEW: ViewOptions = {
   ],
 };
 
-function prometheusReader(port: number): MetricReader {
-  // A port that cannot be bound stops the process: metrics were asked for and would be missing.
-  return new PrometheusExporter({ host: METRICS_HOST, port, withoutScopeInfo: true }, (error) => {
-    if (error) throw error;
-  });
+/** A port that cannot be bound stops the process: metrics were asked for and would be missing. */
+export function failOnBindError(error: Error | void): void {
+  if (error) throw error;
+}
+
+function prometheusReader(host: string, port: number): MetricReader {
+  return new PrometheusExporter({ host, port, withoutScopeInfo: true }, failOnBindError);
 }
 
 /**
@@ -46,14 +45,14 @@ function prometheusReader(port: number): MetricReader {
  * registers nothing when metrics are off.
  */
 export function startMetrics(
-  env: Pick<Env, 'METRICS_ENABLED' | 'METRICS_PORT'>,
+  env: Pick<Env, 'METRICS_ENABLED' | 'METRICS_PORT' | 'METRICS_HOST'>,
   options: { serviceName: ServiceName; reader?: MetricReader }
 ): MetricsHandle | null {
   if (!env.METRICS_ENABLED) return null;
 
   const provider = new MeterProvider({
     resource: resourceFromAttributes({ [RESOURCE_SERVICE_NAME]: options.serviceName }),
-    readers: [options.reader ?? prometheusReader(env.METRICS_PORT)],
+    readers: [options.reader ?? prometheusReader(env.METRICS_HOST, env.METRICS_PORT)],
     views: [REQUEST_HISTOGRAM_VIEW],
   });
   metrics.setGlobalMeterProvider(provider);

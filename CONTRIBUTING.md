@@ -88,6 +88,7 @@ variable with a comment; the table is generated (`pnpm docs:generate`).
 | `TRACING_OTLP_ENDPOINT` | optional |
 | `METRICS_ENABLED` | default `false` |
 | `METRICS_PORT` | default `9464` |
+| `METRICS_HOST` | default `127.0.0.1` |
 | `GRAFANA_URL` | optional |
 <!-- /generated -->
 

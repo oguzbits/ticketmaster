@@ -20,7 +20,7 @@ describe('Prometheus endpoint', () => {
     const port = await freePort();
     registerEsmHooks();
     const handle = startMetrics(
-      { METRICS_ENABLED: true, METRICS_PORT: port },
+      { METRICS_ENABLED: true, METRICS_PORT: port, METRICS_HOST: '127.0.0.1' },
       { serviceName: SERVICE_NAME.API }
     );
     // Created after the start: the HTTP server is patched when `node:http` is first required.

@@ -26,11 +26,10 @@ import {
 import type { Env } from '../../config/env.js';
 import { subscribeDriverSpans } from './channel-spans.js';
 import { acquireInstrumentation } from './instrumentation.js';
+import type { ServiceName } from './service-name.js';
 
 export { isEventStreamRequest, isHealthProbe } from './instrumentation.js';
-
-export const SERVICE_NAME = { API: 'ticketmaster-api', WORKER: 'ticketmaster-worker' } as const;
-export type ServiceName = (typeof SERVICE_NAME)[keyof typeof SERVICE_NAME];
+export { SERVICE_NAME, type ServiceName } from './service-name.js';
 
 export interface TracingHandle {
   shutdown(): Promise<void>;

@@ -64,6 +64,10 @@
       "types": "./dist/infrastructure/tracing/testing/index.d.ts",
       "default": "./dist/infrastructure/tracing/testing/index.js"
     },
+    "./telemetry": {
+      "types": "./dist/infrastructure/telemetry/index.d.ts",
+      "default": "./dist/infrastructure/telemetry/index.js"
+    },
     "./metrics": {
       "types": "./dist/infrastructure/metrics/index.d.ts",
       "default": "./dist/infrastructure/metrics/index.js"

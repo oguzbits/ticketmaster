@@ -5,7 +5,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { SERVICE_NAME } from '../tracing/index.js';
-import { startMetrics } from './metrics.js';
+import { failOnBindError, startMetrics } from './metrics.js';
 import { HTTP_ATTR, METRIC, ROUTE_UNMATCHED } from './names.js';
 import {
   dataPoints,
@@ -29,10 +29,17 @@ class PaymentController {
   }
 }
 
+describe('failOnBindError', () => {
+  it('rethrows the error of a listener that could not bind, and ignores success', () => {
+    expect(() => failOnBindError(undefined)).not.toThrow();
+    expect(() => failOnBindError(new Error('EADDRINUSE'))).toThrow('EADDRINUSE');
+  });
+});
+
 describe('startMetrics', () => {
   it('returns null and leaves the global meter provider alone when metrics are off', () => {
     const handle = startMetrics(
-      { METRICS_ENABLED: false, METRICS_PORT: 9464 },
+      { METRICS_ENABLED: false, METRICS_PORT: 9464, METRICS_HOST: '127.0.0.1' },
       { serviceName: SERVICE_NAME.API }
     );
 
@@ -70,6 +77,10 @@ describe('RED histogram', () => {
     expect(points.map(observationCount)).toEqual([1]);
     expect(points[0]?.attributes[HTTP_ATTR.METHOD]).toBe('POST');
     expect(points[0]?.attributes[HTTP_ATTR.STATUS]).toBe(201);
+    // The instrumentation also writes url.scheme and network.protocol.version: the view drops them.
+    expect(Object.keys(points[0]?.attributes ?? {}).sort()).toEqual(
+      [HTTP_ATTR.METHOD, HTTP_ATTR.ROUTE, HTTP_ATTR.STATUS].sort()
+    );
   });
 
   it('collapses a request no route matched into UNMATCHED, with no URL in any label', async () => {
