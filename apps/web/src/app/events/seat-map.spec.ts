@@ -295,6 +295,16 @@ describe('SeatMap', () => {
       expect(element.textContent).not.toContain('Hold expires');
     });
 
+    it('shows the booking inside the booking panel', async () => {
+      const { element } = await held();
+
+      expect(
+        element.querySelector(
+          'aside[aria-label="Booking panel"] section[aria-label="Your booking"]'
+        )
+      ).not.toBeNull();
+    });
+
     it('cancels the hold', async () => {
       const { element, http, answer, press } = await held();
 
@@ -438,6 +448,61 @@ describe('SeatMap', () => {
     );
   });
 
+  describe('booking panel', () => {
+    const panel = (element: HTMLElement) =>
+      element.querySelector<HTMLElement>('aside[aria-label="Booking panel"]');
+    const prices = (element: HTMLElement) =>
+      [
+        ...(panel(element)?.querySelectorAll('ul[aria-labelledby="price-categories"] li') ?? []),
+      ].map((item) => item.textContent?.replace(/\s+/g, ' ').trim());
+
+    it('lists each section once with its price, in map order', async () => {
+      const { element, loaded } = render();
+      await loaded();
+
+      expect(prices(element)).toEqual(['Section A · €90.00', 'Section B · €70.00']);
+      const headings = [...element.querySelectorAll('h2')].map((heading) => heading.textContent);
+      expect(headings.some((text) => text?.includes('€'))).toBe(false);
+    });
+
+    it('shows no price categories for an event without seats', async () => {
+      const { element, loaded } = render();
+      await loaded({ ...DETAIL, seats: [] });
+
+      expect(panel(element)).not.toBeNull();
+      expect(element.querySelector('ul[aria-labelledby="price-categories"]')).toBeNull();
+      expect(element.textContent).not.toContain('Price categories');
+    });
+
+    it('tells a customer without a booking to pick a seat', async () => {
+      const { element, loaded } = render();
+      await loaded();
+
+      expect(panel(element)?.textContent).toContain('Pick an available seat on the map.');
+      expect(panel(element)?.querySelector('button')).toBeNull();
+    });
+
+    it('does not say to pick a seat while a waiting room still blocks holding', async () => {
+      const { element, loaded, waitingRoom } = render();
+      await loaded(WITH_WAITING_ROOM);
+      waitingRoom.statusCalls[0]?.next(NOT_JOINED);
+      TestBed.tick();
+      expect(panel(element)?.textContent).not.toContain('Pick an available seat');
+
+      waitingRoom.statusCalls[0]?.next(ADMITTED);
+      TestBed.tick();
+      expect(panel(element)?.textContent).toContain('Pick an available seat on the map.');
+    });
+
+    it('tells a visitor who is not a customer why the map is read-only', async () => {
+      const { element, loaded } = render(ROLE.ORGANIZER);
+      await loaded();
+
+      expect(panel(element)?.textContent).toContain('read-only for the organizer role');
+      expect(panel(element)?.textContent).not.toContain('Pick an available seat');
+    });
+  });
+
   describe('strategy switch', () => {
     it.each([ROLE.CUSTOMER, ROLE.ORGANIZER, null])('is not offered to %s', async (role) => {
       const { element, loaded } = render(role);
@@ -449,7 +514,10 @@ describe('SeatMap', () => {
     it('shows the new strategy in the header after an admin switched it', async () => {
       const { element, http, answer, press, loaded } = render(ROLE.ADMIN);
       await loaded();
-      expect(element.querySelector('header')?.textContent).toContain(BOOKING_STRATEGY.PESSIMISTIC);
+      expect(element.querySelector('header')?.textContent).toContain('Row lock');
+      expect(element.querySelector('header')?.textContent).not.toContain(
+        BOOKING_STRATEGY.PESSIMISTIC
+      );
       const select = element.querySelector('select');
       if (!select) throw new Error('No strategy select');
       select.value = BOOKING_STRATEGY.REDIS_LOCK;
@@ -469,9 +537,10 @@ describe('SeatMap', () => {
         })
       );
 
-      expect(element.querySelector('header')?.textContent).toContain(BOOKING_STRATEGY.REDIS_LOCK);
+      expect(element.querySelector('header')?.textContent).toContain('Redis lock');
+      expect(element.querySelector('header')?.textContent).not.toContain('Row lock');
       expect(element.querySelector('header')?.textContent).not.toContain(
-        BOOKING_STRATEGY.PESSIMISTIC
+        BOOKING_STRATEGY.REDIS_LOCK
       );
     });
   });

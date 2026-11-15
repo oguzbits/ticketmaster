@@ -9,12 +9,14 @@ import { EMPTY, switchMap } from 'rxjs';
 import { StrategySwitch } from '../admin/strategy-switch';
 import { SessionStore } from '../auth/session.store';
 import { BOOKING_ACTION, BookingsStore } from '../bookings/bookings.store';
+import { EventArtBlock } from './event-art-block';
 import { EventsService } from './events.service';
 import {
   SEAT_STREAM_STATE,
   type SeatStreamMessage,
   SeatStreamService,
 } from './seat-stream.service';
+import { strategyLabel } from './strategy-label';
 import { WaitingRoomStore } from './waiting-room.store';
 import { WaitingRoomPanel } from './waiting-room-panel';
 
@@ -30,9 +32,10 @@ interface SeatSection {
 
 @Component({
   selector: 'app-seat-map',
-  imports: [CurrencyPipe, DatePipe, RouterLink, StrategySwitch, WaitingRoomPanel],
+  imports: [CurrencyPipe, DatePipe, EventArtBlock, RouterLink, StrategySwitch, WaitingRoomPanel],
   templateUrl: './seat-map.html',
   providers: [BookingsStore, WaitingRoomStore],
+  host: { class: 'flex flex-col gap-4' },
 })
 export class SeatMap {
   /** The route parameter, bound by the router. */
@@ -58,6 +61,7 @@ export class SeatMap {
   protected readonly role = this.session.role;
   protected readonly isAdmin = computed(() => this.role() === ROLE.ADMIN);
   protected readonly isCustomer = computed(() => this.role() === ROLE.CUSTOMER);
+  protected readonly strategyText = strategyLabel;
   protected readonly action = BOOKING_ACTION;
   protected readonly held = BOOKING_STATUS.HELD;
   protected readonly confirmed = BOOKING_STATUS.CONFIRMED;
@@ -72,6 +76,11 @@ export class SeatMap {
     const error = this.event.error();
     return error instanceof HttpErrorResponse && error.status === HttpStatusCode.NotFound;
   });
+
+  /** A booking is in progress: below `lg` the panel sticks to the bottom edge of the screen. */
+  protected readonly pinned = computed(
+    () => this.bookings.booking() !== null || this.bookings.pending() !== null
+  );
 
   protected readonly legend = Object.values(SEAT_STATUS);
   protected readonly available = SEAT_STATUS.AVAILABLE;
@@ -119,12 +128,12 @@ export class SeatMap {
       .subscribe(() => this.waitingRoom.refresh());
   }
 
+  /** Seats can be held: the event has no waiting room, or the customer is admitted. */
+  protected readonly open = computed(() => !this.gated() || this.waitingRoom.admitted());
+
   protected canChoose(seat: Seat): boolean {
     return (
-      this.isCustomer() &&
-      seat.status === this.available &&
-      this.bookings.canHold() &&
-      (!this.gated() || this.waitingRoom.admitted())
+      this.isCustomer() && seat.status === this.available && this.bookings.canHold() && this.open()
     );
   }
 

@@ -11,11 +11,14 @@
 } @else {
   @let detail = event.value();
   @if (detail) {
-    <header>
-      <h1 class="text-2xl font-semibold">{{ detail.name }}</h1>
-      <p class="text-sm text-text-muted">
-        {{ detail.startsAt | date: 'medium' }} · {{ detail.venueName }} ·
-        {{ strategy() ?? detail.strategy }}
+    <header class="flex flex-col gap-3">
+      <app-event-art class="h-24 rounded-lg sm:h-32" [eventId]="detail.id" />
+      <h1 class="text-2xl font-semibold break-words">{{ detail.name }}</h1>
+      <p class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-text-muted">
+        <time [attr.datetime]="detail.startsAt">{{ detail.startsAt | date: 'medium' }}</time>
+        <span aria-hidden="true">·</span>
+        <span class="min-w-0 wrap-anywhere">{{ detail.venueName }}</span>
+        <span class="badge text-text">{{ strategyText(strategy() ?? detail.strategy) }}</span>
       </p>
     </header>
 
@@ -25,21 +28,6 @@
         [strategy]="strategy() ?? detail.strategy"
         (switched)="strategy.set($event)"
       />
-    }
-
-    @if (!isCustomer()) {
-      <p class="text-sm text-text-muted">
-        @if (role() === null) {
-          <a routerLink="/" class="underline">Log in as a customer</a> to reserve seats.
-        } @else {
-          The seat map is read-only for the {{ role() }} role. Log in as a customer to reserve
-          seats.
-        }
-      </p>
-    }
-
-    @if (isCustomer() && gated()) {
-      <app-waiting-room-panel [eventId]="id()" />
     }
 
     @switch (live()) {
@@ -62,121 +50,161 @@
     }
     <p class="sr-only" aria-live="polite">{{ announcement() }}</p>
 
-    @if (bookings.notice(); as notice) {
-      <p [attr.role]="notice.error ? 'alert' : 'status'" [class.text-danger]="notice.error">
-        {{ notice.text }}
-      </p>
-    }
     @if (refreshFailed()) {
       <p role="alert" class="text-danger">The seats could not be refreshed.</p>
       <button type="button" class="btn self-start" (click)="refreshSeats()">Refresh seats</button>
     }
 
-    @let booking = bookings.booking();
-    @if (booking) {
-      <section
-        aria-label="Your booking"
-        class="sticky top-0 z-10 flex flex-col gap-2 rounded border border-edge bg-surface-raised p-4"
-      >
-        <h2 class="text-lg font-medium">
-          Section {{ booking.seat.section }}, row {{ booking.seat.row }}, seat
-          {{ booking.seat.number }}
-        </h2>
-        @switch (booking.status) {
-          @case (held) {
-            @if (bookings.holdRanOut()) {
-              <p role="alert" class="text-danger">
-                Your hold expired. The seat is free again. Pick a seat to start over.
-              </p>
-              <button type="button" class="btn self-start" (click)="bookings.dismiss()">
-                Close
-              </button>
-            } @else {
-              <p role="timer">Hold expires in {{ bookings.countdown() }}</p>
-              <div class="flex gap-3">
-                <button
-                  type="button"
-                  class="btn disabled:cursor-not-allowed disabled:opacity-60"
-                  [disabled]="bookings.pending() !== null"
-                  (click)="bookings.pay()"
-                >
-                  {{ bookings.pending() === action.PAY ? 'Paying…' : 'Pay now' }}
-                </button>
-                <button
-                  type="button"
-                  class="btn-secondary disabled:cursor-not-allowed disabled:opacity-60"
-                  [disabled]="bookings.pending() !== null"
-                  (click)="bookings.cancel()"
-                >
-                  {{ bookings.pending() === action.CANCEL ? 'Cancelling…' : 'Cancel hold' }}
-                </button>
+    <div class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+      <div class="flex min-w-0 flex-col gap-4">
+        <ul class="flex flex-wrap gap-4 text-sm" aria-label="Legend">
+          @for (status of legend; track status) {
+            <li class="flex items-center gap-2">
+              <span class="seat seat-{{ status.toLowerCase() }}" aria-hidden="true"></span>
+              {{ status.toLowerCase() }}
+            </li>
+          }
+        </ul>
+
+        @for (section of sections(); track section.name) {
+          <section class="flex flex-col gap-2">
+            <h2 class="text-lg font-medium">Section {{ section.name }}</h2>
+            @for (row of section.rows; track row.row) {
+              <div class="flex items-center gap-2">
+                <span class="w-14 shrink-0 text-sm text-text-muted">Row {{ row.row }}</span>
+                <div class="flex flex-wrap gap-1">
+                  @for (seat of row.seats; track seat.id) {
+                    <button
+                      type="button"
+                      class="seat seat-{{ seat.status.toLowerCase() }}"
+                      [attr.aria-label]="label(seat)"
+                      [attr.aria-disabled]="canChoose(seat) ? null : 'true'"
+                      (click)="choose(seat)"
+                    >
+                      {{ seat.number }}
+                    </button>
+                  }
+                </div>
               </div>
             }
-          }
-          @case (confirmed) {
-            <p role="status">Booking confirmed.</p>
-            <div class="flex items-center gap-4">
-              <a routerLink="/bookings" class="underline">My bookings</a>
-              <button type="button" class="btn" (click)="bookings.dismiss()">Close</button>
-            </div>
-          }
-          @case (cancelled) {
-            <div class="flex gap-3">
-              <button
-                type="button"
-                class="btn disabled:cursor-not-allowed disabled:opacity-60"
-                [disabled]="bookings.pending() !== null"
-                (click)="bookings.hold(booking.eventId, booking.seatId)"
-              >
-                Hold the seat again
-              </button>
-              <button type="button" class="btn-secondary" (click)="bookings.dismiss()">
-                Close
-              </button>
-            </div>
-          }
+          </section>
         }
-      </section>
-    } @else if (bookings.pending() === action.HOLD) {
-      <p role="status">Holding the seat…</p>
-    }
+      </div>
 
-    <ul class="flex flex-wrap gap-4 text-sm" aria-label="Legend">
-      @for (status of legend; track status) {
-        <li class="flex items-center gap-2">
-          <span class="seat seat-{{ status.toLowerCase() }}" aria-hidden="true"></span>
-          {{ status.toLowerCase() }}
-        </li>
-      }
-    </ul>
+      <!-- Below lg the panel follows the map; during a booking it sticks to the bottom edge. -->
+      <aside
+        aria-label="Booking panel"
+        class="card flex min-w-0 flex-col gap-4 p-4 lg:sticky lg:top-4"
+        [class]="
+          pinned()
+            ? 'max-lg:sticky max-lg:bottom-0 max-lg:z-10 max-lg:max-h-[60dvh] max-lg:overflow-y-auto'
+            : ''
+        "
+      >
+        @if (isCustomer() && gated()) {
+          <app-waiting-room-panel [eventId]="id()" />
+        }
 
-    @for (section of sections(); track section.name) {
-      <section class="flex flex-col gap-2">
-        <h2 class="text-lg font-medium">
-          Section {{ section.name }}
-          <span class="text-sm font-normal text-text-muted">
-            · {{ section.priceCents / 100 | currency: 'EUR' }}
-          </span>
-        </h2>
-        @for (row of section.rows; track row.row) {
-          <div class="flex items-center gap-2">
-            <span class="w-14 text-sm text-text-muted">Row {{ row.row }}</span>
-            <div class="flex flex-wrap gap-1">
-              @for (seat of row.seats; track seat.id) {
-                <button
-                  type="button"
-                  class="seat seat-{{ seat.status.toLowerCase() }}"
-                  [attr.aria-label]="label(seat)"
-                  [attr.aria-disabled]="canChoose(seat) ? null : 'true'"
-                  (click)="choose(seat)"
-                >
-                  {{ seat.number }}
-                </button>
+        @if (!isCustomer()) {
+          <p class="text-sm text-text-muted">
+            @if (role() === null) {
+              <a routerLink="/" class="underline">Log in as a customer</a> to reserve seats.
+            } @else {
+              The seat map is read-only for the {{ role() }} role. Log in as a customer to reserve
+              seats.
+            }
+          </p>
+        }
+
+        @if (bookings.notice(); as notice) {
+          <p [attr.role]="notice.error ? 'alert' : 'status'" [class.text-danger]="notice.error">
+            {{ notice.text }}
+          </p>
+        }
+
+        @let booking = bookings.booking();
+        @if (booking) {
+          <section aria-label="Your booking" class="flex flex-col gap-2">
+            <h2 class="text-lg font-medium">
+              Section {{ booking.seat.section }}, row {{ booking.seat.row }}, seat
+              {{ booking.seat.number }}
+            </h2>
+            @switch (booking.status) {
+              @case (held) {
+                @if (bookings.holdRanOut()) {
+                  <p role="alert" class="text-danger">
+                    Your hold expired. The seat is free again. Pick a seat to start over.
+                  </p>
+                  <button type="button" class="btn self-start" (click)="bookings.dismiss()">
+                    Close
+                  </button>
+                } @else {
+                  <p role="timer">Hold expires in {{ bookings.countdown() }}</p>
+                  <div class="flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      class="btn disabled:cursor-not-allowed disabled:opacity-60"
+                      [disabled]="bookings.pending() !== null"
+                      (click)="bookings.pay()"
+                    >
+                      {{ bookings.pending() === action.PAY ? 'Paying…' : 'Pay now' }}
+                    </button>
+                    <button
+                      type="button"
+                      class="btn-secondary disabled:cursor-not-allowed disabled:opacity-60"
+                      [disabled]="bookings.pending() !== null"
+                      (click)="bookings.cancel()"
+                    >
+                      {{ bookings.pending() === action.CANCEL ? 'Cancelling…' : 'Cancel hold' }}
+                    </button>
+                  </div>
+                }
               }
-            </div>
-          </div>
+              @case (confirmed) {
+                <p role="status">Booking confirmed.</p>
+                <div class="flex flex-wrap items-center gap-4">
+                  <a routerLink="/bookings" class="underline">My bookings</a>
+                  <button type="button" class="btn" (click)="bookings.dismiss()">Close</button>
+                </div>
+              }
+              @case (cancelled) {
+                <div class="flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    class="btn disabled:cursor-not-allowed disabled:opacity-60"
+                    [disabled]="bookings.pending() !== null"
+                    (click)="bookings.hold(booking.eventId, booking.seatId)"
+                  >
+                    Hold the seat again
+                  </button>
+                  <button type="button" class="btn-secondary" (click)="bookings.dismiss()">
+                    Close
+                  </button>
+                </div>
+              }
+            }
+          </section>
+        } @else if (bookings.pending() === action.HOLD) {
+          <p role="status">Holding the seat…</p>
+        } @else if (isCustomer() && open()) {
+          <p class="text-sm text-text-muted">Pick an available seat on the map.</p>
         }
-      </section>
-    }
+
+        @if (sections().length > 0) {
+          <section class="flex flex-col gap-2" [class]="pinned() ? 'max-lg:hidden' : ''">
+            <h2 id="price-categories" class="text-sm font-medium text-text-muted">
+              Price categories
+            </h2>
+            <ul aria-labelledby="price-categories" class="flex flex-col gap-1">
+              @for (section of sections(); track section.name) {
+                <li>
+                  Section {{ section.name }} · {{ section.priceCents / 100 | currency: 'EUR' }}
+                </li>
+              }
+            </ul>
+          </section>
+        }
+      </aside>
+    </div>
   }
 }

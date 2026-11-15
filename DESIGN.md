@@ -47,6 +47,15 @@ its table before using it.
 - **Start page**: the claim as `h1`, then `Try it as` with one `.card` button per demo role. The
   accessible name of a card is the role followed by its hint; a hint never names another role,
   because the e2e specs select a card by the role name.
+- **Event page**: a header (art strip, `h1`, date, venue, strategy badge), then two columns from `lg`:
+  the seat map on the left, the booking panel (`aside`, 22 rem, `sticky`) on the right. The panel
+  holds, top to bottom, the waiting room, the role note, the notice, the booking (`Your booking`
+  with all its states) or the hint to pick a seat, and the price categories. Idle, it contains no
+  button. Live-status messages and the refresh error stay above the map. Below `lg` the panel
+  follows the map; while a booking is in progress it sticks to the bottom edge (`max-h` 60 dvh,
+  scrolls) and hides the price categories, so the last seat row stays reachable at the end of the
+  page. While a waiting room still blocks holding, the panel does not tell the customer to pick a
+  seat.
 - **`.seat`**: one seat. Status is never conveyed by color alone: `seat-available` is an empty
   square with a solid border, `seat-held` has a dashed border and a diagonal stripe fill,
   `seat-sold` is a solid filled square with a struck-through number. The accessible name states the
