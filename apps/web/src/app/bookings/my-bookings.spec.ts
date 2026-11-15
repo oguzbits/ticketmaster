@@ -207,6 +207,26 @@ describe('MyBookings ticket', () => {
     expect(click).toHaveBeenCalledTimes(1);
     expect(element.querySelector('[role=alert]')).toBeNull();
   });
+
+  it('shows the download error under the booking that failed and under no other', async () => {
+    const { element, http, answer } = render();
+    const other = { ...READY, id: READY.id.replace('b1', 'b3') };
+    await answer(() => http.expectOne(LIST_URL).flush([READY, other]));
+
+    [...element.querySelectorAll('button')]
+      .find((b) => /Download ticket/.test(b.textContent ?? ''))
+      ?.click();
+    await answer(() =>
+      http.expectOne(TICKET_URL).flush(null, { status: 500, statusText: 'Server Error' })
+    );
+
+    const cards = [...element.querySelectorAll('li.card')];
+    expect(cards).toHaveLength(2);
+    expect(cards[0]?.querySelector('[role=alert]')?.textContent).toContain(
+      'could not be downloaded'
+    );
+    expect(cards[1]?.querySelector('[role=alert]')).toBeNull();
+  });
 });
 
 describe('customer routes', () => {
