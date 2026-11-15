@@ -338,6 +338,8 @@ services:
   # read access to every container on the host: see the risk note in docs/observability.md.
   alloy:
     <<: *hardening
+    x-hardening-exception:
+      docker_socket: reads the logs of every container; read-only mount, see docs/observability.md
     mem_limit: 320m
     cpus: 0.5
     # Runs as root on a volume that an earlier run may have left with another owner.

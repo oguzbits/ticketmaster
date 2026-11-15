@@ -102,9 +102,12 @@ Every service in `docker-compose.yml` merges the `x-hardening` block: `cap_drop:
 paths it writes. Images carry tag and digest (`image: name:tag@sha256:...`; Dependabot moves both),
 the `FROM` lines of the `Dockerfile` too. A rule a service cannot meet is named with a reason under
 `x-hardening-exception`; `apps/api/src/infrastructure/compose-hardening.spec.ts` fails for a
-service that lacks a rule or a reason.
+service that lacks a rule or a reason. It also refuses added capabilities beyond a short list,
+host namespaces, `privileged` and a Docker socket mount unless an exception gives the reason.
 
-Limits come from `docker stats` during `pnpm load all` (peak, 15 November 2026, hardened stack on a
+Limits come from `docker stats` during the four `pnpm load` scenarios (the stack started with
+`NODE_ENV=development`, because `pnpm load` itself does not start; see the
+[backlog](docs/BACKLOG.md#open-points)) (peak, 15 November 2026, hardened stack on a
 laptop) and sit at about twice the peak. Observability services were measured at idle with data.
 
 | Service    | Peak memory | Limit  | Peak CPU | CPU limit |

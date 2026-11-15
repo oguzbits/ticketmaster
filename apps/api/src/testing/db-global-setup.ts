@@ -6,7 +6,7 @@ import postgres from 'postgres';
 import type { TestProject } from 'vitest/node';
 
 import { migrationDatabaseUrl, parseEnv } from '../config/env.js';
-import { ensureRuntimeRole } from '../infrastructure/database/runtime-role.js';
+import { ensureRuntimeRole, runtimeRolePassword } from '../infrastructure/database/runtime-role.js';
 import { TEST_DATABASE_NAME, testDatabaseUrl } from './test-database-url.js';
 
 const MAINTENANCE_DATABASE = 'postgres';
@@ -34,7 +34,7 @@ export default async function setup(project: TestProject): Promise<void> {
     // Identifiers cannot be parameters; the name is the constant above.
     await admin.unsafe(`drop database if exists ${TEST_DATABASE_NAME} with (force)`);
     await admin.unsafe(`create database ${TEST_DATABASE_NAME}`);
-    await ensureRuntimeRole(admin, url.password);
+    await ensureRuntimeRole(admin, runtimeRolePassword(env.DATABASE_URL));
   } finally {
     await admin.end();
   }

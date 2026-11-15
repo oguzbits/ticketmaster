@@ -7,7 +7,7 @@ import postgres from 'postgres';
 
 import { loadEnv } from '../../config/config.module.js';
 import { migrationDatabaseUrl } from '../../config/env.js';
-import { ensureRuntimeRole } from './runtime-role.js';
+import { ensureRuntimeRole, runtimeRolePassword } from './runtime-role.js';
 import * as schema from './schema.js';
 import { seed } from './seed.js';
 
@@ -20,7 +20,7 @@ const env = loadEnv();
 const client = postgres(migrationDatabaseUrl(env), { max: 1 });
 try {
   // The migrations grant to this role, so it exists first; its password is the one of DATABASE_URL.
-  await ensureRuntimeRole(client, new URL(env.DATABASE_URL).password);
+  await ensureRuntimeRole(client, runtimeRolePassword(env.DATABASE_URL));
   const db = drizzle(client, { schema });
   await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
   logger.info('migrations applied');
