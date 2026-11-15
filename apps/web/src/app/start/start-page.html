@@ -1,8 +1,24 @@
-<section class="flex flex-col gap-4 py-6 sm:py-10">
+<section class="flex flex-col gap-4 rounded-lg bg-accent px-4 py-8 text-on-accent sm:px-8 sm:py-12">
   <h1 class="max-w-3xl text-4xl font-semibold break-words sm:text-6xl">No seat sold twice.</h1>
-  <p class="max-w-2xl text-lg text-text-muted">
+  <p class="max-w-2xl text-lg">
     A live seat map, a short hold while you pay, and four booking strategies to compare.
   </p>
+  <form
+    role="search"
+    class="flex max-w-2xl gap-2 rounded-md bg-surface-raised p-2 text-text"
+    (submit)="search($event, query.value)"
+  >
+    <label for="hero-search" class="sr-only">Search events</label>
+    <input
+      #query
+      id="hero-search"
+      type="search"
+      placeholder="Search events or venues"
+      autocomplete="off"
+      class="min-w-0 flex-1 bg-transparent px-2 text-text placeholder:text-text-muted"
+    />
+    <button type="submit" class="btn">Search</button>
+  </form>
 </section>
 
 <section class="flex flex-col gap-4" aria-labelledby="try-it-as">
@@ -16,7 +32,7 @@
       <li class="min-w-0">
         <button
           type="button"
-          class="card flex h-full w-full flex-col gap-1 border-edge p-4 text-left hover:border-accent disabled:cursor-not-allowed disabled:opacity-60"
+          class="card-link flex h-full w-full flex-col gap-1 border-edge p-4 text-left hover:border-accent disabled:cursor-not-allowed disabled:opacity-60"
           [disabled]="pendingRole() !== null"
           (click)="login(role)"
         >

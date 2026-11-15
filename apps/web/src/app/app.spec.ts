@@ -68,7 +68,8 @@ describe('App', () => {
     const { fixture, element } = render();
     const router = TestBed.inject(Router);
     const http = TestBed.inject(HttpTestingController);
-    const searchField = () => element.querySelector<HTMLInputElement>('form[role=search] input');
+    const searchField = () =>
+      element.querySelector<HTMLInputElement>('header form[role=search] input');
 
     await router.navigateByUrl('/');
     await fixture.whenStable();
@@ -81,7 +82,7 @@ describe('App', () => {
     const field = searchField();
     expect(field?.type).toBe('search');
     expect(field?.closest('nav')).toBeNull();
-    expect(element.querySelector('form[role=search] label')?.textContent).toContain(
+    expect(element.querySelector('header form[role=search] label')?.textContent).toContain(
       'Search events'
     );
     if (field) {

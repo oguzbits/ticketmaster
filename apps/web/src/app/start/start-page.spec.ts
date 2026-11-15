@@ -1,5 +1,6 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { ApplicationRef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { ROLE } from '@app/shared';
@@ -7,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { tokensFor } from '../../testing/tokens';
 import { SessionStore } from '../auth/session.store';
+import { EventSearchStore } from '../events/event-search.store';
 import { StartPage } from './start-page';
 
 const LOGIN_URL = '/api/demo-login';
@@ -36,6 +38,46 @@ function render() {
     [...element.querySelectorAll('button')].find((candidate) => name.test(candidate.textContent));
   return { element, http, answer, button };
 }
+
+describe('StartPage hero search', () => {
+  afterEach(() => TestBed.inject(HttpTestingController).verify());
+
+  /** Types into the hero field and submits the form; returns the submit event. */
+  async function searchFor(value: string, before?: () => void): Promise<Event> {
+    const { element } = render();
+    before?.();
+    const field = element.querySelector<HTMLInputElement>('input[type=search]');
+    const form = element.querySelector('form');
+    if (!field || !form) throw new Error('The hero search form is missing');
+    expect(field.labels?.[0]?.textContent).toContain('Search events');
+    field.value = value;
+    const submit = new Event('submit', { cancelable: true, bubbles: true });
+    form.dispatchEvent(submit);
+    await TestBed.inject(ApplicationRef).whenStable();
+    return submit;
+  }
+
+  it('searching opens the event list with the query', async () => {
+    const submit = await searchFor('jazz');
+
+    expect(TestBed.inject(EventSearchStore).query()).toBe('jazz');
+    expect(TestBed.inject(Router).url).toBe('/events');
+    expect(submit.defaultPrevented).toBe(true);
+  });
+
+  it('an empty query opens the full list', async () => {
+    await searchFor('', () => TestBed.inject(EventSearchStore).query.set('left over'));
+
+    expect(TestBed.inject(EventSearchStore).query()).toBe('');
+    expect(TestBed.inject(Router).url).toBe('/events');
+  });
+
+  it('regex characters are stored as typed', async () => {
+    await searchFor('(.*');
+
+    expect(TestBed.inject(EventSearchStore).query()).toBe('(.*');
+  });
+});
 
 describe('StartPage', () => {
   // Every request a test did not answer fails the test.
@@ -84,9 +126,11 @@ describe('StartPage', () => {
 
     http.expectOne(LOGIN_URL);
     expect(element.querySelector('[role=status]')).not.toBeNull();
-    expect([...element.querySelectorAll('button')].every((candidate) => candidate.disabled)).toBe(
-      true
-    );
+    const roleButtons = [
+      ...element.querySelectorAll<HTMLButtonElement>('button:not([type=submit])'),
+    ];
+    expect(roleButtons).toHaveLength(3);
+    expect(roleButtons.every((candidate) => candidate.disabled)).toBe(true);
   });
 
   it('shows the rate-limit text for a 429 and retries the same role', async () => {

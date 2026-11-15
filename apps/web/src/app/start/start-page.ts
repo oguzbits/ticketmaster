@@ -4,6 +4,7 @@ import { Router, RouterLink } from '@angular/router';
 import { ROLE, type Role } from '@app/shared';
 
 import { AuthService } from '../auth/auth.service';
+import { EventSearchStore } from '../events/event-search.store';
 
 const ROLES: readonly Role[] = [ROLE.CUSTOMER, ROLE.ORGANIZER, ROLE.ADMIN];
 
@@ -22,6 +23,7 @@ const ROLE_HINT: Record<Role, string> = {
 export class StartPage {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly eventSearch = inject(EventSearchStore);
 
   protected readonly roles = ROLES;
   protected readonly hint = ROLE_HINT;
@@ -39,6 +41,13 @@ export class StartPage {
         return 'Signing in failed. The demo could not be reached.';
     }
   });
+
+  /** Hands the typed query to the shared search and opens the event list, where the filter applies. */
+  protected search(event: Event, value: string): void {
+    event.preventDefault();
+    this.eventSearch.query.set(value);
+    void this.router.navigateByUrl('/events');
+  }
 
   protected login(role: Role): void {
     if (this.pendingRole() !== null) return;
