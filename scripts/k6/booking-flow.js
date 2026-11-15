@@ -15,13 +15,13 @@ import {
 } from './lib.js';
 
 const CUSTOMERS = 40;
-const ITERATIONS = 2;
+const ITERATIONS = 4;
 const HOLD_ATTEMPTS = 5;
 
 // A 409 on a seat another customer took first is expected, not a failure. 429 stays a failure.
 http.setResponseCallback(http.expectedStatuses({ min: 200, max: 399 }, 409));
 
-// Each of 40 customers books two seats of the PESSIMISTIC event: a fresh seat list, a hold on a
+// Each of 40 customers books four seats of the PESSIMISTIC event: a fresh seat list, a hold on a
 // random free seat (another seat after a 409) and the payment. Paid seats stay sold, so a fresh
 // database (docs/load-tests.md) gives the same run again.
 export const options = {

@@ -179,6 +179,20 @@ Phase 3, slice C (audit log) is complete
 - Admin page `/admin/audit-log` with the four UI states; the end-to-end spec of the strategy switch
   opens it.
 
+Phase 3, slice D (k6 and event cache) is complete
+([load tests](load-tests.md), [plan](superpowers/plans/2026-11-14-phase-3-slice-d.md)); phase 3 is
+done:
+
+- `CacheAside` on Redis (fail open on a Redis error, a value that no longer parses counts as a miss)
+  and the cache of the public event list and layouts for `EVENT_CACHE_TTL_SECONDS` (30, `0` switches
+  it off); seat status and sandbox events never go through it; the strategy switch, the waiting room
+  settings and event creation invalidate it after their commit.
+- Metric `tm_cache_requests_total` (`cache`, `result` `HIT`, `MISS`, `ERROR`) and the panel
+  `Event cache hit ratio` on the `API` dashboard.
+- k6 scenarios `browse`, `booking-flow`, `rush`, `waiting-room` and `pnpm load` against the Compose
+  stack with `docker-compose.loadtest.yml`. Result: the cache cut the median of the event reads by
+  about 0.4 ms at 200 requests per second with a hit ratio of 99.97 %, nothing more at that rate.
+
 ## Deviations from the plan
 
 - **No SWC for NestJS decorators.** Vitest (Vite 8, Oxc) reads `experimentalDecorators` and
@@ -327,9 +341,7 @@ Phase 3, slice C:
 
 ## Next
 
-Phase 3, slices A to C are done. Slice D (k6 and cache) remains, per
-[the phase 3 design](superpowers/specs/2026-11-14-phase-3-observability-and-measuring-design.md).
-Still open from earlier notes:
+Phase 3 is done. Open from earlier notes:
 
 - Write the runbooks the docs-map entry for the deploy folder points to (`docs/runbooks/`).
 - Images are pinned by tag; pin by digest and add resource limits with the container hardening.
@@ -508,6 +520,22 @@ Phase 3, slice A:
   `tickets.controller.db.spec.ts` ("streams the stored PDF"), and two specs failed once with the
   observability stack running and passed with it down. They passed on rerun and in the final run;
   not investigated.
+
+Phase 3, slice D:
+
+- **A reader can cache a stale value up to the TTL.** A reader that loaded from PostgreSQL before a
+  commit can write its value after the invalidation of that commit; the entry then lives until the
+  TTL ends (30 s). Accepted; a version in the key would close it.
+- **Seeds are not invalidated.** The seed writes events by SQL, so a changed seed shows up after the
+  TTL.
+- **A sandbox user pays one extra query.** The list of a signed-in user adds their own sandbox
+  events from PostgreSQL to the cached public list; the detail of a sandbox event asks the cache
+  first (a miss, never stored) and then PostgreSQL.
+- **The `browse` scenario sets the ceiling of the load generator,** not of the system: it holds
+  200 requests per second and both variants keep up, so it cannot show where the cache starts to
+  matter. A scenario with a rising arrival rate would.
+- **Load results are single runs on one machine** that also hosts the load generator; see the
+  limits in [load-tests.md](load-tests.md).
 
 Phase 3, slice B:
 

@@ -151,6 +151,7 @@ OpenAPI 3.1 description is [docs/api/openapi.json](docs/api/openapi.json).
 - [docs/PLAN.md](docs/PLAN.md): goal, requirements, stack, architecture overview, phases.
 - [docs/adr/](docs/adr/): architecture decisions.
 - [docs/observability.md](docs/observability.md): tracing, log correlation, metrics, SLOs and alerts, the local Grafana stack.
+- [docs/load-tests.md](docs/load-tests.md): k6 scenarios (`pnpm load`), the event cache against no cache, results.
 - [CONTRIBUTING.md](CONTRIBUTING.md): local setup, commands, tests, commits.
 - [AGENTS.md](AGENTS.md): layers, invariants and workflow rules, enforced by tools.
 - [SECURITY.md](SECURITY.md): how to report a vulnerability.
