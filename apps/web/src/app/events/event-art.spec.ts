@@ -31,7 +31,21 @@ describe('eventArt', () => {
     }
   });
 
-  it('tells two different ids apart', () => {
-    expect(eventArt(IDS[0] ?? '')).not.toEqual(eventArt(IDS[1] ?? ''));
+  it('tells neighbouring ids apart: ids that differ only in the last character', () => {
+    const art = Array.from({ length: 20 }, (_, index) =>
+      eventArt(`00000000-0000-4000-8000-0000000000${index.toString(16).padStart(2, '0')}`)
+    );
+
+    expect(new Set(art.map(({ glyph }) => glyph)).size).toBeGreaterThanOrEqual(3);
+    expect(new Set(art.map(({ hue }) => hue)).size).toBeGreaterThan(10);
+  });
+
+  it('gives the five seeded events, whose ids differ only in the last character, three or more glyphs', () => {
+    // Without the final mix of the hash these five all land on two glyphs.
+    const glyphs = [1, 2, 3, 4, 5].map(
+      (index) => eventArt(`00000000-0000-4000-8000-0000000000a${index}`).glyph
+    );
+
+    expect(new Set(glyphs).size).toBeGreaterThanOrEqual(3);
   });
 });
