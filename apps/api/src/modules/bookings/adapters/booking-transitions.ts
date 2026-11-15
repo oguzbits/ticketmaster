@@ -4,6 +4,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { Tx } from '../../../infrastructure/database/database.module.js';
+import { withOwner } from '../../../infrastructure/database/rls.js';
 import { bookings, bookingTransitions } from '../../../infrastructure/database/schema.js';
 import {
   type BookingState,
@@ -68,6 +69,18 @@ export async function storeTransition(
     .where(eq(bookings.id, booking.id));
   await tx.insert(bookingTransitions).values(record);
   return booking;
+}
+
+/**
+ * `storeTransition` for a customer request: the write runs in the user scope, so the database
+ * itself refuses a booking of another user (ADR 0009).
+ */
+export function storeOwnTransition(
+  tx: Tx,
+  userId: string,
+  result: TransitionResult
+): Promise<BookingState> {
+  return withOwner(tx, userId, () => storeTransition(tx, result));
 }
 
 /** Whether a payment result (success or failure) is already stored for the booking. */

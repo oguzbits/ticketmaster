@@ -22,6 +22,7 @@ import {
   claimPaymentKey,
   paymentApplied,
   planTransition,
+  storeOwnTransition,
   storeTransition,
 } from './adapters/booking-transitions.js';
 import { loadOwnBookings } from './adapters/load-own-bookings.js';
@@ -214,10 +215,18 @@ export class BookingsService {
         planTransition(from, reason, input.userId, claim.claimedAt);
       if (!succeeded) {
         const failed = plan(booking, TRANSITION_REASON.PAYMENT_FAILED);
-        return { state: await storeTransition(tx, failed), seat: claim.seat };
+        return { state: await storeOwnTransition(tx, input.userId, failed), seat: claim.seat };
       }
-      const paid = await storeTransition(tx, plan(booking, TRANSITION_REASON.PAYMENT_SUCCEEDED));
-      const confirmed = await storeTransition(tx, plan(paid, TRANSITION_REASON.CONFIRMED));
+      const paid = await storeOwnTransition(
+        tx,
+        input.userId,
+        plan(booking, TRANSITION_REASON.PAYMENT_SUCCEEDED)
+      );
+      const confirmed = await storeOwnTransition(
+        tx,
+        input.userId,
+        plan(paid, TRANSITION_REASON.CONFIRMED)
+      );
       // In this transaction: the rows exist if and only if the booking is CONFIRMED.
       await this.ports.audit.record(tx, {
         actorId: input.userId,
@@ -259,7 +268,7 @@ export class BookingsService {
         input.userId,
         this.clock.now()
       );
-      const stored = await storeTransition(tx, cancelled);
+      const stored = await storeOwnTransition(tx, input.userId, cancelled);
       await this.ports.audit.record(tx, {
         actorId: input.userId,
         action: AUDIT_ACTION.BOOKING_CANCELLED,
