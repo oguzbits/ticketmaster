@@ -3,6 +3,7 @@ dist
 coverage
 .angular
 reports
+.stryker-tmp
 test-results
 playwright-report
 pnpm-lock.yaml

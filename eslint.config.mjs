@@ -121,6 +121,7 @@ export default defineConfig([
     'apps/web/test-results/**',
     '**/.claude/**',
     'reports/**',
+    '.stryker-tmp/**',
     'pnpm-lock.yaml',
   ]),
   {

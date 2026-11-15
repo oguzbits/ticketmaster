@@ -129,6 +129,8 @@ describe('transition', () => {
     expect(error).toMatchObject({
       from: BOOKING_STATUS.EXPIRED,
       reason: TRANSITION_REASON.CONFIRMED,
+      name: 'BookingTransitionError',
+      message: `Booking in status ${BOOKING_STATUS.EXPIRED} cannot take transition ${TRANSITION_REASON.CONFIRMED}`,
     });
   });
 });

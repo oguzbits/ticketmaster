@@ -127,6 +127,7 @@ scope, cost or data protection, or that are hard to undo.
 | -------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `pnpm check`                     | typecheck, ESLint, dependency-cruiser, knip, jscpd (2 %), magic-string and docs audit, Prettier |
 | `pnpm test`                      | unit tests of all packages (Vitest, offline)                                                    |
+| `pnpm mutation`                  | StrykerJS on the domain code (about 15 s); weekly in CI, fails below a score of 90              |
 | `pnpm e2e`                       | builds the Compose stack, runs the Playwright specs in `apps/web/e2e`, tears the stack down     |
 | `pnpm dev`                       | API and web in watch mode                                                                       |
 | `pnpm build`                     | builds every package                                                                            |

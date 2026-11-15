@@ -210,6 +210,17 @@ Phase 4, slice A, container hardening and threat model are complete
   spec enforces this.
 - `docs/security/threat-model.md`: STRIDE per boundary, ASVS 5.0 mapping and residual risks.
 
+Phase 4, mutation tests are complete (`pnpm mutation`, `stryker.config.mjs`):
+
+- StrykerJS mutates the pure domain code (`modules/*/domain` and `src/core`) and runs the offline
+  API specs (`vitest.mutation.config.ts`). The first run scored 89 %; the survivors showed unpinned
+  values (the S3 key of a ticket, the Redis channel, the Grafana link parameters, the anchors of
+  the `traceparent` check, the error text), each now has a spec. The score is 100 %.
+- A weekly workflow (`mutation.yml`, also on demand) fails below 90 and keeps the HTML report.
+- Two mutants are switched off in the code with a reason: the null branch of `traceLink`
+  (equivalent) and `SYSTEM_ACTOR_ID` (only the database specs read it). The database specs and
+  the worker are not part of the run.
+
 Stage look, slices 1 to 3 complete
 ([spec](superpowers/specs/2026-11-15-stage-look-redesign-design.md),
 [plan](superpowers/plans/2026-11-15-stage-look-slices-1-3.md)):

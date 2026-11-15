@@ -14,6 +14,7 @@ export function traceLink(
   traceparent: string | null,
   window: { from: Date; to: Date }
 ): string | null {
+  // Stryker disable next-line ConditionalExpression: equivalent, exec(null) reads "null" and never matches
   const traceId = traceparent === null ? undefined : TRACEPARENT_FORMAT.exec(traceparent)?.[1];
   if (grafanaUrl === undefined || traceId === undefined) return null;
   const panes = {
