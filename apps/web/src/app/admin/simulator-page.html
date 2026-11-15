@@ -90,35 +90,35 @@
         {{ live.metrics.buyersDone }} of {{ current.buyers }}
       </progress>
       <dl class="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-4">
-        <div class="card px-3 py-2">
+        <div class="rounded-md bg-surface px-3 py-2">
           <dt class="text-sm text-text-muted">Buyers done</dt>
           <dd>{{ live.metrics.buyersDone }} of {{ current.buyers }}</dd>
         </div>
-        <div class="card px-3 py-2">
+        <div class="rounded-md bg-surface px-3 py-2">
           <dt class="text-sm text-text-muted">Attempts</dt>
           <dd>{{ live.metrics.attempts }}</dd>
         </div>
-        <div class="card px-3 py-2">
+        <div class="rounded-md bg-surface px-3 py-2">
           <dt class="text-sm text-text-muted">Holds</dt>
           <dd>{{ live.metrics.holds }}</dd>
         </div>
-        <div class="card px-3 py-2">
+        <div class="rounded-md bg-surface px-3 py-2">
           <dt class="text-sm text-text-muted">Conflicts</dt>
           <dd>{{ live.metrics.conflicts }}</dd>
         </div>
-        <div class="card px-3 py-2">
+        <div class="rounded-md bg-surface px-3 py-2">
           <dt class="text-sm text-text-muted">Retries</dt>
           <dd>{{ live.metrics.retries }}</dd>
         </div>
-        <div class="card px-3 py-2">
+        <div class="rounded-md bg-surface px-3 py-2">
           <dt class="text-sm text-text-muted">p50</dt>
           <dd>{{ live.metrics.p50Ms | number: '1.0-0' }} ms</dd>
         </div>
-        <div class="card px-3 py-2">
+        <div class="rounded-md bg-surface px-3 py-2">
           <dt class="text-sm text-text-muted">p95</dt>
           <dd>{{ live.metrics.p95Ms | number: '1.0-0' }} ms</dd>
         </div>
-        <div class="card px-3 py-2">
+        <div class="rounded-md bg-surface px-3 py-2">
           <dt class="text-sm text-text-muted">Double bookings</dt>
           <dd>
             @if (live.metrics.doubleBookings === null) {
@@ -159,7 +159,7 @@
             Finished runs, newest first
           </caption>
           <thead>
-            <tr class="border-b border-edge">
+            <tr class="border-b border-edge-subtle bg-surface">
               <th scope="col" class="py-2 pr-3">Strategy</th>
               <th scope="col" class="py-2 pr-3">Buyers</th>
               <th scope="col" class="py-2 pr-3">Seats</th>
@@ -174,7 +174,7 @@
           </thead>
           <tbody>
             @for (item of list; track item.id) {
-              <tr class="border-b border-edge">
+              <tr class="border-b border-edge-subtle last:border-b-0">
                 <th scope="row" class="py-2 pr-3 font-medium">{{ label(item.strategy) }}</th>
                 <td class="py-2 pr-3">{{ item.buyers }}</td>
                 <td class="py-2 pr-3">{{ item.seats }}</td>
