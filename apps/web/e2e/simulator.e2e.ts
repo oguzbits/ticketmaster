@@ -1,5 +1,6 @@
 import { BOOKING_STRATEGY } from '@app/shared';
 
+import { strategyLabel } from '../src/app/events/strategy-label';
 import { expect, loginAs, test } from './fixtures';
 
 /** The worker finishes a run this small within seconds; the margin covers a cold stack. */
@@ -24,6 +25,6 @@ test('an admin runs a pessimistic simulation and sees no seat sold twice', async
 
   const rows = page.getByRole('region', { name: 'Comparison' }).getByRole('row');
   await expect(rows).toHaveCount(2); // header and the one finished run
-  await expect(rows.nth(1)).toContainText(BOOKING_STRATEGY.PESSIMISTIC);
+  await expect(rows.nth(1)).toContainText(strategyLabel(BOOKING_STRATEGY.PESSIMISTIC));
   await expect(rows.nth(1)).not.toContainText('sold twice');
 });
