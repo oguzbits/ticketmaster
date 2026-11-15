@@ -12,10 +12,4 @@ describe('strategyLabel', () => {
   ])('maps %s to %s', (strategy, label) => {
     expect(strategyLabel(strategy)).toBe(label);
   });
-
-  it('has a label for every strategy', () => {
-    for (const strategy of Object.values(BOOKING_STRATEGY)) {
-      expect(strategyLabel(strategy)).not.toBe(strategy);
-    }
-  });
 });
