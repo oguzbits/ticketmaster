@@ -9,8 +9,10 @@ import {
 import { REDIS, type Redis } from '../redis/redis.module.js';
 
 /**
- * Upper bound of one cache command. node-redis queues commands while it reconnects and has no
- * command timeout, so a stopped Redis would otherwise hang every read that goes through the cache.
+ * Upper bound of one cache command. node-redis queues commands while it reconnects and waits for
+ * the reply of a command it already sent without limit; its own `timeout` command option only
+ * covers a command still waiting to be written (checked on @redis/client 6.3.1: a frozen server
+ * leaves a written command pending). Without a bound a stopped Redis hangs every read.
  */
 export const CACHE_COMMAND_TIMEOUT_MS = 250;
 
@@ -77,8 +79,8 @@ export class CacheAside {
     key: string,
     run: (redis: Redis) => Promise<T>
   ): Promise<{ ok: true; value: T } | { ok: false }> {
-    // The signal removes a command that is still queued; a command that was already written can
-    // not be taken back, so the race is what ends the wait for its reply.
+    // The signal drops a command that is still queued; the client's `timeout` option would do the
+    // same and nothing more. A command already written is only ended by the race.
     const abort = new AbortController();
     let timer: NodeJS.Timeout | undefined;
     const timeout = new Promise<never>((_, reject) => {
