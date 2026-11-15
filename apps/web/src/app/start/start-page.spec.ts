@@ -50,6 +50,16 @@ describe('StartPage', () => {
     expect(element.querySelector('a[href="/events"]')).not.toBeNull();
   });
 
+  // The e2e specs pick a card by the role name, so no hint may name another role.
+  it.each(Object.values(ROLE))('has exactly one button that matches the role %s', (role) => {
+    const { element } = render();
+
+    const matching = [...element.querySelectorAll('button')].filter((candidate) =>
+      new RegExp(role, 'i').test(candidate.textContent)
+    );
+    expect(matching).toHaveLength(1);
+  });
+
   it('posts the role, stores the session and opens the event list', async () => {
     const { http, answer, button } = render();
 

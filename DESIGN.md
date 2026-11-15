@@ -44,6 +44,9 @@ its table before using it.
   link name starts with the event name.
 - **Search field**: in the header, only on `/events`; filters the list in the browser (the list
   is complete there). It is a plain `input[type=search]` with a screen-reader label.
+- **Start page**: the claim as `h1`, then `Try it as` with one `.card` button per demo role. The
+  accessible name of a card is the role followed by its hint; a hint never names another role,
+  because the e2e specs select a card by the role name.
 - **`.seat`**: one seat. Status is never conveyed by color alone: `seat-available` is an empty
   square with a solid border, `seat-held` has a dashed border and a diagonal stripe fill,
   `seat-sold` is a solid filled square with a struck-through number. The accessible name states the

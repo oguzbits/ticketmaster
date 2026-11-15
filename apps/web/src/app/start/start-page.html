@@ -1,28 +1,41 @@
-<h1 class="text-2xl font-semibold">Try it as</h1>
-<p class="text-text-muted">One click, no registration. Each demo user gets events of their own.</p>
+<section class="flex flex-col gap-4 py-6 sm:py-10">
+  <h1 class="max-w-3xl text-4xl font-semibold break-words sm:text-6xl">No seat sold twice.</h1>
+  <p class="max-w-2xl text-lg text-text-muted">
+    A live seat map, a short hold while you pay, and four booking strategies to compare.
+  </p>
+</section>
 
-<ul class="flex flex-col gap-3">
-  @for (role of roles; track role) {
-    <li>
-      <button
-        type="button"
-        class="btn w-full text-left disabled:cursor-not-allowed disabled:opacity-60"
-        [disabled]="pendingRole() !== null"
-        (click)="login(role)"
-      >
-        <span class="block text-lg capitalize">{{ role }}</span>
-        <span class="block text-sm font-normal">{{ hint[role] }}</span>
-      </button>
-    </li>
+<section class="flex flex-col gap-4" aria-labelledby="try-it-as">
+  <h2 id="try-it-as" class="text-xl font-semibold">Try it as</h2>
+  <p class="text-text-muted">
+    One click, no registration. Each demo user gets events of their own.
+  </p>
+
+  <ul class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+    @for (role of roles; track role) {
+      <li class="min-w-0">
+        <button
+          type="button"
+          class="card flex h-full w-full flex-col gap-1 p-4 text-left hover:border-accent disabled:cursor-not-allowed disabled:opacity-60"
+          [disabled]="pendingRole() !== null"
+          (click)="login(role)"
+        >
+          <span class="text-lg font-medium capitalize">{{ role }}</span>
+          <span class="text-sm text-text-muted">{{ hint[role] }}</span>
+        </button>
+      </li>
+    }
+  </ul>
+
+  @if (pendingRole(); as pending) {
+    <p role="status">Signing in as {{ pending }}…</p>
   }
-</ul>
+  @if (failedRole(); as failed) {
+    <p role="alert" class="text-danger">{{ errorText() }}</p>
+    <button type="button" class="btn self-start" (click)="login(failed)">Try again</button>
+  }
 
-@if (pendingRole(); as pending) {
-  <p role="status">Signing in as {{ pending }}…</p>
-}
-@if (failedRole(); as failed) {
-  <p role="alert" class="text-danger">{{ errorText() }}</p>
-  <button type="button" class="btn self-start" (click)="login(failed)">Try again</button>
-}
-
-<a routerLink="/events" class="self-start underline">Browse events without login</a>
+  <a routerLink="/events" class="self-start text-accent underline underline-offset-4"
+    >Browse events without login</a
+  >
+</section>
