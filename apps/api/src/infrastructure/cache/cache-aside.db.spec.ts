@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Logger } from '@nestjs/common';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
 import { CACHE_RESULT } from '../../core/business-metrics.js';
@@ -175,6 +176,27 @@ describe('CacheAside', () => {
       ['cacheLookup', CACHE, CACHE_RESULT.MISS],
       ['cacheLookup', CACHE, CACHE_RESULT.ERROR],
     ]);
+  });
+
+  it('logs the key and the error message, nothing else', async () => {
+    const closed = await openTestRedis();
+    await closed.quit();
+    const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const key = freshKey();
+
+    try {
+      await new CacheAside(closed, new RecordingMetrics()).getOrLoad(
+        CACHE,
+        key,
+        ValueSchema,
+        TTL_SECONDS,
+        async () => VALUE
+      );
+
+      expect(logged.mock.calls).toEqual([[{ key, message: expect.any(String) }]]);
+    } finally {
+      logged.mockRestore();
+    }
   });
 
   it('invalidate deletes the keys', async () => {
