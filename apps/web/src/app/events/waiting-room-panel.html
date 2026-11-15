@@ -49,7 +49,7 @@
       @if (store.state() === state.WAITING || store.state() === state.ADMITTED) {
         <button
           type="button"
-          class="self-start rounded border border-edge px-4 py-2 disabled:cursor-not-allowed disabled:opacity-60"
+          class="self-start btn-secondary disabled:cursor-not-allowed disabled:opacity-60"
           [disabled]="store.pending() !== null"
           (click)="store.leave()"
         >

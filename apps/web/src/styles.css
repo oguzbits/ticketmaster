@@ -7,29 +7,37 @@
 @theme {
   --color-*: initial;
 
-  --color-surface: #fafaf9;
-  --color-surface-raised: #ffffff;
-  --color-text: #1c1917;
-  --color-text-muted: #57534e;
-  --color-edge: #78716c;
-  --color-accent: #4338ca;
-  --color-accent-strong: #3730a3;
-  --color-on-accent: #ffffff;
-  --color-danger: #b91c1c;
-  --color-focus: #1d4ed8;
+  --color-surface: #0d0f16;
+  --color-surface-raised: #171a24;
+  --color-text: #eceef4;
+  --color-text-muted: #a3a9bb;
+  --color-edge: #7c8399;
+  /* Decorative dividers only; exempt from contrast, never the only sign of a control. */
+  --color-edge-subtle: #2a2f3d;
+  --color-accent: #f06ccb;
+  --color-accent-strong: #ff8fdc;
+  --color-on-accent: #1a0514;
+  --color-danger: #ff8f8f;
+  --color-focus: #7db3ff;
 
-  --color-seat-available: #ffffff;
-  --color-seat-available-edge: #15803d;
-  --color-seat-held: #fef3c7;
-  --color-seat-held-stripe: #fcd34d;
-  --color-seat-held-edge: #b45309;
-  --color-seat-sold: #44403c;
-  --color-seat-sold-text: #fafaf9;
+  --color-seat-available: #0d0f16;
+  --color-seat-available-edge: #4ade80;
+  --color-seat-held: #3d3010;
+  --color-seat-held-stripe: #6b5416;
+  --color-seat-held-edge: #fbbf24;
+  --color-seat-sold: #636b80;
+  --color-seat-sold-text: #f5f6fa;
+
+  --container-page: 75rem;
 
   --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
 @layer base {
+  :root {
+    color-scheme: dark;
+  }
+
   body {
     background-color: var(--color-surface);
     color: var(--color-text);
@@ -51,6 +59,22 @@
   }
   .btn:hover {
     background-color: var(--color-accent-strong);
+  }
+
+  .btn-secondary {
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-edge);
+    padding: 0.5rem 1rem;
+    font-weight: 500;
+  }
+  .btn-secondary:hover {
+    background-color: var(--color-surface-raised);
+  }
+
+  .card {
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--color-edge-subtle);
+    background-color: var(--color-surface-raised);
   }
 
   /*
