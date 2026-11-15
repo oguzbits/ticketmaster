@@ -4,7 +4,7 @@
   <label for="audit-action" class="text-sm font-medium">Action</label>
   <select
     id="audit-action"
-    class="w-fit rounded border border-edge bg-surface-raised px-3 py-2"
+    class="field w-fit"
     (change)="pickAction(actionInput.value)"
     #actionInput
   >
@@ -21,13 +21,13 @@
 }
 
 @if (items().length > 0) {
-  <div class="overflow-x-auto">
+  <div class="card overflow-x-auto px-3">
     <table class="w-full border-collapse text-left text-sm">
       <caption class="sr-only">
         Audit log entries, newest first
       </caption>
       <thead>
-        <tr class="border-b border-edge">
+        <tr class="border-b border-edge-subtle text-text-muted">
           <th scope="col" class="py-2 pr-3">Time</th>
           <th scope="col" class="py-2 pr-3">Action</th>
           <th scope="col" class="py-2 pr-3">Actor ID</th>
@@ -37,7 +37,7 @@
       </thead>
       <tbody>
         @for (item of items(); track item.id) {
-          <tr class="border-b border-edge">
+          <tr class="border-b border-edge-subtle last:border-b-0">
             <td class="py-2 pr-3 whitespace-nowrap">
               <time [attr.datetime]="item.at">{{ item.at | date: 'medium' }}</time>
             </td>
