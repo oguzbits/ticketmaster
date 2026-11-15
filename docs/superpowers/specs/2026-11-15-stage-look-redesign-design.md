@@ -3,6 +3,10 @@
 Visual and layout redesign of `apps/web`. No API, contract or domain change. Product context:
 [PRODUCT.md](../../../PRODUCT.md). Current rules: [DESIGN.md](../../../DESIGN.md).
 
+> **Superseded in part:** the decision "dark theme, no theme switch" is replaced by the
+> [light portal redesign](2026-11-15-light-portal-redesign-design.md). Layout, constraints and
+> accessibility rules below still hold.
+
 ## Goal
 
 Replace the plain single-column text layout with a dark, stage-style ticket portal that follows
