@@ -105,9 +105,8 @@ the `FROM` lines of the `Dockerfile` too. A rule a service cannot meet is named 
 service that lacks a rule or a reason. It also refuses added capabilities beyond a short list,
 host namespaces, `privileged` and a Docker socket mount unless an exception gives the reason.
 
-Limits come from `docker stats` during the four `pnpm load` scenarios (the stack started with
-`NODE_ENV=development`, because `pnpm load` itself does not start; see the
-[backlog](docs/BACKLOG.md#open-points)) (peak, 15 November 2026, hardened stack on a
+Limits come from `docker stats` during the four `pnpm load` scenarios (the load override, which
+sets `NODE_ENV=development`) (peak, 15 November 2026, hardened stack on a
 laptop) and sit at about twice the peak. Observability services were measured at idle with data.
 
 | Service    | Peak memory | Limit  | Peak CPU | CPU limit |

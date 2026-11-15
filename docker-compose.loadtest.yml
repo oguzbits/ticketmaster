@@ -4,6 +4,8 @@
 services:
   api:
     environment:
+      # The image runs as production, which refuses a rate limit scale above 1.
+      NODE_ENV: development
       # The default payment fails 10 % of the time; the scenarios count every 5xx as an error.
       PAYMENT_FAILURE_RATE: '0'
       # Every limit is multiplied; a 429 in a run is a setup bug, not a result.

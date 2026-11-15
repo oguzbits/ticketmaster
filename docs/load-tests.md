@@ -22,14 +22,15 @@ database with it, with:
 COMPOSE_PROJECT_NAME=ticketmaster-klon-load COMPOSE_FILE=docker-compose.yml:docker-compose.loadtest.yml docker compose down --volumes --remove-orphans
 ```
 
-The load override differs from the default stack in four settings:
+The load override differs from the default stack in five settings:
 
-| Setting                 | Load run | Default | Why                                                              |
-| ----------------------- | -------- | ------- | ---------------------------------------------------------------- |
-| `RATE_LIMIT_SCALE`      | `1000`   | `1`     | every limit is multiplied; a 429 in a run is a setup bug         |
-| `PAYMENT_FAILURE_RATE`  | `0`      | `0.1`   | a failed payment would count as an error of the system           |
-| `DEMO_USER_TTL_SECONDS` | `60`     | `3600`  | the demo login is capped at 200 live users, a run uses up to 190 |
-| `TRACING_ENABLED`       | `false`  | `false` | whatever the shell has set                                       |
+| Setting                 | Load run      | Default      | Why                                                              |
+| ----------------------- | ------------- | ------------ | ---------------------------------------------------------------- |
+| `NODE_ENV` (API)        | `development` | `production` | production refuses a rate limit scale above 1                    |
+| `RATE_LIMIT_SCALE`      | `1000`        | `1`          | every limit is multiplied; a 429 in a run is a setup bug         |
+| `PAYMENT_FAILURE_RATE`  | `0`           | `0.1`        | a failed payment would count as an error of the system           |
+| `DEMO_USER_TTL_SECONDS` | `60`          | `3600`       | the demo login is capped at 200 live users, a run uses up to 190 |
+| `TRACING_ENABLED`       | `false`       | `false`      | whatever the shell has set                                       |
 
 The event cache is on (`EVENT_CACHE_TTL_SECONDS`, default 30). Start the runner with
 `EVENT_CACHE_TTL_SECONDS=0` in the environment to switch it off for a baseline; the override passes
