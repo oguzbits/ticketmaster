@@ -58,6 +58,8 @@ const PAIRS: [string, string, number][] = [
   ['text', 'seat-available', TEXT],
   ['text', 'seat-held', TEXT],
   ['text', 'seat-held-stripe', TEXT],
+  // The stripes are one of the non-color cues of a held seat, so they must show on the fill.
+  ['seat-held-stripe', 'seat-held', NON_TEXT],
   ['seat-sold', 'surface', NON_TEXT],
 ];
 
@@ -88,6 +90,17 @@ describe('design tokens', () => {
     expect(lum('surface')).toBeGreaterThan(0.8);
     expect(lum('text')).toBeLessThan(0.1);
     expect(css).toMatch(/color-scheme:\s*light/);
+  });
+
+  it('a held seat differs from an available one by shape, not only by color', () => {
+    const rule = (selector: string): string => {
+      const body = new RegExp(`${selector}\\s*\\{([^}]*)\\}`).exec(css)?.[1];
+      if (!body) throw new Error(`styles.css has no ${selector} rule`);
+      return body;
+    };
+    expect(rule('\\.seat-held')).toMatch(/border-style:\s*dashed/);
+    expect(rule('\\.seat-held')).toMatch(/repeating-linear-gradient/);
+    expect(rule('\\.seat-available')).not.toMatch(/border-style:\s*dashed/);
   });
 
   it('a divider is visible on the page', () => {
