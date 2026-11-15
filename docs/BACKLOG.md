@@ -229,6 +229,15 @@ Phase 4, changelog and demo GIF are complete:
   signed in and a customer who holds and pays; `pnpm demo:gif` records it again against the
   running stack (Playwright and ffmpeg). Recording leaves a sold seat in the local database.
 
+Phase 4, module graph complete ([architecture.md](architecture.md)):
+
+- The module graph (API modules, `infrastructure`, `core`, the worker) is a generated block of
+  `docs/architecture.md`, built by `pnpm docs:generate` from the dependency-cruiser result;
+  `pnpm check` fails when it is stale. dependency-cruiser does not resolve the worker's
+  `@app/api/...` imports, so the generator maps them through the `exports` of the API package.
+- Not drawn: `packages/shared` and the config module (every module uses them), specs and test
+  support. The Mermaid rendering was not looked at in a viewer.
+
 Stage look, slices 1 to 3 complete
 ([spec](superpowers/specs/2026-11-15-stage-look-redesign-design.md),
 [plan](superpowers/plans/2026-11-15-stage-look-slices-1-3.md)):

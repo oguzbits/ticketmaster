@@ -91,7 +91,8 @@ The code is a modular monolith plus a worker. Layers and the rules that keep the
 [AGENTS.md](AGENTS.md) and are checked by `pnpm depcruise` and ESLint
 ([ADR 0001](docs/adr/0001-modular-monolith-and-worker.md)). Traces, metrics, dashboards and alerts
 are described in [docs/observability.md](docs/observability.md); what to do when an alert fires is
-in the [runbooks](docs/runbooks/README.md).
+in the [runbooks](docs/runbooks/README.md). Who depends on whom in the code is drawn in
+[docs/architecture.md](docs/architecture.md).
 
 ```mermaid
 flowchart LR
@@ -165,6 +166,7 @@ OpenAPI 3.1 description is [docs/api/openapi.json](docs/api/openapi.json).
 ## Documentation
 
 - [docs/PLAN.md](docs/PLAN.md): goal, requirements, stack, architecture overview, phases.
+- [docs/architecture.md](docs/architecture.md): layers and the module graph, generated from the code.
 - [docs/adr/](docs/adr/): architecture decisions.
 - [docs/observability.md](docs/observability.md): tracing, log correlation, metrics, SLOs and alerts, the local Grafana stack.
 - [docs/load-tests.md](docs/load-tests.md): k6 scenarios (`pnpm load`), the event cache against no cache, results.
