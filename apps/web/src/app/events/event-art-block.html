@@ -1,0 +1,25 @@
+<svg
+  viewBox="0 0 24 24"
+  class="size-12 fill-none stroke-current"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+  focusable="false"
+>
+  @switch (art().glyph) {
+    @case (glyphs.STAGE) {
+      <path d="M3 20h18M5 20V9l7-5 7 5v11M9 20v-6h6v6" />
+    }
+    @case (glyphs.NOTE) {
+      <path d="M9 18V5l10-2v13" />
+      <circle cx="6.5" cy="18" r="2.5" />
+      <circle cx="16.5" cy="16" r="2.5" />
+    }
+    @case (glyphs.STAR) {
+      <path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9Z" />
+    }
+    @case (glyphs.MASK) {
+      <path d="M4 5h16v6a8 8 0 0 1-16 0ZM8 10h2M14 10h2M9 15c1.5 1.3 4.5 1.3 6 0" />
+    }
+  }
+</svg>

@@ -57,6 +57,21 @@
           >
         }
       </nav>
+      @if (onEventList()) {
+        <form role="search" class="w-full sm:w-72" (submit)="$event.preventDefault()">
+          <label for="event-search" class="sr-only">Search events</label>
+          <input
+            #query
+            id="event-search"
+            type="search"
+            placeholder="Search events or venues"
+            autocomplete="off"
+            class="w-full rounded-md border border-edge bg-surface px-3 py-1.5 text-text placeholder:text-text-muted"
+            [value]="search.query()"
+            (input)="search.query.set(query.value)"
+          />
+        </form>
+      }
       @if (store.role(); as role) {
         <div class="ml-auto flex items-center gap-3">
           <span class="text-sm text-text-muted">Signed in as {{ role }}</span>

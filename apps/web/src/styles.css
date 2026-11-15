@@ -77,6 +77,32 @@
     background-color: var(--color-surface-raised);
   }
 
+  .badge {
+    display: inline-block;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-edge);
+    background-color: var(--color-surface);
+    padding: 0.125rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
+
+  /*
+   * The hue comes from the event id (--event-hue, set by app-event-art); saturation and lightness
+   * are fixed here so every event stays dark and calm. The glyph is decorative.
+   */
+  .event-art {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-image: linear-gradient(
+      135deg,
+      hsl(var(--event-hue) 55% 32%),
+      hsl(calc(var(--event-hue) + 50) 50% 16%)
+    );
+    color: hsl(var(--event-hue) 80% 90%);
+  }
+
   /*
    * A seat shows its status three ways, never by color alone: border style (solid, dashed, none),
    * fill (empty, striped, solid) and the number (struck through when sold). The accessible name

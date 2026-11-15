@@ -5,25 +5,40 @@
 } @else if (events.error()) {
   <p role="alert" class="text-danger">The events could not be loaded.</p>
   <button type="button" class="btn self-start" (click)="events.reload()">Try again</button>
+} @else if ((events.value() ?? []).length === 0) {
+  <p>No events yet.</p>
+} @else if (visible().length === 0) {
+  <p>No events match “{{ search.query().trim() }}”.</p>
+  <button type="button" class="btn-secondary self-start" (click)="search.query.set('')">
+    Clear search
+  </button>
 } @else {
-  @let list = events.value() ?? [];
-  @if (list.length === 0) {
-    <p>No events yet.</p>
-  } @else {
-    <ul class="flex flex-col gap-3">
-      @for (event of list; track event.id) {
-        <li>
-          <a
-            [routerLink]="['/events', event.id]"
-            class="block rounded border border-edge bg-surface-raised p-4 hover:border-accent"
-          >
-            <span class="block text-lg font-medium">{{ event.name }}</span>
-            <span class="block text-sm text-text-muted">
-              {{ event.startsAt | date: 'medium' }} · {{ event.venueName }} · {{ event.strategy }}
-            </span>
-          </a>
-        </li>
-      }
-    </ul>
-  }
+  <ul class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    @for (event of visible(); track event.id) {
+      <li class="min-w-0">
+        <a
+          [routerLink]="['/events', event.id]"
+          class="card flex h-full flex-col overflow-hidden hover:border-accent"
+        >
+          <div class="flex flex-1 flex-col gap-2 p-4">
+            <h2 class="text-lg font-medium break-words">{{ event.name }}</h2>
+            <p class="text-sm break-words text-text-muted">{{ event.venueName }}</p>
+            <div class="mt-auto flex items-center justify-between gap-3 pt-2">
+              <time
+                [attr.datetime]="event.startsAt"
+                class="flex flex-col items-center rounded-md border border-edge-subtle px-3 py-1 leading-tight"
+              >
+                <span class="text-lg font-semibold">{{ event.startsAt | date: 'd' }}</span>
+                <span class="text-xs text-text-muted uppercase">{{
+                  event.startsAt | date: 'MMM'
+                }}</span>
+              </time>
+              <span class="badge">{{ label(event.strategy) }}</span>
+            </div>
+          </div>
+          <app-event-art class="order-first h-32" [eventId]="event.id" />
+        </a>
+      </li>
+    }
+  </ul>
 }

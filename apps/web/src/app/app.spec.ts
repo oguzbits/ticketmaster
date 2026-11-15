@@ -1,7 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter, Router } from '@angular/router';
+import { provideRouter, Router, withComponentInputBinding } from '@angular/router';
 import { ROLE, type Role } from '@app/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -9,6 +9,9 @@ import { tokensFor } from '../testing/tokens';
 import { App } from './app';
 import { routes } from './app.routes';
 import { SessionStore } from './auth/session.store';
+import { EventSearchStore } from './events/event-search.store';
+
+const EVENT_ID = '00000000-0000-4000-8000-0000000000a2';
 
 function render() {
   const fixture = TestBed.createComponent(App);
@@ -21,7 +24,11 @@ function render() {
 describe('App', () => {
   beforeEach(() =>
     TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter(routes)],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter(routes, withComponentInputBinding()),
+      ],
     })
   );
   // Every request a test did not answer fails the test.
@@ -55,6 +62,38 @@ describe('App', () => {
     expect(wordmark?.textContent?.trim()).toBe('ticketmaster-klon');
     expect(wordmark?.closest('nav')).toBeNull();
     expect(wordmark?.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('shows the search field at /events only and writes the query to the store', async () => {
+    const { fixture, element } = render();
+    const router = TestBed.inject(Router);
+    const http = TestBed.inject(HttpTestingController);
+    const searchField = () => element.querySelector<HTMLInputElement>('form[role=search] input');
+
+    await router.navigateByUrl('/');
+    await fixture.whenStable();
+    expect(searchField()).toBeNull();
+
+    await router.navigateByUrl('/events');
+    TestBed.tick();
+    http.expectOne('/api/events').flush([]);
+    await fixture.whenStable();
+    const field = searchField();
+    expect(field?.type).toBe('search');
+    expect(field?.closest('nav')).toBeNull();
+    expect(element.querySelector('form[role=search] label')?.textContent).toContain(
+      'Search events'
+    );
+    if (field) {
+      field.value = 'jazz';
+      field.dispatchEvent(new Event('input'));
+    }
+    expect(TestBed.inject(EventSearchStore).query()).toBe('jazz');
+
+    await router.navigateByUrl(`/events/${EVENT_ID}`);
+    TestBed.tick();
+    http.expectOne(`/api/events/${EVENT_ID}`);
+    expect(searchField()).toBeNull();
   });
 
   it('marks the link of the current route', async () => {
