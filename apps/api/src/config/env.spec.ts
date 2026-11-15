@@ -144,6 +144,27 @@ describe('parseEnv', () => {
     expect(() => parseEnv({ EVENT_CACHE_TTL_SECONDS: '-1' })).toThrow(/EVENT_CACHE_TTL_SECONDS/);
   });
 
+  describe('RATE_LIMIT_SCALE', () => {
+    const production = { ...PRODUCTION_BASE, ...KEYCLOAK_PRODUCTION };
+
+    it('is refused above 1 in production, naming the variable', () => {
+      expect(() => parseEnv({ ...production, RATE_LIMIT_SCALE: '1000' })).toThrow(
+        /RATE_LIMIT_SCALE/
+      );
+    });
+
+    it('is accepted above 1 in development and as 1 in production', () => {
+      expect(parseEnv({ NODE_ENV: 'development', RATE_LIMIT_SCALE: '1000' }).RATE_LIMIT_SCALE).toBe(
+        1000
+      );
+      expect(parseEnv({ ...production, RATE_LIMIT_SCALE: '1' }).RATE_LIMIT_SCALE).toBe(1);
+    });
+
+    it('is refused at 0', () => {
+      expect(() => parseEnv({ RATE_LIMIT_SCALE: '0' })).toThrow(/RATE_LIMIT_SCALE/);
+    });
+  });
+
   it('HOLD_TTL_SECONDS must be a positive integer', () => {
     expect(() => parseEnv({ HOLD_TTL_SECONDS: '0' })).toThrow(/HOLD_TTL_SECONDS/);
   });

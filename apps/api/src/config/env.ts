@@ -38,51 +38,71 @@ const LOCAL_DEFAULTS = {
   SMTP_URL: 'smtp://localhost:1025',
 };
 
-export const EnvSchema = z.object({
-  NODE_ENV: z.enum(NODE_ENV).default(NODE_ENV.DEVELOPMENT),
-  PORT: z.coerce.number().int().min(1).max(MAX_PORT).default(DEFAULT_PORT),
-  // Required here; parseEnv fills the local default when NODE_ENV is not production.
-  DATABASE_URL: z.url(),
-  REDIS_URL: z.url(),
-  HOLD_TTL_SECONDS: z.coerce.number().int().positive().default(DEFAULT_HOLD_TTL_SECONDS),
-  PAYMENT_FAILURE_RATE: z.coerce.number().min(0).max(1).default(DEFAULT_PAYMENT_FAILURE_RATE),
-  // Unset means no CORS headers at all (web and API share an origin behind Caddy).
-  CORS_ORIGIN: z.url().optional(),
-  // Built into `${KEYCLOAK_URL}/realms/...`: a trailing slash would give `//realms` and a wrong issuer.
-  KEYCLOAK_URL: z.url().transform((url) => url.replace(/\/+$/, '')),
-  KEYCLOAK_REALM: z.string().min(1).default(DEFAULT_KEYCLOAK_REALM),
-  KEYCLOAK_DEMO_CLIENT_ID: z.string().min(1).default(DEFAULT_KEYCLOAK_DEMO_CLIENT_ID),
-  KEYCLOAK_DEMO_CLIENT_SECRET: z.string().min(1),
-  DEMO_USER_TTL_SECONDS: z.coerce.number().int().positive().default(DEFAULT_DEMO_USER_TTL_SECONDS),
-  // Unset in production means real AWS; parseEnv fills the local emulator otherwise.
-  AWS_ENDPOINT_URL: z.url().optional(),
-  AWS_REGION: z.string().min(1).default(DEFAULT_AWS_REGION),
-  AWS_ACCESS_KEY_ID: z.string().min(1),
-  AWS_SECRET_ACCESS_KEY: z.string().min(1),
-  // Required here; parseEnv fills the local mail sink when NODE_ENV is not production.
-  SMTP_URL: z.url(),
-  MAIL_FROM: z.email().default(DEFAULT_MAIL_FROM),
-  // Off by default and in every test: nothing is hooked, exported or subscribed.
-  TRACING_ENABLED: z.stringbool().default(false),
-  // Base URL of an OTLP/HTTP receiver; '/v1/traces' is appended, so a trailing slash is stripped.
-  TRACING_OTLP_ENDPOINT: z
-    .url()
-    .default(DEFAULT_TRACING_OTLP_ENDPOINT)
-    .transform((url) => url.replace(/\/+$/, '')),
-  // Off by default and in every test: no provider, no exporter, no listening socket.
-  METRICS_ENABLED: z.stringbool().default(false),
-  // Port of the Prometheus scrape endpoint (`/metrics`); served by its own listener, never by the app.
-  METRICS_PORT: z.coerce.number().int().min(1).max(MAX_PORT).default(DEFAULT_METRICS_PORT),
-  // Interface of that listener. Loopback by default; Compose sets 0.0.0.0 so the scraper container
-  // can reach it. The scrape holds counts per route template, no IDs and no personal data.
-  METRICS_HOST: z.ipv4().default(DEFAULT_METRICS_HOST),
-  // Lifetime of a cached event page in seconds; 0 switches the cache off (baseline load runs).
-  EVENT_CACHE_TTL_SECONDS: z.coerce.number().int().min(0).default(DEFAULT_EVENT_CACHE_TTL_SECONDS),
-  // Multiplies every rate limit. 1 outside load runs; only docker-compose.loadtest.yml raises it.
-  RATE_LIMIT_SCALE: z.coerce.number().int().min(1).default(DEFAULT_RATE_LIMIT_SCALE),
-  // Base URL of Grafana as the admin's browser reaches it; unset hides the trace link of a run.
-  GRAFANA_URL: z.url().optional(),
-});
+export const EnvSchema = z
+  .object({
+    NODE_ENV: z.enum(NODE_ENV).default(NODE_ENV.DEVELOPMENT),
+    PORT: z.coerce.number().int().min(1).max(MAX_PORT).default(DEFAULT_PORT),
+    // Required here; parseEnv fills the local default when NODE_ENV is not production.
+    DATABASE_URL: z.url(),
+    REDIS_URL: z.url(),
+    HOLD_TTL_SECONDS: z.coerce.number().int().positive().default(DEFAULT_HOLD_TTL_SECONDS),
+    PAYMENT_FAILURE_RATE: z.coerce.number().min(0).max(1).default(DEFAULT_PAYMENT_FAILURE_RATE),
+    // Unset means no CORS headers at all (web and API share an origin behind Caddy).
+    CORS_ORIGIN: z.url().optional(),
+    // Built into `${KEYCLOAK_URL}/realms/...`: a trailing slash would give `//realms` and a wrong issuer.
+    KEYCLOAK_URL: z.url().transform((url) => url.replace(/\/+$/, '')),
+    KEYCLOAK_REALM: z.string().min(1).default(DEFAULT_KEYCLOAK_REALM),
+    KEYCLOAK_DEMO_CLIENT_ID: z.string().min(1).default(DEFAULT_KEYCLOAK_DEMO_CLIENT_ID),
+    KEYCLOAK_DEMO_CLIENT_SECRET: z.string().min(1),
+    DEMO_USER_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(DEFAULT_DEMO_USER_TTL_SECONDS),
+    // Unset in production means real AWS; parseEnv fills the local emulator otherwise.
+    AWS_ENDPOINT_URL: z.url().optional(),
+    AWS_REGION: z.string().min(1).default(DEFAULT_AWS_REGION),
+    AWS_ACCESS_KEY_ID: z.string().min(1),
+    AWS_SECRET_ACCESS_KEY: z.string().min(1),
+    // Required here; parseEnv fills the local mail sink when NODE_ENV is not production.
+    SMTP_URL: z.url(),
+    MAIL_FROM: z.email().default(DEFAULT_MAIL_FROM),
+    // Off by default and in every test: nothing is hooked, exported or subscribed.
+    TRACING_ENABLED: z.stringbool().default(false),
+    // Base URL of an OTLP/HTTP receiver; '/v1/traces' is appended, so a trailing slash is stripped.
+    TRACING_OTLP_ENDPOINT: z
+      .url()
+      .default(DEFAULT_TRACING_OTLP_ENDPOINT)
+      .transform((url) => url.replace(/\/+$/, '')),
+    // Off by default and in every test: no provider, no exporter, no listening socket.
+    METRICS_ENABLED: z.stringbool().default(false),
+    // Port of the Prometheus scrape endpoint (`/metrics`); served by its own listener, never by the app.
+    METRICS_PORT: z.coerce.number().int().min(1).max(MAX_PORT).default(DEFAULT_METRICS_PORT),
+    // Interface of that listener. Loopback by default; Compose sets 0.0.0.0 so the scraper container
+    // can reach it. The scrape holds counts per route template, no IDs and no personal data.
+    METRICS_HOST: z.ipv4().default(DEFAULT_METRICS_HOST),
+    // Lifetime of a cached event page in seconds; 0 switches the cache off (baseline load runs).
+    EVENT_CACHE_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .default(DEFAULT_EVENT_CACHE_TTL_SECONDS),
+    // Multiplies every rate limit. 1 outside load runs; only docker-compose.loadtest.yml raises it,
+    // and production refuses anything above 1.
+    RATE_LIMIT_SCALE: z.coerce.number().int().min(1).default(DEFAULT_RATE_LIMIT_SCALE),
+    // Base URL of Grafana as the admin's browser reaches it; unset hides the trace link of a run.
+    GRAFANA_URL: z.url().optional(),
+  })
+  .superRefine((env, context) => {
+    // A scaled limit is for local load runs; production keeps the real one.
+    if (env.NODE_ENV === NODE_ENV.PRODUCTION && env.RATE_LIMIT_SCALE > 1) {
+      context.addIssue({
+        code: 'custom',
+        path: ['RATE_LIMIT_SCALE'],
+        message: 'must be 1 when NODE_ENV is production',
+      });
+    }
+  });
 
 export type Env = z.infer<typeof EnvSchema>;
 
