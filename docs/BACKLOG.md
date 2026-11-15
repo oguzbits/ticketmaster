@@ -221,6 +221,14 @@ Phase 4, mutation tests are complete (`pnpm mutation`, `stryker.config.mjs`):
   (equivalent) and `SYSTEM_ACTOR_ID` (only the database specs read it). The database specs and
   the worker are not part of the run.
 
+Phase 4, changelog and demo GIF are complete:
+
+- `CHANGELOG.md` (Keep a Changelog, SemVer) holds the entry for 0.1.0; the release itself is not
+  tagged yet.
+- `docs/demo.gif` sits at the top of the README: two windows on one event, a visitor who is not
+  signed in and a customer who holds and pays; `pnpm demo:gif` records it again against the
+  running stack (Playwright and ffmpeg). Recording leaves a sold seat in the local database.
+
 Stage look, slices 1 to 3 complete
 ([spec](superpowers/specs/2026-11-15-stage-look-redesign-design.md),
 [plan](superpowers/plans/2026-11-15-stage-look-slices-1-3.md)):

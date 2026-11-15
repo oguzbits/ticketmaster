@@ -2,6 +2,11 @@
 
 > Unofficial demo. Not affiliated with Ticketmaster.
 
+![Two browser windows on the same event: a customer holds and pays for a seat on the right, and the seat map of a visitor who is not signed in, on the left, shows it held and then sold within a second.](docs/demo.gif)
+
+The left window is a visitor who is not signed in, the right one a customer. Record it again with
+`pnpm demo:gif` while the Compose stack runs.
+
 A ticket booking system for events with seats. Many buyers compete for the same seats at the same
 time, no seat is sold twice, and the seat map updates live for everyone watching.
 

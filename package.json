@@ -35,6 +35,7 @@
     "aws:smoke": "pnpm --filter @app/shared build && node scripts/aws-smoke.mjs",
     "e2e": "node scripts/e2e.mjs",
     "load": "node scripts/k6/run.mjs",
+    "demo:gif": "node scripts/demo-gif.mjs",
     "mutation": "pnpm --filter @app/shared build && stryker run",
     "prepare": "husky"
   },
@@ -71,7 +72,11 @@
           "vitest.mutation.config.ts"
         ],
         "ignoreDependencies": [
-          "k6"
+          "k6",
+          "@playwright/test"
+        ],
+        "ignoreBinaries": [
+          "ffmpeg"
         ]
       },
       "apps/web": {
