@@ -133,7 +133,9 @@ describe('EventList', () => {
 
     search.query.set('opera');
     await fixture.whenStable();
-    expect(element.textContent).toContain('No events match “opera”.');
+    expect(element.querySelector('[role=status]')?.textContent).toContain(
+      'No events match “opera”.'
+    );
     expect(cards()).toHaveLength(0);
 
     [...element.querySelectorAll('button')]

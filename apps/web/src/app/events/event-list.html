@@ -8,7 +8,7 @@
 } @else if ((events.value() ?? []).length === 0) {
   <p>No events yet.</p>
 } @else if (visible().length === 0) {
-  <p>No events match “{{ search.query().trim() }}”.</p>
+  <p role="status">No events match “{{ search.query().trim() }}”.</p>
   <button type="button" class="btn-secondary self-start" (click)="search.query.set('')">
     Clear search
   </button>
