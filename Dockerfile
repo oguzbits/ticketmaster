@@ -1,5 +1,5 @@
 # One build stage for the whole workspace, one small runtime target per process.
-FROM node:26.13.1-slim AS build
+FROM node:26.13.1-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS build
 WORKDIR /app
 COPY . .
 # Node no longer ships corepack, so pnpm comes from npm in the version package.json pins.
@@ -9,7 +9,7 @@ RUN pnpm install --frozen-lockfile && pnpm build
 RUN pnpm --filter @app/api deploy --prod /out/api
 RUN pnpm --filter @app/worker deploy --prod /out/worker
 
-FROM node:26.13.1-slim AS api
+FROM node:26.13.1-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS api
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build /out/api .
@@ -20,7 +20,7 @@ HEALTHCHECK --interval=5s --timeout=3s --start-period=10s --retries=5 \
 CMD ["node", "--import", "./dist/tracing.preload.js", "dist/main.js"]
 
 # The worker has no HTTP server, so no port and no HTTP health check.
-FROM node:26.13.1-slim AS worker
+FROM node:26.13.1-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS worker
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build /out/worker .
@@ -34,7 +34,7 @@ ENV NODE_ENV=production
 USER node
 
 # Caddy serves the built web app and is the reverse proxy in front of the API.
-FROM caddy:2.11.9-alpine AS web
+FROM caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0 AS web
 COPY apps/web/Caddyfile /etc/caddy/Caddyfile
 COPY --from=build /app/apps/web/dist/browser /srv
 USER 1000

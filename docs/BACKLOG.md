@@ -352,10 +352,14 @@ Phase 3, slice C:
 Phase 3 is done. Open from earlier notes:
 
 - Write the runbooks the docs-map entry for the deploy folder points to (`docs/runbooks/`).
-- Images are pinned by tag; pin by digest and add resource limits with the container hardening.
 
 ## Open points
 
+- **`pnpm load` fails to start the stack.** Since the check that refuses `RATE_LIMIT_SCALE` above 1
+  in production, the API image (`NODE_ENV=production`) rejects the scale of 1000 that
+  `docker-compose.loadtest.yml` sets. The measurement for the container limits ran with
+  `NODE_ENV=development` on the API through an extra Compose file. Either the load override sets
+  `NODE_ENV`, or the check gets another switch.
 - **Row-level security is opt-in.** A customer path that does not call `withOwner` has no database
   layer; the ticket download and `claimPaymentKey` are such paths on purpose (ADR 0009). The user
   scope is a session variable, so it does not stop SQL injection.

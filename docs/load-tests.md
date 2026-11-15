@@ -13,7 +13,9 @@ pnpm load <browse|booking-flow|rush|waiting-room|all>
 The runner builds and starts the stack under its own Compose project (`ticketmaster-klon-load`, so
 the development volume stays untouched) with [docker-compose.loadtest.yml](../docker-compose.loadtest.yml),
 then runs the scenario in the `grafana/k6` container (`docker compose --profile loadtest run --rm k6`).
-It exits with 1 when a threshold is missed. The stack stays up for the next run; remove it, and the
+The k6 image is pinned by digest and runs hardened like the other services
+([container hardening](../CONTRIBUTING.md#container-hardening)); the memory and CPU limits of the stack were
+sized from the peaks of these scenarios. It exits with 1 when a threshold is missed. The stack stays up for the next run; remove it, and the
 database with it, with:
 
 ```bash

@@ -2,9 +2,21 @@
 # Redis and the AWS emulator (with its queues and bucket) for the tests. The credentials are for these local containers only.
 name: ticketmaster-klon
 
+# Every service merges this and adds its limits; a rule it cannot meet is named with a reason under
+# `x-hardening-exception`. apps/api/src/infrastructure/compose-hardening.spec.ts enforces it.
+x-hardening: &hardening
+  cap_drop: [ALL]
+  security_opt: ['no-new-privileges:true']
+  read_only: true
+
 services:
   postgres:
-    image: postgres:18.7-alpine
+    <<: *hardening
+    mem_limit: 512m
+    cpus: 1.0
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    tmpfs: [/tmp, /run/postgresql]
+    image: postgres:18.7-alpine@sha256:b6972e1115a4ff8eba5d7f7d19184926d1e16d7d1136ae1e1a7ebf286da0f015
     environment:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: app
@@ -24,7 +36,15 @@ services:
   # docs/adr/0005-pgbouncer-transaction-mode.md. The wildcard database entry (no DB_NAME) lets the
   # db specs reach `app_test` through it. migrate talks to Postgres directly.
   pgbouncer:
-    image: edoburu/pgbouncer:v1.26.1-p0
+    <<: *hardening
+    mem_limit: 64m
+    cpus: 0.25
+    # The entrypoint writes the config and the user list; the image runs as uid 70.
+    tmpfs:
+      - /etc/pgbouncer:uid=70,gid=70
+      - /var/log/pgbouncer:uid=70,gid=70
+      - /var/run/pgbouncer:uid=70,gid=70
+    image: edoburu/pgbouncer:v1.26.1-p0@sha256:488422e38cff912895d0d65d8963fcd306e6ac589a724398b6eb8e294e94d624
     environment:
       DB_HOST: postgres
       DB_USER: app
@@ -51,7 +71,12 @@ services:
       retries: 30
 
   redis:
-    image: redis:8.10.3-alpine
+    <<: *hardening
+    mem_limit: 128m
+    cpus: 0.25
+    cap_add: [SETGID, SETUID, CHOWN]
+    tmpfs: [/data]
+    image: redis:8.10.3-alpine@sha256:7958cfbb9d152f87dadfbc89f1b0b15938f0b81ff8982feb327476f4911935c3
     ports:
       - '63790:6379'
     healthcheck:
@@ -64,7 +89,13 @@ services:
   # The image brings its own health check (the emulator's readiness route). FLOCI_HOSTNAME makes
   # the queue URLs it returns resolvable inside the Compose network.
   aws:
-    image: floci/floci:2.4.0
+    <<: *hardening
+    mem_limit: 320m
+    cpus: 1.0
+    # The entrypoint starts as root and drops to uid 1001 with chroot --userspec.
+    cap_add: [SYS_CHROOT, SETUID, SETGID, CHOWN, FOWNER, DAC_OVERRIDE]
+    tmpfs: [/tmp, '/app/data:uid=1001,gid=0']
+    image: floci/floci:2.4.0@sha256:5ee85db604c4aa74ac76e07ea5cc83086f37bb472bf3dbb97e34019e48efae9c
     environment:
       FLOCI_HOSTNAME: aws
     ports:
@@ -73,6 +104,10 @@ services:
   # One-shot: creates the queues, the dead-letter queue and the bucket (safe to run again), then
   # exits. api and worker wait for it.
   aws-init:
+    <<: *hardening
+    mem_limit: 128m
+    cpus: 0.25
+    tmpfs: [/tmp]
     build:
       context: .
       target: tools
@@ -86,7 +121,11 @@ services:
   # Mail sink for the confirmation mail: accepts every message, shows it in a UI (8025) and a REST
   # API. SMTP on 1025. Nothing leaves the machine.
   mailpit:
-    image: axllent/mailpit:v1.33.1
+    <<: *hardening
+    mem_limit: 64m
+    cpus: 0.25
+    tmpfs: [/tmp]
+    image: axllent/mailpit:v1.33.1@sha256:aef2aacc11f075ec0fb6874275ee4a421e688e11a96ebb296134d1735c7761ce
     ports:
       - '1025:1025'
       - '8025:8025'
@@ -97,7 +136,15 @@ services:
       retries: 30
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.8.2
+    <<: *hardening
+    mem_limit: 1280m
+    cpus: 2.0
+    tmpfs: [/tmp]
+    # `start-dev` rebuilds its Quarkus runtime into /opt/keycloak at every start.
+    read_only: false
+    x-hardening-exception:
+      read_only: start-dev writes the rebuilt Quarkus runtime under /opt/keycloak
+    image: quay.io/keycloak/keycloak:26.8.2@sha256:c68e286cacd87b942ac1939a0a1481461109d6acd3a57dc496969a319a76bbf0
     command: ['start-dev', '--import-realm']
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
@@ -129,6 +176,10 @@ services:
 
   # One-shot: applies the migrations and the seed, then exits. api and worker wait for it. It connects to Postgres directly (migrations need no pooler).
   migrate:
+    <<: *hardening
+    mem_limit: 256m
+    cpus: 0.5
+    tmpfs: [/tmp]
     build:
       context: .
       target: api
@@ -150,6 +201,10 @@ services:
         condition: service_healthy
 
   api:
+    <<: *hardening
+    mem_limit: 320m
+    cpus: 1.0
+    tmpfs: [/tmp]
     build:
       context: .
       target: api
@@ -190,6 +245,10 @@ services:
         condition: service_completed_successfully
 
   worker:
+    <<: *hardening
+    mem_limit: 256m
+    cpus: 2.0
+    tmpfs: [/tmp]
     build:
       context: .
       target: worker
@@ -224,6 +283,10 @@ services:
         condition: service_healthy
 
   web:
+    <<: *hardening
+    mem_limit: 128m
+    cpus: 0.5
+    tmpfs: [/tmp, /config, /data]
     build:
       context: .
       target: web
@@ -237,7 +300,11 @@ services:
   # docs/observability.md and docs/adr/0007-tracing-with-opentelemetry.md. The ports are bound to
   # localhost; none of the five services starts without the profile.
   tempo:
-    image: grafana/tempo:3.1.1
+    <<: *hardening
+    mem_limit: 256m
+    cpus: 0.5
+    tmpfs: [/tmp]
+    image: grafana/tempo:3.1.1@sha256:64e2fbd56d9c2b3412a4b430a58ea59e91a670b1e75f920a0c702213ad145044
     profiles: [observability]
     command: ['-target=all', '-config.file=/etc/tempo.yaml']
     ports:
@@ -254,7 +321,11 @@ services:
 
   # The image has no shell either, so there is no health check; Alloy retries its pushes until Loki is up.
   loki:
-    image: grafana/loki:3.7.10
+    <<: *hardening
+    mem_limit: 256m
+    cpus: 0.5
+    tmpfs: [/tmp]
+    image: grafana/loki:3.7.10@sha256:b43c257ccfc925d4a50b8717cac61a3b51df8c48d01847936057e5c4075a24a7
     profiles: [observability]
     command: ['-config.file=/etc/loki/loki.yaml']
     ports:
@@ -266,7 +337,13 @@ services:
   # Reads the container logs through the Docker socket and ships them to Loki. The socket gives
   # read access to every container on the host: see the risk note in docs/observability.md.
   alloy:
-    image: grafana/alloy:v1.22.0
+    <<: *hardening
+    mem_limit: 320m
+    cpus: 0.5
+    # Runs as root on a volume that an earlier run may have left with another owner.
+    cap_add: [DAC_OVERRIDE]
+    tmpfs: [/tmp]
+    image: grafana/alloy:v1.22.0@sha256:9acc2529bc1edb7f5b2bd801dd8334ebc80c158e3a9e5526ecd7c9a273d43189
     profiles: [observability]
     command:
       - run
@@ -296,7 +373,11 @@ services:
   # Scrapes the API replicas and the worker (see docker/observability/prometheus.yml), evaluates
   # docker/observability/alerts.yml; keeps two days. Needs METRICS_ENABLED=true on api and worker, else every target is down.
   prometheus:
-    image: prom/prometheus:v3.16.0
+    <<: *hardening
+    mem_limit: 256m
+    cpus: 0.5
+    tmpfs: [/tmp]
+    image: prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
     profiles: [observability]
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -315,7 +396,11 @@ services:
       retries: 30
 
   grafana:
-    image: grafana/grafana:13.3.1
+    <<: *hardening
+    mem_limit: 256m
+    cpus: 0.5
+    tmpfs: [/tmp]
+    image: grafana/grafana:13.3.1@sha256:0615ec4fbd4072004b7d86b46ded63013a74b7d6eb1119273dd89e8fa25c13cf
     profiles: [observability]
     environment:
       GF_SECURITY_ADMIN_USER: admin

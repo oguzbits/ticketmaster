@@ -35,8 +35,14 @@ services:
     ports: !reset []
 
   k6:
-    image: grafana/k6:2.4.0
+    image: grafana/k6:2.4.0@sha256:d41bb79cd8de5a7ad619b53570e3712633e8bff0937010a5c6c57a4747e7a276
     profiles: [loadtest]
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    read_only: true
+    mem_limit: 256m
+    cpus: 1.0
+    tmpfs: [/tmp]
     environment:
       BASE_URL: http://web:8080
     volumes:

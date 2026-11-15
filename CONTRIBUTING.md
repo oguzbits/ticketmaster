@@ -95,6 +95,34 @@ variable with a comment; the table is generated (`pnpm docs:generate`).
 | `GRAFANA_URL` | optional |
 <!-- /generated -->
 
+## Container hardening
+
+Every service in `docker-compose.yml` merges the `x-hardening` block: `cap_drop: [ALL]`,
+`no-new-privileges` and a read-only root file system, and adds `mem_limit`, `cpus` and the `tmpfs`
+paths it writes. Images carry tag and digest (`image: name:tag@sha256:...`; Dependabot moves both),
+the `FROM` lines of the `Dockerfile` too. A rule a service cannot meet is named with a reason under
+`x-hardening-exception`; `apps/api/src/infrastructure/compose-hardening.spec.ts` fails for a
+service that lacks a rule or a reason.
+
+Limits come from `docker stats` during `pnpm load all` (peak, 15 November 2026, hardened stack on a
+laptop) and sit at about twice the peak. Observability services were measured at idle with data.
+
+| Service    | Peak memory | Limit  | Peak CPU | CPU limit |
+| ---------- | ----------- | ------ | -------- | --------- |
+| api        | 137 MiB     | 320 MB | 0.32     | 1.0       |
+| worker     | 125 MiB     | 256 MB | 0.96     | 2.0       |
+| postgres   | 217 MiB     | 512 MB | 0.36     | 1.0       |
+| keycloak   | 610 MiB     | 1280 MB | 1.01    | 2.0       |
+| aws        | 135 MiB     | 320 MB | 0.09     | 1.0       |
+| web        | 61 MiB      | 128 MB | 0.12     | 0.5       |
+| redis      | 18 MiB      | 128 MB | 0.04     | 0.25      |
+| pgbouncer  | 10 MiB      | 64 MB  | 0.10     | 0.25      |
+| mailpit    | 29 MiB      | 64 MB  | 0.05     | 0.25      |
+
+Exceptions: Keycloak (`start-dev` rebuilds its runtime into `/opt/keycloak`, so its root file
+system stays writable). Postgres, Redis, the AWS emulator and Alloy keep the few capabilities their
+entrypoints need to start as root and drop to their own user.
+
 ## Commands
 
 The full table is in [AGENTS.md](AGENTS.md#5-commands). The two that matter most:
