@@ -1,6 +1,6 @@
 <h1 class="text-2xl font-semibold">Rush simulator</h1>
 
-<section aria-label="Start a run" class="flex flex-col gap-3">
+<section aria-label="Start a run" class="card flex flex-col gap-3 p-4">
   <h2 class="text-lg font-medium">Start a run</h2>
   <p class="text-text-muted">
     Virtual buyers race for the seats of a fresh sandbox event under one booking strategy.
@@ -15,7 +15,7 @@
         step="1"
         min="1"
         [max]="limits.BUYERS_MAX"
-        class="w-28 rounded border border-edge bg-surface-raised px-3 py-2"
+        class="w-28 field"
         [value]="buyers()"
         (input)="buyers.set(buyersInput.valueAsNumber)"
         #buyersInput
@@ -30,7 +30,7 @@
         step="1"
         min="1"
         [max]="limits.SEATS_MAX"
-        class="w-28 rounded border border-edge bg-surface-raised px-3 py-2"
+        class="w-28 field"
         [value]="seats()"
         (input)="seats.set(seatsInput.valueAsNumber)"
         #seatsInput
@@ -40,12 +40,12 @@
       <label for="sim-strategy" class="text-sm font-medium">Strategy</label>
       <select
         id="sim-strategy"
-        class="rounded border border-edge bg-surface-raised px-3 py-2"
+        class="field"
         (change)="pickStrategy(strategyInput.value)"
         #strategyInput
       >
         @for (item of strategies; track item) {
-          <option [value]="item" [selected]="item === strategy()">{{ item }}</option>
+          <option [value]="item" [selected]="item === strategy()">{{ label(item) }}</option>
         }
       </select>
     </div>
@@ -71,9 +71,10 @@
 </section>
 
 @if (run(); as current) {
-  <section aria-label="Current run" class="flex flex-col gap-3">
+  <section aria-label="Current run" class="card flex flex-col gap-3 p-4">
     <h2 class="text-lg font-medium">
-      Current run: {{ current.strategy }}, {{ current.buyers }} buyers, {{ current.seats }} seats
+      Current run: {{ label(current.strategy) }}, {{ current.buyers }} buyers,
+      {{ current.seats }} seats
     </h2>
     <p role="status">Status: {{ progress()?.status ?? current.status }}</p>
     @if (progress(); as live) {
@@ -89,35 +90,35 @@
         {{ live.metrics.buyersDone }} of {{ current.buyers }}
       </progress>
       <dl class="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-4">
-        <div>
+        <div class="card px-3 py-2">
           <dt class="text-sm text-text-muted">Buyers done</dt>
           <dd>{{ live.metrics.buyersDone }} of {{ current.buyers }}</dd>
         </div>
-        <div>
+        <div class="card px-3 py-2">
           <dt class="text-sm text-text-muted">Attempts</dt>
           <dd>{{ live.metrics.attempts }}</dd>
         </div>
-        <div>
+        <div class="card px-3 py-2">
           <dt class="text-sm text-text-muted">Holds</dt>
           <dd>{{ live.metrics.holds }}</dd>
         </div>
-        <div>
+        <div class="card px-3 py-2">
           <dt class="text-sm text-text-muted">Conflicts</dt>
           <dd>{{ live.metrics.conflicts }}</dd>
         </div>
-        <div>
+        <div class="card px-3 py-2">
           <dt class="text-sm text-text-muted">Retries</dt>
           <dd>{{ live.metrics.retries }}</dd>
         </div>
-        <div>
+        <div class="card px-3 py-2">
           <dt class="text-sm text-text-muted">p50</dt>
           <dd>{{ live.metrics.p50Ms | number: '1.0-0' }} ms</dd>
         </div>
-        <div>
+        <div class="card px-3 py-2">
           <dt class="text-sm text-text-muted">p95</dt>
           <dd>{{ live.metrics.p95Ms | number: '1.0-0' }} ms</dd>
         </div>
-        <div>
+        <div class="card px-3 py-2">
           <dt class="text-sm text-text-muted">Double bookings</dt>
           <dd>
             @if (live.metrics.doubleBookings === null) {
@@ -140,7 +141,7 @@
   </section>
 }
 
-<section aria-label="Comparison" class="flex flex-col gap-3">
+<section aria-label="Comparison" class="card flex flex-col gap-3 p-4">
   <h2 class="text-lg font-medium">Finished runs</h2>
   @if (runs.error()) {
     <p role="alert" class="text-danger">The finished runs could not be loaded.</p>
@@ -174,7 +175,7 @@
           <tbody>
             @for (item of list; track item.id) {
               <tr class="border-b border-edge">
-                <th scope="row" class="py-2 pr-3 font-medium">{{ item.strategy }}</th>
+                <th scope="row" class="py-2 pr-3 font-medium">{{ label(item.strategy) }}</th>
                 <td class="py-2 pr-3">{{ item.buyers }}</td>
                 <td class="py-2 pr-3">{{ item.seats }}</td>
                 <td class="py-2 pr-3">{{ item.metrics?.holds }}</td>

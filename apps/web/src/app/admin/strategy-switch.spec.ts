@@ -1,9 +1,15 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { BOOKING_STRATEGY, type BookingStrategy, type EventSummary } from '@app/shared';
+import {
+  BOOKING_STRATEGY,
+  type BookingStrategy,
+  BookingStrategySchema,
+  type EventSummary,
+} from '@app/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { strategyLabel } from '../events/strategy-label';
 import { StrategySwitch } from './strategy-switch';
 
 const EVENT_ID = '00000000-0000-4000-8000-0000000000e1';
@@ -59,8 +65,23 @@ describe('StrategySwitch', () => {
   it('shows the current strategy and offers no switch to the same one', () => {
     const { element, button } = render();
 
-    expect(element.textContent).toContain(BOOKING_STRATEGY.PESSIMISTIC);
+    expect(element.textContent).toContain(
+      `Current strategy: ${strategyLabel(BOOKING_STRATEGY.PESSIMISTIC)}`
+    );
+    expect(element.textContent).not.toContain(BOOKING_STRATEGY.PESSIMISTIC);
     expect(button(/Switch strategy/)?.disabled).toBe(true);
+  });
+
+  it('offers every strategy by label and keeps the raw value as the option value', () => {
+    const { element } = render();
+
+    const options = [...element.querySelectorAll('option')];
+    expect(options.map((o) => o.value)).toEqual(Object.values(BOOKING_STRATEGY));
+    for (const option of options) {
+      expect(option.textContent?.trim()).toBe(
+        strategyLabel(BookingStrategySchema.parse(option.value))
+      );
+    }
   });
 
   it('asks for a confirmation and sends nothing before it', () => {
@@ -70,7 +91,9 @@ describe('StrategySwitch', () => {
     press(/Switch strategy/);
 
     http.expectNone(URL);
-    expect(element.textContent).toContain('Switch from PESSIMISTIC to OPTIMISTIC?');
+    expect(element.textContent).toContain(
+      `Switch from ${strategyLabel(BOOKING_STRATEGY.PESSIMISTIC)} to ${strategyLabel(BOOKING_STRATEGY.OPTIMISTIC)}?`
+    );
     expect(element.textContent).toContain('existing bookings keep');
   });
 
@@ -104,7 +127,7 @@ describe('StrategySwitch', () => {
 
     expect(switched).toHaveBeenCalledWith(BOOKING_STRATEGY.OPTIMISTIC);
     expect(element.querySelector('[role=status]')?.textContent).toContain(
-      BOOKING_STRATEGY.OPTIMISTIC
+      `The strategy is now ${strategyLabel(BOOKING_STRATEGY.OPTIMISTIC)}.`
     );
     expect(element.textContent).not.toContain('Switch from');
   });
@@ -124,7 +147,9 @@ describe('StrategySwitch', () => {
 
     expect(alertText()).toMatch(message);
     expect(switched).not.toHaveBeenCalled();
-    expect(element.textContent).toContain('Switch from PESSIMISTIC to OPTIMISTIC?');
+    expect(element.textContent).toContain(
+      `Switch from ${strategyLabel(BOOKING_STRATEGY.PESSIMISTIC)} to ${strategyLabel(BOOKING_STRATEGY.OPTIMISTIC)}?`
+    );
 
     press(/Try again/);
     await answer(() => http.expectOne(URL).flush(SUMMARY));

@@ -4,6 +4,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import {
   BOOKING_STRATEGY,
+  BookingStrategySchema,
   ROLE,
   type Role,
   SIMULATION_LIMITS,
@@ -17,6 +18,7 @@ import { FakeEventSource } from '../../testing/fake-event-source';
 import { tokensFor } from '../../testing/tokens';
 import { routes } from '../app.routes';
 import { SessionStore } from '../auth/session.store';
+import { strategyLabel } from '../events/strategy-label';
 import { EVENT_SOURCE } from './simulator.service';
 import { SimulatorPage } from './simulator-page';
 
@@ -124,6 +126,33 @@ describe('SimulatorPage', () => {
       strategy: BOOKING_STRATEGY.OPTIMISTIC,
     });
     request.flush(QUEUED);
+  });
+
+  it('offers every strategy by label and keeps the raw value as the option value', async () => {
+    const { field, ready } = render();
+    await ready();
+
+    const options = [...field('sim-strategy').querySelectorAll('option')];
+    expect(options.map((o) => o.value)).toEqual(Object.values(BOOKING_STRATEGY));
+    for (const option of options) {
+      expect(option.textContent?.trim()).toBe(
+        strategyLabel(BookingStrategySchema.parse(option.value))
+      );
+    }
+  });
+
+  it('names the current run by the label of its strategy', async () => {
+    const { element, http, settle, submit, ready } = render();
+    await ready();
+    submit();
+    await settle();
+    http.expectOne(RUNS_URL).flush(QUEUED);
+    await settle();
+
+    const heading = element.querySelector('section[aria-label="Current run"] h2');
+    expect(heading?.textContent).toContain(
+      `Current run: ${strategyLabel(BOOKING_STRATEGY.PESSIMISTIC)}, `
+    );
   });
 
   it('marks values beyond the limits as invalid and sends nothing', async () => {
@@ -236,7 +265,8 @@ describe('SimulatorPage', () => {
     expect(FakeEventSource.instances[0]?.readyState).toBe(FakeEventSource.CLOSED);
     expect(startButton().disabled).toBe(false);
     const row = element.querySelector('tbody tr');
-    expect(row?.textContent).toContain(BOOKING_STRATEGY.PESSIMISTIC);
+    expect(row?.textContent).toContain(strategyLabel(BOOKING_STRATEGY.PESSIMISTIC));
+    expect(row?.textContent).not.toContain(BOOKING_STRATEGY.PESSIMISTIC);
     expect(row?.textContent).toContain('12');
   });
 

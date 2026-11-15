@@ -1,17 +1,17 @@
 <h2 class="text-lg font-medium">Booking strategy</h2>
-<p>Current strategy: {{ strategy() }}</p>
+<p>Current strategy: {{ label(strategy()) }}</p>
 
 <div class="flex flex-col gap-1">
   <label for="strategy-choice" class="text-sm font-medium">New strategy</label>
   <select
     id="strategy-choice"
-    class="rounded border border-edge bg-surface-raised px-3 py-2 disabled:opacity-60"
+    class="field disabled:opacity-60"
     [disabled]="confirming()"
     (change)="choose(choiceInput.value)"
     #choiceInput
   >
     @for (item of strategies; track item) {
-      <option [value]="item" [selected]="item === choice()">{{ item }}</option>
+      <option [value]="item" [selected]="item === choice()">{{ label(item) }}</option>
     }
   </select>
 </div>
@@ -20,13 +20,13 @@
   <p role="alert" class="text-danger">{{ text }}</p>
 }
 @if (done(); as strategy) {
-  <p role="status">The strategy is now {{ strategy }}.</p>
+  <p role="status">The strategy is now {{ label(strategy) }}.</p>
 }
 
 @if (confirming()) {
   <p>
-    Switch from {{ strategy() }} to {{ choice() }}? Later holds use the new strategy; existing
-    bookings keep the strategy they were made under.
+    Switch from {{ label(strategy()) }} to {{ label(choice()) }}? Later holds use the new strategy;
+    existing bookings keep the strategy they were made under.
   </p>
   <div class="flex gap-3">
     <button

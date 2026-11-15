@@ -12,6 +12,7 @@ import {
   type SimulationRun,
 } from '@app/shared';
 
+import { strategyLabel } from '../events/strategy-label';
 import { SimulatorService } from './simulator.service';
 
 const MESSAGE = {
@@ -44,6 +45,7 @@ export class SimulatorPage {
   protected readonly limits = SIMULATION_LIMITS;
   protected readonly message = MESSAGE;
   protected readonly strategies = Object.values(BOOKING_STRATEGY);
+  protected readonly label = strategyLabel;
   protected readonly failed = SIMULATION_STATUS.FAILED;
 
   protected readonly buyers = signal<number>(SIMULATION_LIMITS.BUYERS_DEFAULT);

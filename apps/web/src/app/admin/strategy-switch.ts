@@ -3,6 +3,7 @@ import { Component, inject, input, linkedSignal, output, signal } from '@angular
 import { BOOKING_STRATEGY, type BookingStrategy, BookingStrategySchema } from '@app/shared';
 
 import { EventsService } from '../events/events.service';
+import { strategyLabel } from '../events/strategy-label';
 
 const MESSAGE = {
   NOT_ALLOWED: 'Not allowed for this event. Your account may not switch its strategy.',
@@ -28,7 +29,7 @@ function messageFor(error: Error): string {
 @Component({
   selector: 'app-strategy-switch',
   templateUrl: './strategy-switch.html',
-  host: { class: 'flex flex-col gap-3 rounded border border-edge bg-surface-raised p-4' },
+  host: { class: 'card flex flex-col gap-3 p-4' },
 })
 export class StrategySwitch {
   private readonly events = inject(EventsService);
@@ -39,6 +40,7 @@ export class StrategySwitch {
   readonly switched = output<BookingStrategy>();
 
   protected readonly strategies = Object.values(BOOKING_STRATEGY);
+  protected readonly label = strategyLabel;
   protected readonly choice = linkedSignal(() => this.strategy());
   protected readonly confirming = signal(false);
   protected readonly pending = signal(false);
