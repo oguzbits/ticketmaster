@@ -33,7 +33,9 @@ its table before using it.
 
 - **`.btn`**: the primary button (retry, pay, hold).
 - **`.btn-secondary`**: the outlined button for the second action next to a `.btn` (cancel, close).
-- **`.card`**: a raised surface with an `edge-subtle` border and a radius.
+- **`.card`**: a raised surface with an `edge-subtle` border and a radius. A card that is itself a
+  control (the event card, the start page role card) adds `border-edge` (3:1) and `hover:border-accent`;
+  a card that only holds content (the booking panel) keeps `edge-subtle`.
 - **`.badge`**: a small bordered label on the surface, used for the booking strategy
   (`strategyLabel`, never the raw value).
 - **`.event-art`** (`app-event-art`): a decorative gradient block with a glyph, derived from the
