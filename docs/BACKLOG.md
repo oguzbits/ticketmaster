@@ -210,6 +210,36 @@ Phase 4, slice A, container hardening and threat model are complete
   spec enforces this.
 - `docs/security/threat-model.md`: STRIDE per boundary, ASVS 5.0 mapping and residual risks.
 
+Stage look, slices 1 to 3 complete
+([spec](superpowers/specs/2026-11-15-stage-look-redesign-design.md),
+[plan](superpowers/plans/2026-11-15-stage-look-slices-1-3.md)):
+
+- Dark semantic tokens with a contrast spec for every token pair, the `.btn-secondary`, `.card`,
+  `.badge` and `.event-art` primitives, the app shell with a wordmark and a search field, the start
+  page with role cards, the event list as a card grid with client-side search, and the event page
+  with the seat map and a booking side panel. No API or contract change. Slices 4 (my bookings,
+  organizer) and 5 (admin) are still to do and get their own plan.
+- Deviations from the spec: no lowest price on the event card (`EventSummary` carries none and the
+  contract stays; prices are on the event page); the glyph is decorative, picked from the event id
+  (events have no category); search is in scope because the list is complete in the browser; the
+  accent is magenta, not amber (amber is the held seat); the strategy label shows only on the list
+  card and the event page, the admin switch, organizer pages and simulator keep the raw value until
+  slices 4 and 5.
+- Deviations from the plan: `.btn-secondary` replaced four identical buttons, not three (the
+  waiting room panel has one too); the contrast spec reads `styles.css` through `node:fs`, which
+  needs the declaration `apps/web/src/node-fs.d.ts` because the web app has no Node types; the hash
+  in `event-art.ts` mixes its bits at the end, otherwise ids that differ in the last character got
+  the same glyph; below `lg` the booking panel is `sticky` at the bottom, not `fixed` with
+  measured padding (its height varies, sticky leaves the last seat row reachable) and hides the
+  price categories while pinned; the panel shows the hint to pick a seat only when holding is
+  possible (not while a waiting room blocks it); the waiting room panel lost its own box inside
+  the panel card; the venue name uses `wrap-anywhere` so an unbreakable name cannot widen a flex
+  row.
+- Open: on a phone the waiting room panel sits below the seat map, so a customer who must join
+  finds the join button only after the map; the page does not keep a held booking across a reload
+  (the booking state lives in memory); a focused seat can sit behind the pinned panel when
+  tabbing.
+
 ## Deviations from the plan
 
 - **No SWC for NestJS decorators.** Vitest (Vite 8, Oxc) reads `experimentalDecorators` and
