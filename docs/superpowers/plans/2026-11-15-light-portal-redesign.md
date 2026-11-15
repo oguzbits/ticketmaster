@@ -26,7 +26,8 @@ Playwright (`pnpm e2e`).
 
 ## Global Constraints
 
-- Own identity (see the spec): no third-party logo, brand color, typeface or image; footer keeps
+- Own files, ticket-shop look (see the spec and AGENTS.md rule 12): no third-party logo, wordmark,
+  image or copied asset file; footer keeps
   `Unofficial demo. Not affiliated with Ticketmaster.`
 - Text contrast at least 4.5:1, borders, focus ring and seat edges at least 3:1, each against the
   page surface and the card surface; seat status never by color alone; visible focus; animation

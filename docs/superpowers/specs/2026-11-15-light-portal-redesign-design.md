@@ -14,12 +14,10 @@ tables and forms for the admin pages.
 
 ## Constraints
 
-- **Own identity, no copied brand.** The project is public on GitHub, and
-  [AGENTS.md](../../../AGENTS.md) rule 12 forbids third-party logo and brand assets. So: no logo,
-  no brand colors, no typeface, no imagery and no page-for-page copy of any ticket shop. Layout
-  and interaction patterns common to ticket shops (hero with search, card grid, seat map with a
-  side panel) are generic and are what this redesign follows. The own wordmark, the generated
-  event art and an own accent color stay.
+- **Own files, ticket-shop look.** [AGENTS.md](../../../AGENTS.md) rule 12 lets the look follow
+  the layout, palette and type feel of ticket shops, built from own tokens and own files: no
+  third-party logo, wordmark, image or copied asset file. The project is public on GitHub, so that
+  line holds. The own wordmark and the generated event art stay.
 - Accessibility rules of [PRODUCT.md](../../../PRODUCT.md) hold on the light theme: text contrast
   at least 4.5:1, borders, focus ring and seat edges at least 3:1 against both the page and the
   card surface, seat status never by color alone, visible focus, reduced motion respected.
@@ -31,8 +29,8 @@ tables and forms for the admin pages.
 ## Decisions
 
 - **Light theme only**, no theme switch. The page is a light cool gray, cards are white.
-- **Accent: indigo.** It is not amber (held seat) and not green (available seat), and it is not
-  the blue family of the shop this pattern is common to.
+- **Accent: indigo.** It is not amber (held seat) and not green (available seat); a blue accent
+  closer to common ticket-shop palettes is allowed if the contrast spec holds.
 - **Elevation:** one soft shadow token for cards that are links or panels; flat cards keep the
   subtle border. Hover lifts only behind `motion-safe:`.
 - **Hero search on the start page** is the one new behavior: it sets the shared search query and
