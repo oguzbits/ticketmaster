@@ -15,16 +15,18 @@
   } @else {
     <ul class="flex flex-col gap-3">
       @for (booking of list; track booking.id) {
-        <li class="flex flex-col gap-2 rounded border border-edge bg-surface-raised p-4">
-          <p class="text-lg font-medium">
-            Section {{ booking.seat.section }}, row {{ booking.seat.row }}, seat
-            {{ booking.seat.number }}
-          </p>
-          <p>Status: {{ status(booking.status) }}</p>
+        <li class="card flex flex-col gap-3 p-4">
+          <div class="flex flex-wrap items-start justify-between gap-2">
+            <p class="text-lg font-medium break-words">
+              Section {{ booking.seat.section }}, row {{ booking.seat.row }}, seat
+              {{ booking.seat.number }}
+            </p>
+            <p class="badge">Status: {{ status(booking.status) }}</p>
+          </div>
           <a [routerLink]="['/events', booking.eventId]" class="self-start text-sm underline">
             Open the event
           </a>
-          <ol class="text-sm text-text-muted">
+          <ol class="border-t border-edge-subtle pt-3 text-sm text-text-muted">
             @for (transition of booking.transitions; track $index) {
               <li>
                 {{ transition.at | date: 'medium' }}: {{ status(transition.fromStatus) }} to
@@ -32,32 +34,36 @@
               </li>
             }
           </ol>
-          @if (hasTicket(booking)) {
-            @if (booking.ticketReady) {
-              @if (downloadFailed() === booking.id) {
-                <p role="alert" class="text-danger">The ticket could not be downloaded.</p>
+          @if (hasTicket(booking) || canCancel(booking)) {
+            <div class="flex flex-wrap items-center gap-3">
+              @if (hasTicket(booking)) {
+                @if (booking.ticketReady) {
+                  <button
+                    type="button"
+                    class="btn disabled:cursor-not-allowed disabled:opacity-60"
+                    [disabled]="downloading() !== null"
+                    (click)="download(booking)"
+                  >
+                    {{ downloadLabel(booking) }}
+                  </button>
+                } @else {
+                  <p role="status" class="text-sm text-text-muted">Ticket is being prepared</p>
+                }
               }
-              <button
-                type="button"
-                class="btn self-start disabled:cursor-not-allowed disabled:opacity-60"
-                [disabled]="downloading() !== null"
-                (click)="download(booking)"
-              >
-                {{ downloadLabel(booking) }}
-              </button>
-            } @else {
-              <p role="status" class="text-sm text-text-muted">Ticket is being prepared</p>
+              @if (canCancel(booking)) {
+                <button
+                  type="button"
+                  class="btn-secondary disabled:cursor-not-allowed disabled:opacity-60"
+                  [disabled]="cancelling() !== null"
+                  (click)="cancel(booking)"
+                >
+                  {{ cancelling() === booking.id ? 'Cancelling…' : 'Cancel booking' }}
+                </button>
+              }
+            </div>
+            @if (hasTicket(booking) && booking.ticketReady && downloadFailed() === booking.id) {
+              <p role="alert" class="text-danger">The ticket could not be downloaded.</p>
             }
-          }
-          @if (canCancel(booking)) {
-            <button
-              type="button"
-              class="btn self-start disabled:cursor-not-allowed disabled:opacity-60"
-              [disabled]="cancelling() !== null"
-              (click)="cancel(booking)"
-            >
-              {{ cancelling() === booking.id ? 'Cancelling…' : 'Cancel booking' }}
-            </button>
           }
         </li>
       }
