@@ -31,6 +31,8 @@ of it (phase 5).
   threat model, a security policy with private vulnerability reporting, and mutation tests of the
   domain code (weekly in CI).
 - A light web portal in Angular with four UI states on every async view.
+- A demo GIF at the top of the README and a module graph generated from the code
+  ([docs/architecture.md](docs/architecture.md)).
 - Runbooks for the dead-letter queue, a stuck outbox and a service that is down.
 - Quality gates: typecheck, ESLint, dependency-cruiser layers, dead-code and duplication checks,
   magic-string and docs audits, unit, database and end-to-end tests, CI with Trivy, Semgrep and
