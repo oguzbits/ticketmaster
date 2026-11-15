@@ -55,7 +55,10 @@
       <button type="button" class="btn self-start" (click)="refreshSeats()">Refresh seats</button>
     }
 
-    <div class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+    <div
+      class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]"
+      [class]="pinned() ? 'max-lg:[&_.seat]:scroll-mb-[calc(40dvh+0.5rem)]' : ''"
+    >
       <div class="flex min-w-0 flex-col gap-4">
         <ul class="flex flex-wrap gap-4 text-sm" aria-label="Legend">
           @for (status of legend; track status) {
@@ -91,15 +94,15 @@
         }
       </div>
 
-      <!-- Below lg the panel follows the map; during a booking it sticks to the bottom edge, and a waiting customer sees it first. -->
+      <!-- Below lg the panel follows the map; during a booking it sticks to the bottom edge (seats scroll clear of it), and a waiting customer sees it first. -->
       <aside
         aria-label="Booking panel"
         class="card flex min-w-0 flex-col gap-4 p-4 lg:sticky lg:top-4"
-        [class]="{
-          'max-lg:sticky max-lg:bottom-0 max-lg:z-10 max-lg:max-h-[60dvh] max-lg:overflow-y-auto':
-            pinned(),
-          'max-lg:order-first': isCustomer() && !open(),
-        }"
+        [class]="
+          (pinned()
+            ? 'max-lg:sticky max-lg:bottom-0 max-lg:z-10 max-lg:max-h-[40dvh] max-lg:overflow-y-auto'
+            : '') + (isCustomer() && !open() ? ' max-lg:order-first' : '')
+        "
       >
         @if (isCustomer() && gated()) {
           <app-waiting-room-panel [eventId]="id()" />

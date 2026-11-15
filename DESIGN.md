@@ -52,9 +52,10 @@ its table before using it.
   holds, top to bottom, the waiting room, the role note, the notice, the booking (`Your booking`
   with all its states) or the hint to pick a seat, and the price categories. Idle, it contains no
   button. Live-status messages and the refresh error stay above the map. Below `lg` the panel
-  follows the map; while a booking is in progress it sticks to the bottom edge (`max-h` 60 dvh,
+  follows the map; while a booking is in progress it sticks to the bottom edge (`max-h` 40 dvh,
   scrolls) and hides the price categories, so the last seat row stays reachable at the end of the
-  page. While a waiting room still blocks holding, the panel does not tell the customer to pick a
+  page. The seats then carry a `scroll-margin-bottom` of 40 dvh plus half a rem, so a seat focused
+  by keyboard scrolls clear of the panel (WCAG 2.4.11); the margin applies only while pinned. While a waiting room still blocks holding, the panel does not tell the customer to pick a
   seat, and below `lg` it comes before the map (`order-first`) so the customer finds the way in.
 - **`.seat`**: one seat. Status is never conveyed by color alone: `seat-available` is an empty
   square with a solid border, `seat-held` has a dashed border and a diagonal stripe fill,

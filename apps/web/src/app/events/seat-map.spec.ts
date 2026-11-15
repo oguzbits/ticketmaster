@@ -305,6 +305,29 @@ describe('SeatMap', () => {
       ).not.toBeNull();
     });
 
+    it('pins the panel below lg during a booking, capped so a focused seat can scroll clear of it', async () => {
+      const { element } = await held();
+
+      const pinned = element.querySelector('aside[aria-label="Booking panel"]')?.classList;
+      expect(pinned).toContain('max-lg:sticky');
+      expect(pinned).toContain('max-lg:max-h-[40dvh]');
+      expect(element.querySelector('.grid')?.classList).toContain(
+        'max-lg:[&_.seat]:scroll-mb-[calc(40dvh+0.5rem)]'
+      );
+    });
+
+    it('leaves the panel and the seats unpinned without a booking', async () => {
+      const { element, loaded } = render();
+      await loaded();
+
+      expect(element.querySelector('aside[aria-label="Booking panel"]')?.classList).not.toContain(
+        'max-lg:sticky'
+      );
+      expect(element.querySelector('.grid')?.classList).not.toContain(
+        'max-lg:[&_.seat]:scroll-mb-[calc(40dvh+0.5rem)]'
+      );
+    });
+
     it('cancels the hold', async () => {
       const { element, http, answer, press } = await held();
 
