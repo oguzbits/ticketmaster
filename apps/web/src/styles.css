@@ -38,6 +38,7 @@
 @layer base {
   :root {
     color-scheme: light;
+    accent-color: var(--color-accent);
   }
 
   body {
