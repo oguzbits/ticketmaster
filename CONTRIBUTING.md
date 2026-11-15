@@ -21,7 +21,7 @@ Ports of the local stack (`docker-compose.yml`):
 | -------- | --------- | ------------------------------------------------- |
 | web      | 8080      | Caddy: static web app, proxies `/health/*` and `/api/*` to the two api replicas |
 | keycloak | 8081      | bound to 127.0.0.1; admin console, local admin user `admin` / `admin` |
-| postgres | 54330     | databases `app` and `keycloak`, user `app`        |
+| postgres | 54330     | databases `app` and `keycloak`; owner `app`, runtime login `app_runtime` (see below) |
 | pgbouncer | 64320    | connection pooler (transaction mode) in front of postgres; api and worker connect through it, see [ADR 0005](docs/adr/0005-pgbouncer-transaction-mode.md) |
 | redis    | 63790     |                                                   |
 | aws      | 45660     | local AWS emulator (SQS and S3), any credentials, region `us-east-1` |
@@ -49,7 +49,7 @@ contains and the Docker socket risk of Alloy: [docs/observability.md](docs/obser
 The credentials in the Compose file are for these local containers only.
 
 Outside production the API falls back to the local containers: `DATABASE_URL`
-`postgres://app:app@localhost:54330/app`, `REDIS_URL` `redis://localhost:63790`, `KEYCLOAK_URL`
+`postgres://app_runtime:app_runtime@localhost:54330/app` (the runtime login: no superuser, not the owner, so row-level security applies) and `MIGRATION_DATABASE_URL` `postgres://app:app@localhost:54330/app` (the owner, used only by `pnpm db:migrate`, which also creates the runtime role), `REDIS_URL` `redis://localhost:63790`, `KEYCLOAK_URL`
 `http://localhost:8081`, the local demo client secret, `SMTP_URL` `smtp://localhost:1025`, `AWS_ENDPOINT_URL` `http://localhost:45660` and
 the dummy credentials `test` / `test`. To change a
 value, export it or put it in an `.env` file in `apps/api` (never committed); the `dev` and `start`
@@ -69,6 +69,7 @@ variable with a comment; the table is generated (`pnpm docs:generate`).
 | `NODE_ENV` | default `development` |
 | `PORT` | default `3000` |
 | `DATABASE_URL` | required |
+| `MIGRATION_DATABASE_URL` | optional |
 | `REDIS_URL` | required |
 | `HOLD_TTL_SECONDS` | default `600` |
 | `PAYMENT_FAILURE_RATE` | default `0.1` |
@@ -108,7 +109,7 @@ The full table is in [AGENTS.md](AGENTS.md#5-commands). The two that matter most
   request fails the test.
 - Database tests are `*.db.spec.ts`. They need `pnpm db:up` (Postgres, Redis and the emulator) and run with `pnpm test:db`; `pnpm test`
   skips them. Before each run a global setup drops and recreates the database `app_test` on the
-  server of `DATABASE_URL` (the local container by default) and applies the migrations, so the
+  server of `MIGRATION_DATABASE_URL` (the local container by default), creates the runtime role and applies the migrations as the owner; the specs themselves connect as the runtime login of `DATABASE_URL`, so the
   specs never touch the development database `app`. `pnpm test:db:pooled` runs the same specs through PgBouncer (`DATABASE_URL` on port 64320); CI runs this form. Each test creates its own event with random
   IDs, so no cleanup is needed.
 - Route tests start the NestJS module in the test process and call it over the loopback address.

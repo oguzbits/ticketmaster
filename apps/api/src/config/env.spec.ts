@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseEnv } from './env.js';
+import { migrationDatabaseUrl, parseEnv } from './env.js';
 
-const LOCAL_DATABASE_URL = 'postgres://app:app@localhost:54330/app';
+const LOCAL_DATABASE_URL = 'postgres://app_runtime:app_runtime@localhost:54330/app';
+const LOCAL_MIGRATION_DATABASE_URL = 'postgres://app:app@localhost:54330/app';
 const LOCAL_REDIS_URL = 'redis://localhost:63790';
 const LOCAL_KEYCLOAK_URL = 'http://localhost:8081';
 const LOCAL_KEYCLOAK_SECRET = 'local-demo-client-secret';
@@ -33,6 +34,7 @@ describe('parseEnv', () => {
       NODE_ENV: 'development',
       PORT: 3000,
       DATABASE_URL: LOCAL_DATABASE_URL,
+      MIGRATION_DATABASE_URL: LOCAL_MIGRATION_DATABASE_URL,
       REDIS_URL: LOCAL_REDIS_URL,
       HOLD_TTL_SECONDS: 600,
       PAYMENT_FAILURE_RATE: 0.1,
@@ -106,6 +108,27 @@ describe('parseEnv', () => {
 
   it('DEMO_USER_TTL_SECONDS must be a positive integer', () => {
     expect(() => parseEnv({ DEMO_USER_TTL_SECONDS: '0' })).toThrow(/DEMO_USER_TTL_SECONDS/);
+  });
+
+  describe('MIGRATION_DATABASE_URL', () => {
+    it('is the owner login in development, apart from the runtime login', () => {
+      const env = parseEnv({});
+
+      expect(migrationDatabaseUrl(env)).toBe(LOCAL_MIGRATION_DATABASE_URL);
+      expect(migrationDatabaseUrl(env)).not.toBe(env.DATABASE_URL);
+    });
+
+    it('stays optional in production, so the API and the worker need not carry the owner login', () => {
+      expect(parseEnv({ ...PRODUCTION_BASE, ...KEYCLOAK_PRODUCTION }).MIGRATION_DATABASE_URL).toBe(
+        undefined
+      );
+    });
+
+    it('is required by the migration in production and never falls back to the runtime login', () => {
+      const env = parseEnv({ ...PRODUCTION_BASE, ...KEYCLOAK_PRODUCTION });
+
+      expect(() => migrationDatabaseUrl(env)).toThrow(/MIGRATION_DATABASE_URL/);
+    });
   });
 
   it('production without DATABASE_URL throws and names the variable, not a value', () => {

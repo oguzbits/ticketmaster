@@ -26,7 +26,10 @@ export const NODE_ENV = {
  * local containers only. Used only outside production.
  */
 const LOCAL_DEFAULTS = {
-  DATABASE_URL: 'postgres://app:app@localhost:54330/app',
+  // The runtime login: no superuser, no owner, so row-level security applies to it.
+  DATABASE_URL: 'postgres://app_runtime:app_runtime@localhost:54330/app',
+  // The owner login of the migrations (docker-compose.yml, POSTGRES_USER).
+  MIGRATION_DATABASE_URL: 'postgres://app:app@localhost:54330/app',
   REDIS_URL: 'redis://localhost:63790',
   KEYCLOAK_URL: 'http://localhost:8081',
   KEYCLOAK_DEMO_CLIENT_SECRET: 'local-demo-client-secret',
@@ -44,6 +47,8 @@ export const EnvSchema = z
     PORT: z.coerce.number().int().min(1).max(MAX_PORT).default(DEFAULT_PORT),
     // Required here; parseEnv fills the local default when NODE_ENV is not production.
     DATABASE_URL: z.url(),
+    // Owner login for the migration job only; optional so that API and worker need not carry it.
+    MIGRATION_DATABASE_URL: z.url().optional(),
     REDIS_URL: z.url(),
     HOLD_TTL_SECONDS: z.coerce.number().int().positive().default(DEFAULT_HOLD_TTL_SECONDS),
     PAYMENT_FAILURE_RATE: z.coerce.number().min(0).max(1).default(DEFAULT_PAYMENT_FAILURE_RATE),
@@ -105,6 +110,14 @@ export const EnvSchema = z
   });
 
 export type Env = z.infer<typeof EnvSchema>;
+
+/** The login the migration job uses; it never falls back to the runtime login. */
+export function migrationDatabaseUrl(env: Env): string {
+  if (env.MIGRATION_DATABASE_URL === undefined) {
+    throw new Error('Invalid environment: MIGRATION_DATABASE_URL: required to run migrations');
+  }
+  return env.MIGRATION_DATABASE_URL;
+}
 
 /** Each variable of LOCAL_DEFAULTS that the environment leaves unset takes its local default. */
 function fillLocalDefaults(raw: Record<string, string | undefined>): Record<string, string> {

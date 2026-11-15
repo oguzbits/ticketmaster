@@ -134,7 +134,9 @@ services:
       target: api
     command: ['node', 'dist/infrastructure/database/migrate.js']
     environment:
-      DATABASE_URL: postgres://app:app@postgres:5432/app
+      # The migration runs as the owner and creates the runtime role with the password of DATABASE_URL.
+      MIGRATION_DATABASE_URL: postgres://app:app@postgres:5432/app
+      DATABASE_URL: postgres://app_runtime:app_runtime@postgres:5432/app
       # Not used here, but the shared env schema requires it in production.
       REDIS_URL: redis://redis:6379
       KEYCLOAK_URL: http://keycloak:8080
@@ -156,7 +158,7 @@ services:
       replicas: 2
     environment:
       PORT: 3000
-      DATABASE_URL: postgres://app:app@pgbouncer:5432/app
+      DATABASE_URL: postgres://app_runtime:app_runtime@pgbouncer:5432/app
       REDIS_URL: redis://redis:6379
       KEYCLOAK_URL: http://keycloak:8080
       KEYCLOAK_DEMO_CLIENT_SECRET: local-demo-client-secret
@@ -192,7 +194,7 @@ services:
       context: .
       target: worker
     environment:
-      DATABASE_URL: postgres://app:app@pgbouncer:5432/app
+      DATABASE_URL: postgres://app_runtime:app_runtime@pgbouncer:5432/app
       REDIS_URL: redis://redis:6379
       KEYCLOAK_URL: http://keycloak:8080
       KEYCLOAK_DEMO_CLIENT_SECRET: local-demo-client-secret
