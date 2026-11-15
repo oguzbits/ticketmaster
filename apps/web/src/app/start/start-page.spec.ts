@@ -55,7 +55,7 @@ describe('StartPage', () => {
     const { element } = render();
 
     const matching = [...element.querySelectorAll('button')].filter((candidate) =>
-      new RegExp(role, 'i').test(candidate.textContent)
+      candidate.textContent.toLowerCase().includes(role)
     );
     expect(matching).toHaveLength(1);
   });
