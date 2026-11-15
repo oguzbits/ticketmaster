@@ -269,6 +269,22 @@ Stage look, slice 5 complete, which completes the stage look
 - Open: the `<progress>` of a simulator run renders green in Chrome although `accent-color` is the
   accent token, a browser default for the control, not changed here.
 
+Light portal redesign, slices 1 and 2 complete
+([plan](superpowers/plans/2026-11-15-light-portal-redesign.md)):
+
+- The tokens are light: cool-gray page, white cards, indigo accent, `--shadow-card` and the
+  `.card-link` primitive; `color-scheme: light`. The contrast spec asserts a light theme and a
+  visible divider, and every pair still holds on both surfaces. The start page has an indigo hero
+  with a search form that fills the shared search query and opens the event list. Header and
+  footer sit on white. No API or contract change.
+- Deviations from the plan: two existing specs changed because the hero adds a second search form
+  and a submit button (the header search selector is scoped to `header`, the double-click test
+  looks at the role buttons only).
+- Verified in the browser at 1280 and 390 px: the start page, a search with one hit, a search
+  without a hit (the existing no-match state), the keyboard path into the hero (the focus ring
+  shows on white), and the pages of all three roles for dark leftovers (none found). Not checked:
+  the running `<progress>` of a simulator run.
+
 ## Deviations from the plan
 
 - **No SWC for NestJS decorators.** Vitest (Vite 8, Oxc) reads `experimentalDecorators` and

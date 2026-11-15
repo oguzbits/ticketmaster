@@ -54,9 +54,14 @@ its table before using it.
   of the date block; the strategy is the label badge. The create form is a `.card`.
 - **Search field**: in the header, only on `/events`; filters the list in the browser (the list
   is complete there). It is a plain `input[type=search]` with a screen-reader label.
-- **Start page**: the claim as `h1`, then `Try it as` with one `.card` button per demo role. The
-  accessible name of a card is the role followed by its hint; a hint never names another role,
-  because the e2e specs select a card by the role name.
+- **Start page**: an indigo hero band (`accent` background, `on-accent` text) with the claim as
+  `h1`, the supporting sentence and a search form (`Search events`, button `Search`) on a white
+  bar. Submitting sets the shared `EventSearchStore.query` and opens `/events`, where the existing
+  client-side filter applies; an empty query opens the full list. Below it `Try it as` with one
+  `.card-link` button per demo role. The accessible name of a card is the role followed by its
+  hint; a hint never names another role, because the e2e specs select a card by the role name.
+- **Header and footer**: white surfaces; the header carries `shadow-card`. The header search field
+  shows on `/events` only; the hero form is a second search form on `/`.
 - **Event page**: a header (art strip, `h1`, date, venue, strategy badge), then two columns from `lg`:
   the seat map on the left, the booking panel (`aside`, 22 rem, `sticky`) on the right. The panel
   holds, top to bottom, the waiting room, the role note, the notice, the booking (`Your booking`
