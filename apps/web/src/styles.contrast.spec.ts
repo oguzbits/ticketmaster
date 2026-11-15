@@ -78,11 +78,23 @@ describe('design tokens', () => {
     expect(ratio(fg, bg)).toBeGreaterThanOrEqual(minimum);
   });
 
-  it('is a dark theme and tells native controls so', () => {
-    const surface = map.get('surface');
-    if (!surface) throw new Error('Token missing: surface');
-    expect(luminance(surface)).toBeLessThan(0.05);
-    expect(css).toMatch(/color-scheme:\s*dark/);
+  it('the theme is light and tells native controls so', () => {
+    const lum = (name: string): number => {
+      const value = map.get(name);
+      if (!value) throw new Error(`Token missing: ${name}`);
+      return luminance(value);
+    };
+    expect(lum('surface-raised')).toBeGreaterThan(0.9);
+    expect(lum('surface')).toBeGreaterThan(0.8);
+    expect(lum('text')).toBeLessThan(0.1);
+    expect(css).toMatch(/color-scheme:\s*light/);
+  });
+
+  it('a divider is visible on the page', () => {
+    const divider = map.get('edge-subtle');
+    const page = map.get('surface');
+    if (!divider || !page) throw new Error('Token missing: edge-subtle or surface');
+    expect(ratio(divider, page)).toBeGreaterThanOrEqual(1.1);
   });
 
   it('defines the decorative divider token', () => {

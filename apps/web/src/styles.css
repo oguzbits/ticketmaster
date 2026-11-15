@@ -7,26 +7,28 @@
 @theme {
   --color-*: initial;
 
-  --color-surface: #0d0f16;
-  --color-surface-raised: #171a24;
-  --color-text: #eceef4;
-  --color-text-muted: #a3a9bb;
-  --color-edge: #7c8399;
+  --color-surface: #f4f5f8;
+  --color-surface-raised: #ffffff;
+  --color-text: #14161f;
+  --color-text-muted: #4a5064;
+  --color-edge: #7a8196;
   /* Decorative dividers only; exempt from contrast, never the only sign of a control. */
-  --color-edge-subtle: #2a2f3d;
-  --color-accent: #f06ccb;
-  --color-accent-strong: #ff8fdc;
-  --color-on-accent: #1a0514;
-  --color-danger: #ff8f8f;
-  --color-focus: #7db3ff;
+  --color-edge-subtle: #d9dce6;
+  --color-accent: #4338ca;
+  --color-accent-strong: #3730a3;
+  --color-on-accent: #ffffff;
+  --color-danger: #b42318;
+  --color-focus: #0b66d6;
 
-  --color-seat-available: #0d0f16;
-  --color-seat-available-edge: #4ade80;
-  --color-seat-held: #3d3010;
-  --color-seat-held-stripe: #6b5416;
-  --color-seat-held-edge: #fbbf24;
-  --color-seat-sold: #636b80;
-  --color-seat-sold-text: #f5f6fa;
+  --color-seat-available: #ffffff;
+  --color-seat-available-edge: #15803d;
+  --color-seat-held: #fff3c4;
+  --color-seat-held-stripe: #f2d77a;
+  --color-seat-held-edge: #a16207;
+  --color-seat-sold: #6b7280;
+  --color-seat-sold-text: #ffffff;
+
+  --shadow-card: 0 1px 2px rgb(20 22 31 / 0.06), 0 4px 12px rgb(20 22 31 / 0.08);
 
   --container-page: 75rem;
 
@@ -35,7 +37,7 @@
 
 @layer base {
   :root {
-    color-scheme: dark;
+    color-scheme: light;
   }
 
   body {
@@ -68,13 +70,29 @@
     font-weight: 500;
   }
   .btn-secondary:hover {
-    background-color: var(--color-surface-raised);
+    background-color: var(--color-surface);
   }
 
   .card {
     border-radius: var(--radius-lg);
     border: 1px solid var(--color-edge-subtle);
     background-color: var(--color-surface-raised);
+  }
+
+  /* A card that is a link or a panel: elevated, and under `motion-safe` it lifts on hover. */
+  .card-link {
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--color-edge-subtle);
+    background-color: var(--color-surface-raised);
+    box-shadow: var(--shadow-card);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .card-link {
+      transition: transform 120ms ease-out;
+    }
+    .card-link:hover {
+      transform: translateY(-1px);
+    }
   }
 
   .badge {

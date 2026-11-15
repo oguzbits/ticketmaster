@@ -10,20 +10,20 @@ and nothing else.
 class such as `bg-red-500` does not exist and cannot be used by mistake. The tokens are semantic:
 they name a role, not a color.
 
-| Token                                                          | Role                                                            |
-| -------------------------------------------------------------- | --------------------------------------------------------------- |
-| `surface`, `surface-raised`                                    | page background (near-black, cool tint), cards one step lighter |
-| `text`, `text-muted`                                           | body text, secondary text                                       |
-| `edge`                                                         | borders of interactive elements                                 |
-| `edge-subtle`                                                  | decorative dividers and card borders, exempt from contrast      |
-| `accent`, `accent-strong`, `on-accent`                         | magenta: primary action and link text, its hover, text on it    |
-| `danger`                                                       | error text                                                      |
-| `focus`                                                        | focus ring                                                      |
-| `seat-available`, `seat-held`, `seat-held-stripe`, `seat-sold` | seat fills                                                      |
-| `seat-available-edge`, `seat-held-edge`, `seat-sold-text`      | seat borders and text                                           |
+| Token                                                          | Role                                                        |
+| -------------------------------------------------------------- | ----------------------------------------------------------- |
+| `surface`, `surface-raised`                                    | page background (light cool gray), cards (white)            |
+| `text`, `text-muted`                                           | body text, secondary text                                   |
+| `edge`                                                         | borders of interactive elements                             |
+| `edge-subtle`                                                  | decorative dividers and card borders, exempt from contrast  |
+| `accent`, `accent-strong`, `on-accent`                         | indigo: primary action and link text, its hover, text on it |
+| `danger`                                                       | error text                                                  |
+| `focus`                                                        | focus ring                                                  |
+| `seat-available`, `seat-held`, `seat-held-stripe`, `seat-sold` | seat fills                                                  |
+| `seat-available-edge`, `seat-held-edge`, `seat-sold-text`      | seat borders and text                                       |
 
-The accent is magenta, not amber: amber is the color of a held seat and the accent must not
-compete with it. `--container-page` (class `max-w-page`, 75 rem) is the page width.
+The accent is indigo, not amber (held seat) and not green (available seat), so it competes with
+neither. `--shadow-card` is the one soft elevation token. `--container-page` (class `max-w-page`, 75 rem) is the page width.
 
 Contrast: text tokens against their surface reach at least 4.5:1, borders and the focus ring at
 least 3:1 (WCAG AA). `apps/web/src/styles.contrast.spec.ts` checks every pair; add a new pair to
@@ -31,6 +31,8 @@ its table before using it.
 
 ## Components
 
+- **`.card-link`**: a `.card` that is a link or a panel: `shadow-card`, and under
+  `prefers-reduced-motion: no-preference` a 1 px lift on hover. A flat `.card` keeps the subtle border.
 - **`.btn`**: the primary button (retry, pay, hold).
 - **`.btn-secondary`**: the outlined button for the second action next to a `.btn` (cancel, close).
 - **`.card`**: a raised surface with an `edge-subtle` border and a radius. A card that is itself a
@@ -77,5 +79,5 @@ its table before using it.
 - Every interactive element is reachable by keyboard and shows the focus ring (`:focus-visible`,
   3 px, `focus` token).
 - Reduced motion: the app has no animation. A new one must sit behind `motion-safe:`.
-- Dark theme only; no theme switch. `color-scheme: dark` is set on `:root` so native controls follow.
+- Light theme only; no theme switch. `color-scheme: light` is set on `:root` so native controls follow.
 - The footer of every page carries the notice that the project is unofficial.
