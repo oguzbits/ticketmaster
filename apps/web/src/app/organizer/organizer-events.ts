@@ -3,12 +3,14 @@ import { Component, inject } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 
+import { EventArtBlock } from '../events/event-art-block';
+import { strategyLabel } from '../events/strategy-label';
 import { EventForm } from './event-form';
 import { OrganizerService } from './organizer.service';
 
 @Component({
   selector: 'app-organizer-events',
-  imports: [DatePipe, PercentPipe, RouterLink, EventForm],
+  imports: [DatePipe, EventArtBlock, PercentPipe, RouterLink, EventForm],
   templateUrl: './organizer-events.html',
   host: { class: 'flex flex-col gap-6' },
 })
@@ -16,4 +18,5 @@ export class OrganizerEvents {
   private readonly service = inject(OrganizerService);
 
   protected readonly events = rxResource({ stream: () => this.service.events() });
+  protected readonly label = strategyLabel;
 }

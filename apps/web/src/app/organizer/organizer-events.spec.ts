@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { tokensFor } from '../../testing/tokens';
 import { routes } from '../app.routes';
 import { SessionStore } from '../auth/session.store';
+import { strategyLabel } from '../events/strategy-label';
 import { OrganizerEvents } from './organizer-events';
 
 const LIST_URL = '/api/organizer/events';
@@ -57,6 +58,17 @@ describe('OrganizerEvents', () => {
     expect(text).toContain('2 held');
     expect(text).toContain('25% utilization');
     expect(element.querySelector(`a[href="/events/${GALA.id}"]`)).not.toBeNull();
+  });
+
+  it('shows the strategy of an event as its label', async () => {
+    const { element, http, answer } = render();
+    http.expectOne(VENUES_URL).flush([]);
+
+    await answer(() => http.expectOne(LIST_URL).flush([GALA]));
+
+    const text = element.textContent ?? '';
+    expect(text).toContain(strategyLabel(GALA.strategy));
+    expect(text).not.toContain(GALA.strategy);
   });
 
   it('says so when the organizer has no events yet', async () => {

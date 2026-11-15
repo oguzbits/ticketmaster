@@ -38,12 +38,16 @@ its table before using it.
   a card that only holds content (the booking panel) keeps `edge-subtle`.
 - **`.badge`**: a small bordered label on the surface, used for the booking strategy
   (`strategyLabel`, never the raw value).
+- **`.field`**: the border and background of an `input`, `select` or `textarea` (`edge` border, 3:1,
+  on the raised surface). Disabled styling stays a utility on the element.
 - **`.event-art`** (`app-event-art`): a decorative gradient block with a glyph, derived from the
   event id. The id sets only the hue (`--event-hue`, the one allowed dynamic color); saturation and
   lightness are fixed in `styles.css`. Hidden from assistive technology.
 - **Event card**: one link to the event; the name is first in the DOM (`h2`), then venue, date
   block and badge. The art block comes last in the DOM and is shown first (`order-first`), so the
   link name starts with the event name.
+- **Organizer event card**: the event card with the counts line (sold, held, utilization) in place
+  of the date block; the strategy is the label badge. The create form is a `.card`.
 - **Search field**: in the header, only on `/events`; filters the list in the browser (the list
   is complete there). It is a plain `input[type=search]` with a screen-reader label.
 - **Start page**: the claim as `h1`, then `Try it as` with one `.card` button per demo role. The

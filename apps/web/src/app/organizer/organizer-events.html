@@ -11,21 +11,25 @@
     @if (list.length === 0) {
       <p>No events yet. Create one below.</p>
     } @else {
-      <ul class="flex flex-col gap-3">
+      <ul class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         @for (event of list; track event.id) {
-          <li>
+          <li class="min-w-0">
             <a
               [routerLink]="['/events', event.id]"
-              class="block rounded border border-edge bg-surface-raised p-4 hover:border-accent"
+              class="card flex h-full flex-col overflow-hidden border-edge hover:border-accent"
             >
-              <span class="block text-lg font-medium">{{ event.name }}</span>
-              <span class="block text-sm text-text-muted">
-                {{ event.startsAt | date: 'medium' }} · {{ event.venueName }} · {{ event.strategy }}
-              </span>
-              <span class="block text-sm">
-                {{ event.soldCount }} of {{ event.seatCount }} seats sold ·
-                {{ event.heldCount }} held · {{ event.utilization | percent }} utilization
-              </span>
+              <div class="flex flex-1 flex-col gap-1 p-4">
+                <span class="block text-lg font-medium break-words">{{ event.name }}</span>
+                <span class="block text-sm break-words text-text-muted">
+                  {{ event.startsAt | date: 'medium' }} · {{ event.venueName }}
+                </span>
+                <span class="badge mt-1 self-start">{{ label(event.strategy) }}</span>
+                <span class="mt-auto block pt-2 text-sm">
+                  {{ event.soldCount }} of {{ event.seatCount }} seats sold ·
+                  {{ event.heldCount }} held · {{ event.utilization | percent }} utilization
+                </span>
+              </div>
+              <app-event-art class="order-first h-24" [eventId]="event.id" />
             </a>
           </li>
         }

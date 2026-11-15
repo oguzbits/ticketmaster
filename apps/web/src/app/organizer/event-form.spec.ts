@@ -3,12 +3,14 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import {
   BOOKING_STRATEGY,
+  BookingStrategySchema,
   type EventSummary,
   MAX_ADMISSION_CAPACITY,
   type Venue,
 } from '@app/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { strategyLabel } from '../events/strategy-label';
 import { EventForm } from './event-form';
 
 const VENUES_URL = '/api/venues';
@@ -86,6 +88,19 @@ describe('EventForm', () => {
       o.textContent?.trim()
     );
     expect(options).toEqual(['Hall (40 seats)', 'Arena (900 seats)']);
+  });
+
+  it('offers every strategy by label and keeps the raw value as the option value', async () => {
+    const { loaded, field } = render();
+    await loaded();
+
+    const options = [...field('Strategy').querySelectorAll('option')];
+    expect(options.map((o) => o.value)).toEqual(Object.values(BOOKING_STRATEGY));
+    for (const option of options) {
+      expect(option.textContent?.trim()).toBe(
+        strategyLabel(BookingStrategySchema.parse(option.value))
+      );
+    }
   });
 
   it('says so when there are no venues and offers no form', async () => {

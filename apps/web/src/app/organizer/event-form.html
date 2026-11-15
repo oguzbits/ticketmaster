@@ -13,12 +13,7 @@
     <form class="flex flex-col gap-3" (submit)="submit($event)" novalidate>
       <div class="flex flex-col gap-1">
         <label for="event-venue" class="text-sm font-medium">Venue</label>
-        <select
-          id="event-venue"
-          class="rounded border border-edge bg-surface-raised px-3 py-2"
-          (change)="venueId.set(venue.value)"
-          #venue
-        >
+        <select id="event-venue" class="field" (change)="venueId.set(venue.value)" #venue>
           @for (item of list; track item.id) {
             <option [value]="item.id" [selected]="item.id === venueId()">
               {{ item.name }} ({{ item.seatCount }} seats)
@@ -32,7 +27,7 @@
           id="event-name"
           type="text"
           maxlength="120"
-          class="rounded border border-edge bg-surface-raised px-3 py-2"
+          class="field"
           [value]="name()"
           (input)="name.set(nameInput.value)"
           #nameInput
@@ -43,7 +38,7 @@
         <input
           id="event-starts-at"
           type="datetime-local"
-          class="rounded border border-edge bg-surface-raised px-3 py-2"
+          class="field"
           [value]="startsAt()"
           (input)="startsAt.set(startInput.value)"
           #startInput
@@ -53,12 +48,12 @@
         <label for="event-strategy" class="text-sm font-medium">Strategy</label>
         <select
           id="event-strategy"
-          class="rounded border border-edge bg-surface-raised px-3 py-2"
+          class="field"
           (change)="pickStrategy(strategyInput.value)"
           #strategyInput
         >
           @for (item of strategies; track item) {
-            <option [value]="item" [selected]="item === strategy()">{{ item }}</option>
+            <option [value]="item" [selected]="item === strategy()">{{ label(item) }}</option>
           }
         </select>
       </div>
@@ -71,7 +66,7 @@
           type="text"
           inputmode="numeric"
           aria-describedby="event-capacity-hint"
-          class="rounded border border-edge bg-surface-raised px-3 py-2"
+          class="field"
           [value]="capacity()"
           (input)="capacity.set(capacityInput.value)"
           #capacityInput

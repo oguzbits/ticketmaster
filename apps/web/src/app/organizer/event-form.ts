@@ -10,6 +10,7 @@ import {
   WaitingRoomCapacitySchema,
 } from '@app/shared';
 
+import { strategyLabel } from '../events/strategy-label';
 import { OrganizerService } from './organizer.service';
 
 const MESSAGE = {
@@ -45,7 +46,7 @@ function messageFor(error: Error): string {
 @Component({
   selector: 'app-event-form',
   templateUrl: './event-form.html',
-  host: { class: 'flex flex-col gap-3' },
+  host: { class: 'card flex flex-col gap-3 p-4' },
 })
 export class EventForm {
   private readonly service = inject(OrganizerService);
@@ -54,6 +55,7 @@ export class EventForm {
 
   protected readonly venues = rxResource({ stream: () => this.service.venues() });
   protected readonly strategies = STRATEGIES;
+  protected readonly label = strategyLabel;
 
   protected readonly venueId = linkedSignal(() => this.venues.value()?.[0]?.id ?? '');
   protected readonly name = signal('');

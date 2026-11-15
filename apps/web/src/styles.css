@@ -87,6 +87,13 @@
     font-weight: 500;
   }
 
+  .field {
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-edge);
+    background-color: var(--color-surface-raised);
+    padding: 0.5rem 0.75rem;
+  }
+
   /*
    * The hue comes from the event id (--event-hue, set by app-event-art); saturation and lightness
    * are fixed here so every event stays dark and calm. The glyph is decorative.
