@@ -50,6 +50,12 @@ layer of invariant 2).
    the known limit: the system scope is a session variable, so code that can run arbitrary SQL can
    set it. RLS guards against a forgotten filter, not against SQL injection.
 
+**Deviation, decided while writing the plan:** the policy restricts only while
+`app.scope = 'user'`; a request that sets no scope is not blocked. Fail closed everywhere would
+touch about twenty transaction sites and turn the 403 for a foreign booking into a 404. Customer
+paths opt in through `withOwner`; see [ADR 0009](../../adr/0009-row-level-security.md) and the
+plan. Read "sees no rows" below as: inside the user scope with no user named.
+
 **Behavior rules.**
 
 - With `app.user_id` set to user A, a `SELECT`, `UPDATE` or `DELETE` of a booking of user B affects

@@ -177,6 +177,22 @@ lock and setting inside one transaction: `pg_advisory_xact_lock`, `FOR UPDATE` a
 `set_config(..., true)` are fine, session-level locks, `LISTEN` and `SET` without `LOCAL` are not.
 `pnpm test:db:pooled` is the guard. Migrations run on a direct connection.
 
+The apps connect as `app_runtime` (`DATABASE_URL`), which has table rights through grants and owns
+nothing. The migration job connects as the owner `app` (`MIGRATION_DATABASE_URL`), creates the
+runtime role with the password of `DATABASE_URL` and applies the migrations.
+
+## Row-level security
+
+`bookings` and `booking_transitions` have row-level security enabled and forced
+([ADR 0009](adr/0009-row-level-security.md)). Their policies restrict rows only while the
+transaction set `app.scope = 'user'`: then a row is visible and writable only if its booking has
+`user_id = app.user_id`, and a missing `app.user_id` sees nothing. Any other scope restricts
+nothing, so the worker and the cross-user reads are unchanged. `withOwner` (in
+`infrastructure/database/rls.ts`) sets both settings for one statement block with
+`set_config(..., true)` and sets the scope back to `system` afterwards. The booking list and the
+transitions that pay and cancel store use it; the policy is a second layer, the `user_id` filter of
+the queries stays.
+
 ## Booking state machine
 
 Every change of `bookings.status` goes through the state machine in the bookings domain and writes

@@ -193,6 +193,14 @@ done:
   stack with `docker-compose.loadtest.yml`. Result: the cache cut the median of the event reads by
   about 0.4 ms at 200 requests per second with a hit ratio of 99.97 %, nothing more at that rate.
 
+Phase 4, slice A, row-level security is complete
+([ADR 0009](adr/0009-row-level-security.md), [data model](data-model.md)):
+
+- API and worker connect as `app_runtime`; the migration job runs as the owner
+  (`MIGRATION_DATABASE_URL`) and creates the role with the password of `DATABASE_URL`.
+- Policies on `bookings` and `booking_transitions` restrict rows while a transaction is in the user
+  scope (`withOwner`); the booking list and the pay and cancel transitions use it.
+
 ## Deviations from the plan
 
 - **No SWC for NestJS decorators.** Vitest (Vite 8, Oxc) reads `experimentalDecorators` and
@@ -348,6 +356,9 @@ Phase 3 is done. Open from earlier notes:
 
 ## Open points
 
+- **Row-level security is opt-in.** A customer path that does not call `withOwner` has no database
+  layer; the ticket download and `claimPaymentKey` are such paths on purpose (ADR 0009). The user
+  scope is a session variable, so it does not stop SQL injection.
 - **The public event list and layouts are cached for `EVENT_CACHE_TTL_SECONDS` (30).** Only the
   strategy switch, the waiting room settings and event creation invalidate them; a change by any
   other path (SQL by hand) shows up after the TTL. Seat status and sandbox events are never cached.
