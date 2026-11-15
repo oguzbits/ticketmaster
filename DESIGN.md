@@ -47,11 +47,13 @@ its table before using it.
 - **`.event-art`** (`app-event-art`): a decorative gradient block with a glyph, derived from the
   event id. The id sets only the hue (`--event-hue`, the one allowed dynamic color); saturation and
   lightness are fixed in `styles.css`. Hidden from assistive technology.
-- **Event card**: one link to the event; the name is first in the DOM (`h2`), then venue, date
-  block and badge. The art block comes last in the DOM and is shown first (`order-first`), so the
+- **Event card**: one `.card-link` to the event (shadow, lift on hover under `motion-safe`); the
+  name is first in the DOM (`h2`), then venue, date block and badge. The art block comes last in the DOM and is shown first (`order-first`), so the
   link name starts with the event name.
 - **Organizer event card**: the event card with the counts line (sold, held, utilization) in place
   of the date block; the strategy is the label badge. The create form is a `.card`.
+- **Stage bar**: a plain bar with the text `Stage` above the legend of the seat map; decorative,
+  hidden from assistive technology (`aria-hidden`).
 - **Search field**: in the header, only on `/events`; filters the list in the browser (the list
   is complete there). It is a plain `input[type=search]` with a screen-reader label.
 - **Start page**: an indigo hero band (`accent` background, `on-accent` text) with the claim as
@@ -62,8 +64,10 @@ its table before using it.
   hint; a hint never names another role, because the e2e specs select a card by the role name.
 - **Header and footer**: white surfaces; the header carries `shadow-card`. The header search field
   shows on `/events` only; the hero form is a second search form on `/`.
-- **Event page**: a header (art strip, `h1`, date, venue, strategy badge), then two columns from `lg`:
-  the seat map on the left, the booking panel (`aside`, 22 rem, `sticky`) on the right. The panel
+- **Event page**: a header card (art strip on top, below it a white block with `h1`, date, venue and
+  strategy badge; no text sits on the generated gradient), then two columns from `lg`: the seat map
+  on the left, on a white card that starts with the stage bar, the booking panel (`aside`, 22 rem,
+  `sticky`, white card with `shadow-card`) on the right. The panel
   holds, top to bottom, the waiting room, the role note, the notice, the booking (`Your booking`
   with all its states) or the hint to pick a seat, and the price categories. Idle, it contains no
   button. Live-status messages and the refresh error stay above the map. Below `lg` the panel

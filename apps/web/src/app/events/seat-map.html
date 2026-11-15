@@ -11,15 +11,17 @@
 } @else {
   @let detail = event.value();
   @if (detail) {
-    <header class="flex flex-col gap-3">
-      <app-event-art class="h-24 rounded-lg sm:h-32" [eventId]="detail.id" />
-      <h1 class="text-2xl font-semibold break-words">{{ detail.name }}</h1>
-      <p class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-text-muted">
-        <time [attr.datetime]="detail.startsAt">{{ detail.startsAt | date: 'medium' }}</time>
-        <span aria-hidden="true">·</span>
-        <span class="min-w-0 wrap-anywhere">{{ detail.venueName }}</span>
-        <span class="badge text-text">{{ strategyText(strategy() ?? detail.strategy) }}</span>
-      </p>
+    <header class="card overflow-hidden">
+      <app-event-art class="h-24 sm:h-32" [eventId]="detail.id" />
+      <div class="flex flex-col gap-3 p-4">
+        <h1 class="text-2xl font-semibold break-words">{{ detail.name }}</h1>
+        <p class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-text-muted">
+          <time [attr.datetime]="detail.startsAt">{{ detail.startsAt | date: 'medium' }}</time>
+          <span aria-hidden="true">·</span>
+          <span class="min-w-0 wrap-anywhere">{{ detail.venueName }}</span>
+          <span class="badge text-text">{{ strategyText(strategy() ?? detail.strategy) }}</span>
+        </p>
+      </div>
     </header>
 
     @if (isAdmin()) {
@@ -59,7 +61,13 @@
       class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]"
       [class]="pinned() ? 'max-lg:[&_.seat]:scroll-mb-[calc(40dvh+0.5rem)]' : ''"
     >
-      <div class="flex min-w-0 flex-col gap-4">
+      <div class="card flex min-w-0 flex-col gap-4 p-4">
+        <div
+          aria-hidden="true"
+          class="rounded-md border border-edge-subtle bg-surface py-2 text-center text-sm font-medium tracking-widest text-text-muted uppercase"
+        >
+          Stage
+        </div>
         <ul class="flex flex-wrap gap-4 text-sm" aria-label="Legend">
           @for (status of legend; track status) {
             <li class="flex items-center gap-2">
@@ -97,7 +105,7 @@
       <!-- Below lg the panel follows the map; during a booking it sticks to the bottom edge (seats scroll clear of it), and a waiting customer sees it first. -->
       <aside
         aria-label="Booking panel"
-        class="card flex min-w-0 flex-col gap-4 p-4 lg:sticky lg:top-4"
+        class="card flex min-w-0 flex-col gap-4 p-4 shadow-card lg:sticky lg:top-4"
         [class]="
           (pinned()
             ? 'max-lg:sticky max-lg:bottom-0 max-lg:z-10 max-lg:max-h-[40dvh] max-lg:overflow-y-auto'
