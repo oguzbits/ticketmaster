@@ -14,10 +14,8 @@ tables and forms for the admin pages.
 
 ## Constraints
 
-- **Own files, ticket-shop look.** [AGENTS.md](../../../AGENTS.md) rule 12 lets the look follow
-  the layout, palette and type feel of ticket shops, built from own tokens and own files: no
-  third-party logo, wordmark, image or copied asset file. The project is public on GitHub, so that
-  line holds. The own wordmark and the generated event art stay.
+- **Ticket-shop look.** Layout, palette and type feel follow common ticket shops. The own
+  wordmark and the generated event art stay; the footer keeps the unofficial notice.
 - Accessibility rules of [PRODUCT.md](../../../PRODUCT.md) hold on the light theme: text contrast
   at least 4.5:1, borders, focus ring and seat edges at least 3:1 against both the page and the
   card surface, seat status never by color alone, visible focus, reduced motion respected.

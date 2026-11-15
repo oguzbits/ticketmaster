@@ -44,8 +44,7 @@ same seats (bookings, conflicts, double bookings, latency).
 ## Brand Commitments
 
 The name is `ticketmaster-klon`. The footer of every page and the README say that the project is
-unofficial and not affiliated with Ticketmaster. The look may follow the layout, palette and type
-feel of ticket shops; no third-party logo, wordmark, image or other copied asset file is used.
+unofficial and not affiliated with Ticketmaster.
 
 ## Evidence on Hand
 

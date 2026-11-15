@@ -12,7 +12,7 @@ Every page of the app gets the new look.
 ## Constraints
 
 - **Own identity.** Own palette, own wordmark, own type choices, own generated imagery. No
-  third-party logo, color scheme, font or image ([AGENTS.md](../../../AGENTS.md) rule 12). Layout
+  third-party logo, color scheme, font or image. Layout
   and interaction patterns are generic and may be shared.
 - Name stays `ticketmaster-klon`; the unofficial notice stays in the footer.
 - Accessibility rules of [PRODUCT.md](../../../PRODUCT.md) hold in the dark theme: text contrast
