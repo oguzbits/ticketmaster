@@ -201,6 +201,15 @@ Phase 4, slice A, row-level security is complete
 - Policies on `bookings` and `booking_transitions` restrict rows while a transaction is in the user
   scope (`withOwner`); the booking list and the pay and cancel transitions use it.
 
+Phase 4, slice A, container hardening and threat model are complete
+([container hardening](../CONTRIBUTING.md#container-hardening),
+[threat model](security/threat-model.md)):
+
+- Images and `FROM` lines carry tag and digest; every service has limits from measured peaks,
+  dropped capabilities and a read-only root, with one named exception (Keycloak `start-dev`); a
+  spec enforces this.
+- `docs/security/threat-model.md`: STRIDE per boundary, ASVS 5.0 mapping and residual risks.
+
 ## Deviations from the plan
 
 - **No SWC for NestJS decorators.** Vitest (Vite 8, Oxc) reads `experimentalDecorators` and
@@ -355,6 +364,9 @@ Phase 3 is done. Open from earlier notes:
 
 ## Open points
 
+- **The token audience is not checked.** The verifier checks signature, issuer, algorithm and
+  expiry. One realm and one client issue tokens today; a second client in the realm would produce
+  tokens the API accepts ([threat model](security/threat-model.md)).
 - **`pnpm load` fails to start the stack.** Since the check that refuses `RATE_LIMIT_SCALE` above 1
   in production, the API image (`NODE_ENV=production`) rejects the scale of 1000 that
   `docker-compose.loadtest.yml` sets. The measurement for the container limits ran with

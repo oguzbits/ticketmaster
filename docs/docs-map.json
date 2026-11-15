@@ -11,5 +11,8 @@
   "apps/api/src/infrastructure/metrics/": "docs/observability.md",
   "docker/observability/": "docs/observability.md",
   "apps/api/src/infrastructure/telemetry/": "docs/observability.md",
-  "apps/worker/src/operational-gauges.ts": "docs/observability.md"
+  "apps/worker/src/operational-gauges.ts": "docs/observability.md",
+  "apps/api/src/modules/auth/": "docs/security/threat-model.md",
+  "apps/web/Caddyfile": "docs/security/threat-model.md",
+  "apps/api/src/infrastructure/rate-limit/": "docs/security/threat-model.md"
 }
