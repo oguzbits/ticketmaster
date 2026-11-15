@@ -47,6 +47,27 @@ describe('App', () => {
     expect(element.textContent).toContain('No events yet');
   });
 
+  it('has a wordmark link to the start page outside the main navigation', () => {
+    const { fixture, element } = render();
+    fixture.detectChanges();
+
+    const wordmark = element.querySelector('a[href="/"]');
+    expect(wordmark?.textContent?.trim()).toBe('ticketmaster-klon');
+    expect(wordmark?.closest('nav')).toBeNull();
+    expect(wordmark?.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('marks the link of the current route', async () => {
+    const { fixture, element } = render();
+    await TestBed.inject(Router).navigateByUrl('/events');
+    TestBed.tick();
+    TestBed.inject(HttpTestingController).expectOne('/api/events').flush([]);
+    await fixture.whenStable();
+
+    const current = [...element.querySelectorAll('nav a[aria-current="page"]')];
+    expect(current.map((a) => a.textContent?.trim())).toEqual(['Events']);
+  });
+
   it.each<[Role | null, string[]]>([
     [null, ['Events']],
     [ROLE.CUSTOMER, ['Events', 'My bookings']],

@@ -1,28 +1,78 @@
-<div class="mx-auto flex min-h-dvh max-w-3xl flex-col gap-6 p-6">
-  <header class="flex flex-wrap items-center justify-between gap-3">
-    <a routerLink="/" class="text-xl font-semibold">ticketmaster-klon</a>
-    <nav class="flex items-center gap-4" aria-label="Main">
-      <a routerLink="/events" class="underline">Events</a>
-      @if (store.role() === customer) {
-        <a routerLink="/bookings" class="underline">My bookings</a>
-      } @else if (store.role() === organizer) {
-        <a routerLink="/organizer" class="underline">Organizer</a>
-      } @else if (store.role() === admin) {
-        <a routerLink="/admin/simulator" class="underline">Simulator</a>
-        <a routerLink="/admin/audit-log" class="underline">Audit log</a>
-      }
+<div class="flex min-h-dvh flex-col">
+  <header class="border-b border-edge-subtle bg-surface-raised">
+    <div class="mx-auto flex max-w-page flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 sm:px-6">
+      <a routerLink="/" class="flex items-center gap-2 rounded text-lg font-semibold">
+        <svg viewBox="0 0 28 28" class="size-7" aria-hidden="true" focusable="false">
+          <path
+            class="fill-accent"
+            d="M4 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v3.5a3.5 3.5 0 0 0 0 7V21a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3.5a3.5 3.5 0 0 0 0-7Z"
+          />
+          <path
+            class="stroke-surface-raised"
+            d="M10 7v14"
+            stroke-width="1.5"
+            stroke-dasharray="2 2.5"
+          />
+        </svg>
+        ticketmaster-klon
+      </a>
+      <nav class="flex flex-wrap items-center gap-x-4 gap-y-1" aria-label="Main">
+        <a
+          routerLink="/events"
+          routerLinkActive
+          ariaCurrentWhenActive="page"
+          class="text-text-muted hover:text-text aria-[current=page]:font-semibold aria-[current=page]:text-text aria-[current=page]:underline underline-offset-4"
+          >Events</a
+        >
+        @if (store.role() === customer) {
+          <a
+            routerLink="/bookings"
+            routerLinkActive
+            ariaCurrentWhenActive="page"
+            class="text-text-muted hover:text-text aria-[current=page]:font-semibold aria-[current=page]:text-text aria-[current=page]:underline underline-offset-4"
+            >My bookings</a
+          >
+        } @else if (store.role() === organizer) {
+          <a
+            routerLink="/organizer"
+            routerLinkActive
+            ariaCurrentWhenActive="page"
+            class="text-text-muted hover:text-text aria-[current=page]:font-semibold aria-[current=page]:text-text aria-[current=page]:underline underline-offset-4"
+            >Organizer</a
+          >
+        } @else if (store.role() === admin) {
+          <a
+            routerLink="/admin/simulator"
+            routerLinkActive
+            ariaCurrentWhenActive="page"
+            class="text-text-muted hover:text-text aria-[current=page]:font-semibold aria-[current=page]:text-text aria-[current=page]:underline underline-offset-4"
+            >Simulator</a
+          >
+          <a
+            routerLink="/admin/audit-log"
+            routerLinkActive
+            ariaCurrentWhenActive="page"
+            class="text-text-muted hover:text-text aria-[current=page]:font-semibold aria-[current=page]:text-text aria-[current=page]:underline underline-offset-4"
+            >Audit log</a
+          >
+        }
+      </nav>
       @if (store.role(); as role) {
-        <span class="text-text-muted">Signed in as {{ role }}</span>
-        <button type="button" class="btn" (click)="auth.logout()">Log out</button>
+        <div class="ml-auto flex items-center gap-3">
+          <span class="text-sm text-text-muted">Signed in as {{ role }}</span>
+          <button type="button" class="btn-secondary" (click)="auth.logout()">Log out</button>
+        </div>
       }
-    </nav>
+    </div>
   </header>
 
-  <main class="flex flex-1 flex-col gap-4">
+  <main class="mx-auto flex w-full max-w-page flex-1 flex-col gap-4 px-4 py-6 sm:px-6">
     <router-outlet />
   </main>
 
-  <footer class="text-sm text-text-muted">
-    Unofficial demo. Not affiliated with Ticketmaster.
+  <footer class="border-t border-edge-subtle">
+    <p class="mx-auto max-w-page px-4 py-4 text-sm text-text-muted sm:px-6">
+      Unofficial demo. Not affiliated with Ticketmaster.
+    </p>
   </footer>
 </div>
