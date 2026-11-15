@@ -433,15 +433,12 @@ Phase 3, slice C:
 
 - **Server and domain** for the live demo (Hetzner size, DNS name for HTTPS). Needed only for
   phase 5; the size and the memory budget per container go into an ADR.
-- **Private vulnerability reporting** is switched off in the repository settings, but
-  [SECURITY.md](../SECURITY.md) points to it. Switch it on under Settings, Advanced Security.
-- **Ruleset for `main`** (block force pushes and deletion on the server side) is not set.
 
 ## Next
 
-Phase 3 is done. Open from earlier notes:
-
-- Write the runbooks the docs-map entry for the deploy folder points to (`docs/runbooks/`).
+Phase 3 is done. The [runbooks](runbooks/README.md) cover the running stack (dead-letter queue,
+stuck outbox, a service down). The deploy, rollback and restore runbooks that the docs-map entry
+for the deploy folder points to come with phase 5, together with the scripts.
 
 ## Open points
 
@@ -517,7 +514,8 @@ Phase 3 is done. Open from earlier notes:
   download route answers 404 for it. Reading the status in the effect's transaction with a share
   lock would close the window.
 - **The dead-letter queue has no replay tool.** A message that reached it (a mail server that was
-  down for five deliveries) stays there until someone moves it back by hand.
+  down for five deliveries) stays there until someone moves it back by hand, as the
+  [runbook](runbooks/dead-letter-queue.md) describes (a move task against the emulator).
 - **The PDF stays after a cancel and is never deleted.** The download answers 404 for a booking
   that is no longer `CONFIRMED`, but the object remains in the bucket; a retention job (with the
   outbox rows) would remove it.

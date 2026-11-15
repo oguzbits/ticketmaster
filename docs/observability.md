@@ -180,7 +180,8 @@ warns after 10 minutes. `observability-files.spec.ts` keeps the thresholds equal
 
 Prometheus evaluates `docker/observability/alerts.yml` every evaluation interval and shows the state
 of each rule at `http://localhost:9090/alerts`. Every rule links here from its `runbook` annotation.
-The rules are Prometheus rule files, not Grafana-managed rules.
+The rules are Prometheus rule files, not Grafana-managed rules. What to do after the first check is
+in the [runbooks](runbooks/README.md).
 
 | Alert                     | Severity | Condition (for)                                                                           | Check first                                                                                                                                                                                                                       |
 | ------------------------- | -------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
