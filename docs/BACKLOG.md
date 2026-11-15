@@ -266,8 +266,8 @@ Stage look, slice 5 complete, which completes the stage look
   the audit log (the page does not scroll sideways, the table scrolls inside its card) and the
   strategy switch up to its confirmation. Not forced in the browser: the error and reconnect
   states, which the unit specs cover.
-- Open: the `<progress>` of a simulator run renders green in Chrome although `accent-color` is the
-  accent token, a browser default for the control, not changed here.
+- The `<progress>` of a simulator run rendered green in Chrome; fixed in the light portal redesign
+  below.
 
 Light portal redesign complete
 ([plan](superpowers/plans/2026-11-15-light-portal-redesign.md)):

@@ -60,6 +60,7 @@ const PAIRS: [string, string, number][] = [
   ['text', 'seat-held-stripe', TEXT],
   // The stripes are one of the non-color cues of a held seat, so they must show on the fill.
   ['seat-held-stripe', 'seat-held', NON_TEXT],
+  ['seat-held-edge', 'seat-held', NON_TEXT],
   ['seat-sold', 'surface', NON_TEXT],
 ];
 
@@ -107,9 +108,5 @@ describe('design tokens', () => {
     const page = map.get('surface');
     if (!divider || !page) throw new Error('Token missing: edge-subtle or surface');
     expect(ratio(divider, page)).toBeGreaterThanOrEqual(1.1);
-  });
-
-  it('defines the decorative divider token', () => {
-    expect(map.has('edge-subtle')).toBe(true);
   });
 });

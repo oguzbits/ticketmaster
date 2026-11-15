@@ -91,7 +91,7 @@
     .card-link {
       transition: transform 120ms ease-out;
     }
-    .card-link:hover {
+    .card-link:hover:not(:disabled) {
       transform: translateY(-1px);
     }
   }

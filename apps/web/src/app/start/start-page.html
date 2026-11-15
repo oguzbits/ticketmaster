@@ -32,7 +32,7 @@
       <li class="min-w-0">
         <button
           type="button"
-          class="card-link flex h-full w-full flex-col gap-1 border-edge p-4 text-left hover:border-accent disabled:cursor-not-allowed disabled:opacity-60"
+          class="card-link flex h-full w-full flex-col gap-1 border-edge p-4 text-left enabled:hover:border-accent disabled:cursor-not-allowed disabled:opacity-60"
           [disabled]="pendingRole() !== null"
           (click)="login(role)"
         >

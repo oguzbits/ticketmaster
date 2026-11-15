@@ -87,6 +87,7 @@ its table before using it.
 
 - Every interactive element is reachable by keyboard and shows the focus ring (`:focus-visible`,
   3 px, `focus` token).
-- Reduced motion: the app has no animation. A new one must sit behind `motion-safe:`.
+- Reduced motion: the only animation is the 1 px hover lift of `.card-link`, behind
+  `prefers-reduced-motion: no-preference`. A new one must sit behind `motion-safe:` too.
 - Light theme only; no theme switch. `color-scheme: light` is set on `:root` so native controls follow.
 - The footer of every page carries the notice that the project is unofficial.
