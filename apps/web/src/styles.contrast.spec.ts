@@ -93,14 +93,13 @@ describe('design tokens', () => {
   });
 
   it('a held seat differs from an available one by shape, not only by color', () => {
-    const rule = (selector: string): string => {
-      const body = new RegExp(`${selector}\\s*\\{([^}]*)\\}`).exec(css)?.[1];
-      if (!body) throw new Error(`styles.css has no ${selector} rule`);
-      return body;
-    };
-    expect(rule('\\.seat-held')).toMatch(/border-style:\s*dashed/);
-    expect(rule('\\.seat-held')).toMatch(/repeating-linear-gradient/);
-    expect(rule('\\.seat-available')).not.toMatch(/border-style:\s*dashed/);
+    const held = /\.seat-held\s*\{([^}]*)\}/.exec(css)?.[1];
+    const available = /\.seat-available\s*\{([^}]*)\}/.exec(css)?.[1];
+    if (!held || !available)
+      throw new Error('styles.css has no .seat-held or .seat-available rule');
+    expect(held).toMatch(/border-style:\s*dashed/);
+    expect(held).toMatch(/repeating-linear-gradient/);
+    expect(available).not.toMatch(/border-style:\s*dashed/);
   });
 
   it('a divider is visible on the page', () => {
