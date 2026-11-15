@@ -37,7 +37,9 @@ its table before using it.
   control (the event card, the start page role card) adds `border-edge` (3:1) and `hover:border-accent`;
   a card that only holds content (the booking panel) keeps `edge-subtle`.
 - **`.badge`**: a small bordered label on the surface, used for the booking strategy
-  (`strategyLabel`, never the raw value).
+  (`strategyLabel`, never the raw value). Every page reads the strategy as the label, except
+  the audit log, whose action names and ids are identifiers; option values and request bodies
+  stay raw.
 - **`.field`**: the border and background of an `input`, `select` or `textarea` (`edge` border, 3:1,
   on the raised surface). Disabled styling stays a utility on the element.
 - **`.event-art`** (`app-event-art`): a decorative gradient block with a glyph, derived from the

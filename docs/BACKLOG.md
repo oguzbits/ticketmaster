@@ -217,14 +217,13 @@ Stage look, slices 1 to 3 complete
 - Dark semantic tokens with a contrast spec for every token pair, the `.btn-secondary`, `.card`,
   `.badge` and `.event-art` primitives, the app shell with a wordmark and a search field, the start
   page with role cards, the event list as a card grid with client-side search, and the event page
-  with the seat map and a booking side panel. No API or contract change. Slices 4 (my bookings,
-  organizer) and 5 (admin) are still to do and get their own plan.
+  with the seat map and a booking side panel. No API or contract change. Slices 4 and 5 follow
+  below.
 - Deviations from the spec: no lowest price on the event card (`EventSummary` carries none and the
   contract stays; prices are on the event page); the glyph is decorative, picked from the event id
   (events have no category); search is in scope because the list is complete in the browser; the
-  accent is magenta, not amber (amber is the held seat); the strategy label shows only on the list
-  card and the event page, the admin switch, organizer pages and simulator keep the raw value until
-  slices 4 and 5.
+  accent is magenta, not amber (amber is the held seat); the strategy label showed only on the list
+  card and the event page; slices 4 and 5 extended it to the other pages.
 - Deviations from the plan: `.btn-secondary` replaced four identical buttons, not three (the
   waiting room panel has one too); the contrast spec reads `styles.css` through `node:fs`, which
   needs the declaration `apps/web/src/node-fs.d.ts` because the web app has no Node types; the hash
@@ -248,9 +247,27 @@ Stage look, slice 4 complete
   repeated ten times); the admin pages adopt it in slice 5. No API or contract change.
 - Deviations from the plan: `MyBookings` gets a flex host (`gap-4`) like the other pages; without
   it the heading touched the list and `self-start` did nothing, which was already so before.
-- Verified in the browser at 1280 and 390 px (organizer with a 120-character name, empty submit,
-  customer with one confirmed booking). The loading, error and empty states are covered by the
-  unit specs and were not forced in the browser.
+- Verified in the browser: the organizer page at 1280 and 390 px (a 120-character name wraps, an
+  empty submit shows the alert) and my bookings at 390 px with one confirmed booking. The loading,
+  error and empty states are covered by the unit specs and were not forced in the browser.
+
+Stage look, slice 5 complete, which completes the stage look
+([plan](superpowers/plans/2026-11-15-stage-look-slices-4-5.md)):
+
+- The strategy switch, the rush simulator and the audit log use `.card` and `.field`. The
+  strategy is read as its label on both admin pages (option text, current strategy, confirm and
+  result sentences, current run, comparison row header); option values, request bodies,
+  `Status: FINISHED` and the audit action names stay raw. No API or contract change.
+- Deviations from the plan: `simulator.e2e.ts` changed, because it asserted the raw strategy in
+  the comparison row (the plan assumed the e2e specs stay as they are); the spec imports
+  `strategyLabel` from the web app. The spec calls "charts restyled" for slice 5; the app has no
+  charts, so there was nothing to restyle.
+- Verified in the browser at 390 px: the simulator with a `NAIVE` run (nine seats sold twice),
+  the audit log (the page does not scroll sideways, the table scrolls inside its card) and the
+  strategy switch up to its confirmation. Not forced in the browser: the error and reconnect
+  states, which the unit specs cover.
+- Open: the `<progress>` of a simulator run renders green in Chrome although `accent-color` is the
+  accent token, a browser default for the control, not changed here.
 
 ## Deviations from the plan
 
