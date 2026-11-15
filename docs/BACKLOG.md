@@ -240,6 +240,18 @@ Stage look, slices 1 to 3 complete
   (the booking state lives in memory); a focused seat can sit behind the pinned panel when
   tabbing.
 
+Stage look, slice 4 complete
+([plan](superpowers/plans/2026-11-15-stage-look-slices-4-5.md)):
+
+- My bookings as cards with a status badge, the organizer events as art cards with the strategy
+  label, the create form as a card. New `.field` primitive for form controls (the class string
+  repeated ten times); the admin pages adopt it in slice 5. No API or contract change.
+- Deviations from the plan: `MyBookings` gets a flex host (`gap-4`) like the other pages; without
+  it the heading touched the list and `self-start` did nothing, which was already so before.
+- Verified in the browser at 1280 and 390 px (organizer with a 120-character name, empty submit,
+  customer with one confirmed booking). The loading, error and empty states are covered by the
+  unit specs and were not forced in the browser.
+
 ## Deviations from the plan
 
 - **No SWC for NestJS decorators.** Vitest (Vite 8, Oxc) reads `experimentalDecorators` and

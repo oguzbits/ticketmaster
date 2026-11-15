@@ -12,6 +12,7 @@ const CANCELLABLE: readonly BookingStatus[] = [BOOKING_STATUS.HELD, BOOKING_STAT
   selector: 'app-my-bookings',
   imports: [DatePipe, RouterLink],
   templateUrl: './my-bookings.html',
+  host: { class: 'flex flex-col gap-4' },
 })
 export class MyBookings {
   private readonly service = inject(BookingsService);
