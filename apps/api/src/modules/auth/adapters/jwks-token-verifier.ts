@@ -40,12 +40,20 @@ function isTokenFault(error: Error): boolean {
 export class JwksTokenVerifier implements TokenVerifier {
   private readonly logger = new Logger(JwksTokenVerifier.name);
   private readonly keys: ReturnType<typeof createRemoteJWKSet>;
+  private readonly claims: typeof ClaimsSchema;
 
+  /**
+   * `clientId` is the one client whose tokens are accepted. Keycloak puts the client a token was
+   * issued to in `azp` (the `aud` claim only appears with an audience mapper), so another client
+   * of the realm cannot reach the API with its own tokens.
+   */
   constructor(
     private readonly issuer: string,
-    jwksUrl: URL
+    jwksUrl: URL,
+    clientId: string
   ) {
     this.keys = createRemoteJWKSet(jwksUrl);
+    this.claims = ClaimsSchema.extend({ azp: z.literal(clientId) });
   }
 
   async verify(token: string): Promise<AuthUser> {
@@ -55,7 +63,7 @@ export class JwksTokenVerifier implements TokenVerifier {
         algorithms: ['RS256'],
         requiredClaims: ['exp'],
       });
-      const claims = ClaimsSchema.parse(payload);
+      const claims = this.claims.parse(payload);
       return { id: claims.sub, roles: claims.realm_access?.roles ?? [] };
     } catch (error) {
       // The caller learns "unauthorized" and nothing else; the reason goes to the log as an error

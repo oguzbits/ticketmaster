@@ -12,6 +12,7 @@ import { JwksTokenVerifier } from './jwks-token-verifier.js';
 const ISSUER = 'http://keycloak.test/realms/ticketmaster';
 const JWKS_URL = new URL(`${ISSUER}/protocol/openid-connect/certs`);
 const KEY_ID = 'spec-key';
+const CLIENT_ID = 'api-demo';
 const ONE_HOUR_SECONDS = 3600;
 
 function base64Url(value: object): string {
@@ -30,7 +31,7 @@ describe('JwksTokenVerifier', () => {
     privateJwk = await exportJWK(pair.privateKey);
     // No `alg` on the key: the verifier's own allowlist is the only thing that fixes the algorithm.
     publicJwk = { ...(await exportJWK(pair.publicKey)), kid: KEY_ID };
-    verifier = new JwksTokenVerifier(ISSUER, JWKS_URL);
+    verifier = new JwksTokenVerifier(ISSUER, JWKS_URL, CLIENT_ID);
   });
   // The shared setup resets the handlers after every test.
   beforeEach(() => {
@@ -39,6 +40,7 @@ describe('JwksTokenVerifier', () => {
 
   const claims = (overrides: Record<string, object | string | number> = {}) => ({
     sub: randomUUID(),
+    azp: CLIENT_ID,
     realm_access: { roles: [ROLE.CUSTOMER] },
     ...overrides,
   });
@@ -69,7 +71,7 @@ describe('JwksTokenVerifier', () => {
   });
 
   it('accepts a token without realm roles as a user without roles', async () => {
-    const payload = { sub: randomUUID() };
+    const payload = { sub: randomUUID(), azp: CLIENT_ID };
 
     await expect(verifier.verify(await sign(payload))).resolves.toEqual({
       id: payload.sub,
@@ -138,6 +140,20 @@ describe('JwksTokenVerifier', () => {
     await expect(verifier.verify(token)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
+  it('rejects a token issued to another client of the realm', async () => {
+    const token = await sign(claims({ azp: 'some-other-client' }));
+
+    await expect(verifier.verify(token)).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('rejects a token that names no client', async () => {
+    const { azp: _azp, ...withoutClient } = claims();
+
+    await expect(verifier.verify(await sign(withoutClient))).rejects.toBeInstanceOf(
+      UnauthorizedException
+    );
+  });
+
   it('rejects a subject that is not a UUID', async () => {
     const token = await sign(claims({ sub: 'admin' }));
 
@@ -171,7 +187,11 @@ describe('JwksTokenVerifier', () => {
       ['a network error', () => HttpResponse.error()],
     ])('logs an unreachable key set (%s) at warn', async (_name, respond) => {
       // A fresh verifier: the shared one has the key cached already.
-      const unreachable = new JwksTokenVerifier(ISSUER, new URL(`${ISSUER}/unreachable`));
+      const unreachable = new JwksTokenVerifier(
+        ISSUER,
+        new URL(`${ISSUER}/unreachable`),
+        CLIENT_ID
+      );
       server.use(http.get(`${ISSUER}/unreachable`, respond));
       const token = await sign(claims());
 

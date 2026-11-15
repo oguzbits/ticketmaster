@@ -13,14 +13,14 @@ a compromised customer account, and an operator of the host.
 
 ## 1. Browser to Caddy (`web`)
 
-| STRIDE | Threat                                                 | Control                                                                               | Evidence                                                                                                                                                                  |
-| ------ | ------------------------------------------------------ | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| S      | A forged or stolen token is presented                  | Signature, issuer, algorithm and expiry verified against the JWKS; default-deny guard | [token verifier spec](../../apps/api/src/modules/auth/adapters/jwks-token-verifier.spec.ts), [guard spec](../../apps/api/src/modules/auth/auth.guards.spec.ts)            |
-| T      | Script injection (XSS) reads or changes the page       | Content-Security-Policy without inline script, `nosniff`, no referrer, helmet headers | [Caddyfile](../../apps/web/Caddyfile), [app setup spec](../../apps/api/src/app.setup.spec.ts)                                                                             |
-| R      | A user denies a state change                           | Audit row in the transaction of each of seven actions, IDs only                       | [audit service spec](../../apps/api/src/modules/audit/audit.service.db.spec.ts)                                                                                           |
-| I      | Personal data leaks through logs or headers            | Logs hold IDs and no headers or addresses; `Referrer-Policy: no-referrer`             | [log spec](../../apps/api/src/infrastructure/logging/http-log.spec.ts)                                                                                                    |
-| D      | A flood of requests or held-open streams stalls others | Rate limits per route and client, stream caps, demo login capped                      | [guard spec](../../apps/api/src/infrastructure/rate-limit/rate-limit.guard.spec.ts), [limiter spec](../../apps/api/src/infrastructure/rate-limit/rate-limiter.db.spec.ts) |
-| E      | A customer calls an organizer or admin route           | Roles guard, each protected route tests wrong role and foreign resource               | [bookings controller spec](../../apps/api/src/modules/bookings/bookings.controller.db.spec.ts), [role screens (e2e)](../../apps/web/e2e/roles.e2e.ts)                     |
+| STRIDE | Threat                                                 | Control                                                                                               | Evidence                                                                                                                                                                  |
+| ------ | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S      | A forged or stolen token is presented                  | Signature, issuer, client (`azp`), algorithm and expiry verified against the JWKS; default-deny guard | [token verifier spec](../../apps/api/src/modules/auth/adapters/jwks-token-verifier.spec.ts), [guard spec](../../apps/api/src/modules/auth/auth.guards.spec.ts)            |
+| T      | Script injection (XSS) reads or changes the page       | Content-Security-Policy without inline script, `nosniff`, no referrer, helmet headers                 | [Caddyfile](../../apps/web/Caddyfile), [app setup spec](../../apps/api/src/app.setup.spec.ts)                                                                             |
+| R      | A user denies a state change                           | Audit row in the transaction of each of seven actions, IDs only                                       | [audit service spec](../../apps/api/src/modules/audit/audit.service.db.spec.ts)                                                                                           |
+| I      | Personal data leaks through logs or headers            | Logs hold IDs and no headers or addresses; `Referrer-Policy: no-referrer`                             | [log spec](../../apps/api/src/infrastructure/logging/http-log.spec.ts)                                                                                                    |
+| D      | A flood of requests or held-open streams stalls others | Rate limits per route and client, stream caps, demo login capped                                      | [guard spec](../../apps/api/src/infrastructure/rate-limit/rate-limit.guard.spec.ts), [limiter spec](../../apps/api/src/infrastructure/rate-limit/rate-limiter.db.spec.ts) |
+| E      | A customer calls an organizer or admin route           | Roles guard, each protected route tests wrong role and foreign resource                               | [bookings controller spec](../../apps/api/src/modules/bookings/bookings.controller.db.spec.ts), [role screens (e2e)](../../apps/web/e2e/roles.e2e.ts)                     |
 
 ## 2. Caddy to the API
 
@@ -61,7 +61,7 @@ a compromised customer account, and an operator of the host.
 
 | STRIDE | Threat                                                | Control                                                          | Evidence                                                                                                                                                                                                   |
 | ------ | ----------------------------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| S      | A token from another issuer or with another algorithm | Issuer and RS256 are fixed in the verifier                       | [token verifier spec](../../apps/api/src/modules/auth/adapters/jwks-token-verifier.spec.ts)                                                                                                                |
+| S      | A token from another issuer or with another algorithm | Issuer, client and RS256 are fixed in the verifier               | [token verifier spec](../../apps/api/src/modules/auth/adapters/jwks-token-verifier.spec.ts)                                                                                                                |
 | D      | The one-click demo login is used to create many users | A cap on live demo users, a TTL, and a cleanup job in the worker | [demo service spec](../../apps/api/src/modules/demo/demo.service.db.spec.ts), [cleanup job spec](../../apps/worker/src/demo-cleanup.job.spec.ts), [ADR 0003](../adr/0003-authentication-and-demo-login.md) |
 
 ## 7. Containers and supply chain
@@ -81,7 +81,7 @@ a compromised customer account, and an operator of the host.
 | V4 API and Web Service                  | Typed contracts in `packages/shared`, rate limits, CORS only for a named origin                              |
 | V5 File Handling                        | Ticket PDFs generated by the worker, served by the API with an ownership check                               |
 | V8 Authorization                        | Roles guard, ownership filters and row-level security (sections 1 and 3)                                     |
-| V9 Self-contained Tokens, V10 OAuth     | Keycloak issues, the API verifies signature, issuer, algorithm and expiry (section 6)                        |
+| V9 Self-contained Tokens, V10 OAuth     | Keycloak issues, the API verifies signature, issuer, client, algorithm and expiry (section 6)                |
 | V13 Configuration                       | Config module with Zod, hardened containers, pinned images (sections 7)                                      |
 | V14 Data Protection                     | IDs only in logs and audit rows; the mail address is read from Keycloak when the mail is sent and not stored |
 | V16 Security Logging and Error Handling | Structured logs with request ID, audit log, no silent catch                                                  |
@@ -92,7 +92,8 @@ Authentication itself (V6, V7) is delegated to Keycloak and not re-implemented.
 
 Accepted for now; each is tracked in the [backlog](../BACKLOG.md#open-points).
 
-- The verifier does not check the token audience. One realm and one client issue tokens today.
+- The verifier checks the client a token was issued to (`azp`), not an `aud` claim: Keycloak adds
+  `aud` only through an audience mapper. A second client of the realm needs its own decision.
 - Row-level security is opt-in per path: the ticket download and `claimPaymentKey` have no database
   layer, and the user scope does not stop SQL injection (ADR 0009).
 - No refund when a charge succeeds after a booking left `HELD`; a charge that throws after the claim

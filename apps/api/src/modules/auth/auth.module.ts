@@ -25,7 +25,11 @@ export const AUTH_GUARD_PROVIDERS: Provider[] = [
         // The API reaches Keycloak at KEYCLOAK_URL, and Keycloak names itself after the host it was
         // reached at, so the issuer is derived from the same URL.
         const issuer = `${env.KEYCLOAK_URL}/realms/${env.KEYCLOAK_REALM}`;
-        return new JwksTokenVerifier(issuer, new URL(`${issuer}/protocol/openid-connect/certs`));
+        return new JwksTokenVerifier(
+          issuer,
+          new URL(`${issuer}/protocol/openid-connect/certs`),
+          env.KEYCLOAK_DEMO_CLIENT_ID
+        );
       },
       inject: [APP_CONFIG],
     },

@@ -364,9 +364,6 @@ Phase 3 is done. Open from earlier notes:
 
 ## Open points
 
-- **The token audience is not checked.** The verifier checks signature, issuer, algorithm and
-  expiry. One realm and one client issue tokens today; a second client in the realm would produce
-  tokens the API accepts ([threat model](security/threat-model.md)).
 - **Row-level security is opt-in.** A customer path that does not call `withOwner` has no database
   layer; the ticket download and `claimPaymentKey` are such paths on purpose (ADR 0009). The user
   scope is a session variable, so it does not stop SQL injection.
