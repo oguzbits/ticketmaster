@@ -59,7 +59,7 @@ Anyone, signed in or not, can browse public events and watch the seat map.
 
 ## Architecture
 
-Preliminary. Caddy serves the web app and forwards `/api` and `/health` to two API replicas
+Caddy serves the web app and forwards `/api` and `/health` to two API replicas
 (round robin, a failed connection is retried on the other replica); the replicas and the worker
 reach PostgreSQL through PgBouncer in transaction mode
 ([ADR 0005](docs/adr/0005-pgbouncer-transaction-mode.md)). The API
@@ -81,6 +81,12 @@ confirmed booking. The worker's relay sends unpublished outbox rows to the queue
 `processed_messages` together with its effect (the ticket PDF, then the confirmation mail, each
 under its own name), deletes the message only after that succeeded, and leaves a failing message to return until the queue moves it to the dead-letter queue. Delivery is
 at least once.
+
+The code is a modular monolith plus a worker. Layers and the rules that keep them apart are in
+[AGENTS.md](AGENTS.md) and are checked by `pnpm depcruise` and ESLint
+([ADR 0001](docs/adr/0001-modular-monolith-and-worker.md)). Traces, metrics, dashboards and alerts
+are described in [docs/observability.md](docs/observability.md); what to do when an alert fires is
+in the [runbooks](docs/runbooks/README.md).
 
 ```mermaid
 flowchart LR
@@ -117,26 +123,30 @@ REST routes under `/api`; contracts are Zod schemas in `packages/shared`. The fu
 (answers, errors, limits) is in [docs/api/rest.md](docs/api/rest.md); the machine-readable
 OpenAPI 3.1 description is [docs/api/openapi.json](docs/api/openapi.json).
 
-| Route                              | Role      | Purpose                                                   |
-| ---------------------------------- | --------- | --------------------------------------------------------- |
-| `GET /api/events`                  | public    | public events (and the caller's own sandbox events)       |
-| `GET /api/events/:id`              | public    | event with every seat and its status                      |
-| `GET /api/events/:id/seats/stream` | public    | server-sent events: snapshot, then one change a seat      |
-| `POST /api/demo-login`             | public    | temporary user and tokens for a role                      |
-| `POST /api/auth/refresh`           | public    | new tokens for a refresh token                            |
-| `POST /api/bookings`               | customer  | hold a seat                                               |
-| `POST /api/bookings/:id/payment`   | customer  | pay (header `Idempotency-Key`)                            |
-| `POST /api/bookings/:id/cancel`    | customer  | cancel a held or confirmed booking                        |
-| `GET /api/bookings`                | customer  | the caller's bookings with their transitions              |
-| `GET /api/bookings/:id/ticket`     | customer  | the ticket of a confirmed booking as a PDF                |
-| `GET /api/venues`                  | organizer | venue templates                                           |
-| `POST /api/events`                 | organizer | create an event from a venue template                     |
-| `GET /api/organizer/events`        | organizer | own events with sold and held counts                      |
-| `PATCH /api/events/:id/strategy`   | admin     | switch the booking strategy                               |
-| `POST /api/simulations`            | admin     | start a simulator run (answers 429 above two active runs) |
-| `GET /api/simulations`             | admin     | the finished runs of the last hour with their metrics     |
-| `GET /api/simulations/:id`         | public    | one run with its status and metrics                       |
-| `GET /api/simulations/:id/stream`  | public    | server-sent events: the live progress of a run            |
+| Route                                       | Role      | Purpose                                                      |
+| ------------------------------------------- | --------- | ------------------------------------------------------------ |
+| `GET /api/events`                           | public    | public events (and the caller's own sandbox events)          |
+| `GET /api/events/:id`                       | public    | event with every seat and its status                         |
+| `GET /api/events/:id/seats/stream`          | public    | server-sent events: snapshot, then one change a seat         |
+| `POST /api/demo-login`                      | public    | temporary user and tokens for a role                         |
+| `POST /api/auth/refresh`                    | public    | new tokens for a refresh token                               |
+| `POST /api/bookings`                        | customer  | hold a seat                                                  |
+| `POST /api/bookings/:id/payment`            | customer  | pay (header `Idempotency-Key`)                               |
+| `POST /api/bookings/:id/cancel`             | customer  | cancel a held or confirmed booking                           |
+| `GET /api/bookings`                         | customer  | the caller's bookings with their transitions                 |
+| `GET /api/bookings/:id/ticket`              | customer  | the ticket of a confirmed booking as a PDF                   |
+| `GET /api/events/:id/waiting-room`          | customer  | position in the waiting room (`POST` joins, `DELETE` leaves) |
+| `GET /api/events/:id/waiting-room/stream`   | customer  | server-sent events: the live position                        |
+| `PUT /api/events/:id/waiting-room/settings` | organizer | set or clear the capacity of the waiting room                |
+| `GET /api/venues`                           | organizer | venue templates                                              |
+| `POST /api/events`                          | organizer | create an event from a venue template                        |
+| `GET /api/organizer/events`                 | organizer | own events with sold and held counts                         |
+| `PATCH /api/events/:id/strategy`            | admin     | switch the booking strategy                                  |
+| `GET /api/audit-log`                        | admin     | who changed what, newest first, filter by action and actor   |
+| `POST /api/simulations`                     | admin     | start a simulator run (answers 429 above two active runs)    |
+| `GET /api/simulations`                      | admin     | the finished runs of the last hour with their metrics        |
+| `GET /api/simulations/:id`                  | public    | one run with its status and metrics                          |
+| `GET /api/simulations/:id/stream`           | public    | server-sent events: the live progress of a run               |
 
 ## Checks
 
@@ -144,6 +154,7 @@ OpenAPI 3.1 description is [docs/api/openapi.json](docs/api/openapi.json).
 - `pnpm test`: unit tests, offline.
 - `pnpm test:db`: tests that need Postgres, Redis and the local AWS emulator (`pnpm db:up` and
   `pnpm db:migrate` first); `pnpm test:db:pooled` runs them through PgBouncer.
+- `pnpm mutation`: mutation tests of the domain code (StrykerJS, about 15 seconds; weekly in CI).
 - `pnpm e2e`: browser tests against the whole Compose stack (builds it, runs it, removes it).
 
 ## Documentation
@@ -155,6 +166,9 @@ OpenAPI 3.1 description is [docs/api/openapi.json](docs/api/openapi.json).
 - [CONTRIBUTING.md](CONTRIBUTING.md): local setup, commands, tests, commits.
 - [AGENTS.md](AGENTS.md): layers, invariants and workflow rules, enforced by tools.
 - [docs/security/threat-model.md](docs/security/threat-model.md): STRIDE per trust boundary, ASVS mapping, residual risks.
+- [docs/runbooks/](docs/runbooks/README.md): dead-letter queue, stuck outbox, a service that is down.
+- [docs/data-model.md](docs/data-model.md): tables, relations, row-level security.
+- [CHANGELOG.md](CHANGELOG.md): what each release contains.
 - [SECURITY.md](SECURITY.md): how to report a vulnerability.
 
 ## License
