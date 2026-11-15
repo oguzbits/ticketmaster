@@ -91,15 +91,15 @@
         }
       </div>
 
-      <!-- Below lg the panel follows the map; during a booking it sticks to the bottom edge. -->
+      <!-- Below lg the panel follows the map; during a booking it sticks to the bottom edge, and a waiting customer sees it first. -->
       <aside
         aria-label="Booking panel"
         class="card flex min-w-0 flex-col gap-4 p-4 lg:sticky lg:top-4"
-        [class]="
-          pinned()
-            ? 'max-lg:sticky max-lg:bottom-0 max-lg:z-10 max-lg:max-h-[60dvh] max-lg:overflow-y-auto'
-            : ''
-        "
+        [class]="{
+          'max-lg:sticky max-lg:bottom-0 max-lg:z-10 max-lg:max-h-[60dvh] max-lg:overflow-y-auto':
+            pinned(),
+          'max-lg:order-first': isCustomer() && !open(),
+        }"
       >
         @if (isCustomer() && gated()) {
           <app-waiting-room-panel [eventId]="id()" />

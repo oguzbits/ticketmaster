@@ -55,7 +55,7 @@ its table before using it.
   follows the map; while a booking is in progress it sticks to the bottom edge (`max-h` 60 dvh,
   scrolls) and hides the price categories, so the last seat row stays reachable at the end of the
   page. While a waiting room still blocks holding, the panel does not tell the customer to pick a
-  seat.
+  seat, and below `lg` it comes before the map (`order-first`) so the customer finds the way in.
 - **`.seat`**: one seat. Status is never conveyed by color alone: `seat-available` is an empty
   square with a solid border, `seat-held` has a dashed border and a diagonal stripe fill,
   `seat-sold` is a solid filled square with a struck-through number. The accessible name states the

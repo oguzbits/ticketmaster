@@ -494,6 +494,32 @@ describe('SeatMap', () => {
       expect(panel(element)?.textContent).toContain('Pick an available seat on the map.');
     });
 
+    it('puts the panel before the map below lg only while a waiting room blocks the customer', async () => {
+      const { element, loaded, waitingRoom } = render();
+      await loaded(WITH_WAITING_ROOM);
+      waitingRoom.statusCalls[0]?.next(NOT_JOINED);
+      TestBed.tick();
+      expect(panel(element)?.classList).toContain('max-lg:order-first');
+
+      waitingRoom.statusCalls[0]?.next(ADMITTED);
+      TestBed.tick();
+      expect(panel(element)?.classList).not.toContain('max-lg:order-first');
+    });
+
+    it('keeps the panel after the map for a visitor who is not a customer', async () => {
+      const { element, loaded } = render(ROLE.ORGANIZER);
+      await loaded(WITH_WAITING_ROOM);
+
+      expect(panel(element)?.classList).not.toContain('max-lg:order-first');
+    });
+
+    it('keeps the panel after the map for an event without a waiting room', async () => {
+      const { element, loaded } = render();
+      await loaded();
+
+      expect(panel(element)?.classList).not.toContain('max-lg:order-first');
+    });
+
     it('tells a visitor who is not a customer why the map is read-only', async () => {
       const { element, loaded } = render(ROLE.ORGANIZER);
       await loaded();
