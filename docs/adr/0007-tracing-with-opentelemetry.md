@@ -268,8 +268,7 @@ is not part of any deployment. The profile is described in [docs/observability.m
   not the database server. Accepted.
 - Not checked here: the long-lived seat stream (`/api/events/:id/seats/stream`) keeps its server
   span open for the whole stream; Task 2 decides whether to ignore that route.
-- Cost: four more containers in the profile (Tempo, Loki, Alloy, Grafana; the memory budget goes
-  into the phase 5 ADR); the added work per request is not measured.
+- Cost: four more containers in the profile (Tempo, Loki, Alloy, Grafana); the added work per request is not measured.
 
 ## Pros and cons of the options
 

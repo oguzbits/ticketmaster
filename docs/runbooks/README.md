@@ -11,4 +11,4 @@ do next. Commands run against the local Compose stack (the emulator is published
 | `OutboxStuck`, `/health/ready` reports `outbox: stuck`                              | [Stuck outbox](outbox-stuck.md)           |
 | `ApiReplicaMissing`, `ApiAllReplicasGone`, `ScrapeTargetDown`, `GaugeSourceMissing` | [A service is down](service-down.md)      |
 
-Deploy, rollback and restore runbooks arrive with phase 5, together with the scripts they describe.
+There are no deploy, rollback or restore runbooks: the system runs locally only.

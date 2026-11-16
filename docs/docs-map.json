@@ -6,7 +6,6 @@
   "docker-compose.loadtest.yml": "docs/load-tests.md",
   "scripts/k6/": "docs/load-tests.md",
   "packages/shared/src/": "docs/api/",
-  "deploy/": "docs/runbooks/",
   "apps/api/src/infrastructure/database/": "docs/data-model.md",
   "apps/api/src/infrastructure/metrics/": "docs/observability.md",
   "docker/observability/": "docs/observability.md",

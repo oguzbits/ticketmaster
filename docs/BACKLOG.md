@@ -332,9 +332,8 @@ Light portal redesign complete
 - **CI cancels a run in progress only outside `main`,** so every commit on `main` keeps its result.
 - **The worker ran as a skeleton in phase 0.** It now runs the hold-expiry job and is part of the
   Compose stack.
-- **The live demo moved from phase 1 to its own last phase** (phase 5), together with the deploy
-  scripts, the backups and the uptime workflow. Until then the system runs locally with
-  `docker compose up`.
+- **No public live demo.** The owner dropped it (phase 5 with the deploy scripts, backups and
+  uptime workflow). The system runs locally with `docker compose up`.
 - **The optimistic strategy has no retries.** The seat version changes only with a committed hold,
   so a lost race means the seat is taken; retrying could only fail again.
 - **`HOLD_OUTCOME.PLACED` instead of `HELD`.** `HELD` is already a seat status; the magic-string
@@ -457,16 +456,11 @@ Phase 3, slice C:
 - **The cursor is the identity ID.** A row with a lower ID that commits after a reader passed it is
   missed by that reader.
 
-## Open points for the owner
-
-- **Server and domain** for the live demo (Hetzner size, DNS name for HTTPS). Needed only for
-  phase 5; the size and the memory budget per container go into an ADR.
-
 ## Next
 
-Phase 3 is done. The [runbooks](runbooks/README.md) cover the running stack (dead-letter queue,
-stuck outbox, a service down). The deploy, rollback and restore runbooks that the docs-map entry
-for the deploy folder points to come with phase 5, together with the scripts.
+Phases 0 to 4 are done; phase 5 (live demo) is dropped. The [runbooks](runbooks/README.md) cover
+the running stack (dead-letter queue, stuck outbox, a service down). What is left is the list of
+open points below.
 
 ## Open points
 
@@ -590,8 +584,7 @@ for the deploy folder points to come with phase 5, together with the scripts.
   test runs). Reset it with
   `docker compose down -v`; the next `docker compose up` or `pnpm db:migrate` recreates it with the
   seed (this also resets the Keycloak realm, which lives in the same Postgres).
-- **The worker has no healthcheck and no restart policy** in the Compose stack (phase 5, with the
-  container hardening).
+- **The worker has no healthcheck and no restart policy** in the Compose stack.
 - **Stream slots of a vanished process expire only after the stream lifetime plus 60 s.** A slot
   is released when its stream ends; if the process dies, the address stays counted for up to eleven
   minutes. The caps are now shared (500 seat streams, 10 per address, 50 simulation streams for all
@@ -599,7 +592,7 @@ for the deploy folder points to come with phase 5, together with the scripts.
 - **The worker is a single instance.** Its jobs are safe in parallel (locks, consumer groups) but
   nothing runs more than one yet.
 - **The pooler is one container on the path.** If it is down the apps are down; it has a
-  health check and no restart policy yet (phase 5, with the container hardening).
+  health check and no restart policy.
 - **Simulation data is kept for one hour.** The worker's retention job deletes the sandbox event of
   every run that ended more than `SIMULATION_RETENTION_SECONDS` ago (seats, bookings, transitions
   and the run go with it), so the comparison table lists the runs of the last hour only. Within

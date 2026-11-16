@@ -13,8 +13,8 @@ A ticket booking system for events with seats. The hard parts it solves:
 - Production readiness is part of the design from the start: authentication, security,
   scalability, observability and traceability.
 
-Someone who opens the live demo understands within minutes what is hard about the problem and how
-it is solved, and can try the app without any hurdle.
+Someone who reads the README and runs `docker compose up` understands within minutes what is hard
+about the problem and how it is solved. There is no public live demo (owner decision).
 
 ## Domain
 
@@ -94,7 +94,6 @@ Authentication must not get in the way of trying the app.
   transitions.
 - Health checks (`/health/live`, `/health/ready` with business signals such as stuck outbox
   entries) and graceful shutdown.
-- Optional: the Grafana dashboard read-only in the live demo.
 
 ## Stack
 
@@ -150,22 +149,7 @@ flowchart LR
 
 - `docker compose up` starts everything locally; `pnpm db:up` starts only the infrastructure for
   tests.
-- Public live demo: a Hetzner server with Docker Compose and Caddy (HTTPS). A deploy workflow
-  deploys by SSH when CI on `main` is green. The README links the demo at the top.
-- Deploy scripts: `provision.sh` (set up a fresh server from the developer machine, create the
-  deploy key, set the GitHub secrets with `gh`, print no secret, safe to run again), `bootstrap.sh`,
-  `backup.sh` (daily dump to S3 with rotation), `restore-check.sh` (load the dump into a throwaway
-  Postgres and count tables).
-- A dump before every deploy; the restore procedure is documented and tested; RPO and RTO are in
-  the README.
-- Uptime workflow: a GitHub Action calls the health endpoint every 15 minutes including the
-  business signals; a red run is the alarm.
-- Protection in public operation: the simulator is limited globally (one or two concurrent runs, a
-  queue with a visible position, a cap on buyers per run) and every container has resource limits.
-  A single visitor must not be able to stall the demo for others.
 - Releases with SemVer tags and a changelog.
-- Keycloak and the Grafana stack need memory: an ADR records the server size and the memory budget
-  per container.
 
 ## Phases
 
@@ -218,18 +202,10 @@ Threat model, container hardening, row-level security, mutation tests, security 
 first release. Final README, architecture diagrams (Mermaid, dependency graph from
 `pnpm depcruise:graph`), demo GIF at the top. Optional: bilingual UI (German and English).
 
-### Phase 5: Live demo
+### Phase 5: dropped
 
-Everything that needs a public server comes last (see [Operations](#operations)): server and
-domain, the deploy scripts, the deploy workflow, backups with a tested restore, the uptime workflow,
-the ADR for the server size and the memory budget, the runbooks, the demo link at the top of the
-README.
-
-Definition of Done:
-
-- The live demo is publicly reachable over HTTPS and a green `main` deploys by itself.
-- The uptime workflow is active.
-- `restore-check.sh` loads a real backup.
+The public live demo (server, domain, deploy workflow, backups, uptime workflow) is out of scope by
+owner decision. The system runs locally with `docker compose up`.
 
 ## Documentation
 
@@ -238,7 +214,7 @@ docs-map audit). Nothing is maintained twice; link instead.
 
 | Path                            | Content                                                                                                                                                                                                                                                                        |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `README.md`                     | Entry: live demo, what the system solves, quickstart, diagram, key numbers, where it breaks first, the development process with coding agents                                                                                                                                  |
+| `README.md`                     | Entry: what the system solves, quickstart, diagram, key numbers, where it breaks first, the development process with coding agents                                                                                                                                             |
 | `AGENTS.md`, `CLAUDE.md`        | Agent rules; the second only imports the first                                                                                                                                                                                                                                 |
 | `PRODUCT.md`, `DESIGN.md`       | Product, roles and purpose; design tokens and UI principles                                                                                                                                                                                                                    |
 | `CONTRIBUTING.md`               | Local setup, commands, test strategy, commit convention                                                                                                                                                                                                                        |
