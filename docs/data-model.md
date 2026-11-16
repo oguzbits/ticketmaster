@@ -136,7 +136,9 @@ message attribute, so a booking is one trace through the queue. The relay in the
 selects unpublished rows oldest first with `FOR UPDATE SKIP LOCKED`, sends them and sets
 `published_at`; a failed send raises `attempts` and stores the error name in `last_error`. The row
 ID is the message ID. `outbox_messages(created_at)` is a partial index on the unpublished rows, so
-it serves the relay and the readiness check however many rows are published. Published rows are
+it serves the relay and the readiness check however many rows are published. A unique partial index
+on `payload->>'bookingId'` for `BOOKING_CONFIRMED` rows makes one confirmation message per booking a
+database guarantee. Published rows are
 kept; deleting old ones is a backlog item. `processed_messages(consumer, message_id)` is the
 consumers' idempotency record: the primary key turns a second delivery of a message ID into a
 no-op for that consumer. Neither table has a foreign key: the payload holds IDs of rows that may

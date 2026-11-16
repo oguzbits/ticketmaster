@@ -503,10 +503,6 @@ open points below.
   the transaction, so a cancel or an expiry can land while the provider answers. The apply step
   then answers 409, stores nothing and logs the booking ID; the money is not returned. Needs a
   refund call on the provider port and a stored reason.
-- **No database guard for one `BOOKING_CONFIRMED` per booking.** The outbox row is written in the
-  apply step of the payment; that exactly one row exists per confirmed booking rests on the row
-  lock and the status check, not on a unique constraint. A unique index on the booking ID in the
-  payload would make it a database guarantee.
 - **The outbox relay holds a transaction while it sends.** The rows stay locked (`SKIP LOCKED`
   keeps other relays away) until the batch is sent and marked. A run ends within its deadline
   (30 s): a send that has not answered by then counts as failed and ends the batch; each statement

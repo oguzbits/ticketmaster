@@ -219,6 +219,10 @@ export const outboxMessages = pgTable(
     index('outbox_messages_unpublished_idx')
       .on(t.createdAt)
       .where(sql`${t.publishedAt} is null`),
+    // Defense in depth: the database refuses a second confirmation message of one booking.
+    uniqueIndex('outbox_messages_confirmed_booking_uidx')
+      .on(sql`(${t.payload}->>'bookingId')`)
+      .where(sql`${t.type} = ${literal(OUTBOX_MESSAGE_TYPE.BOOKING_CONFIRMED)}`),
   ]
 );
 

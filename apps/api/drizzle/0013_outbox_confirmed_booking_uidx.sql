@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "outbox_messages_confirmed_booking_uidx" ON "outbox_messages" USING btree (("payload"->>'bookingId')) WHERE "outbox_messages"."type" = 'BOOKING_CONFIRMED';

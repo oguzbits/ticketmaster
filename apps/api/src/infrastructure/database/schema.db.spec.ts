@@ -196,6 +196,35 @@ describe('booking schema', () => {
     expect(rows[0]?.definition).toMatch(/where \(?published_at is null\)?/i);
   });
 
+  it('refuses a second confirmation message of one booking', async () => {
+    const bookingId = randomUUID();
+    const row = () => {
+      const id = randomUUID();
+      return {
+        id,
+        type: OUTBOX_MESSAGE_TYPE.BOOKING_CONFIRMED,
+        payload: {
+          messageId: id,
+          type: OUTBOX_MESSAGE_TYPE.BOOKING_CONFIRMED,
+          bookingId,
+          eventId: randomUUID(),
+          userId: randomUUID(),
+          occurredAt: SPEC_NOW.toISOString(),
+        },
+      };
+    };
+    const unlock = await lockOutboxRelays(db);
+    try {
+      await db.insert(outboxMessages).values(row());
+
+      await expect(db.insert(outboxMessages).values(row())).rejects.toMatchObject({
+        cause: { code: UNIQUE_VIOLATION },
+      });
+    } finally {
+      await unlock();
+    }
+  });
+
   it('a consumer records a message ID once; another consumer may record the same ID', async () => {
     const messageId = randomUUID();
     await db.insert(processedMessages).values({ consumer: SPEC_CONSUMER, messageId });
