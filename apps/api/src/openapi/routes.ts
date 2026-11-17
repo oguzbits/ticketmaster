@@ -9,7 +9,7 @@
 
 import * as shared from '@app/shared';
 
-const { ROLE, SEAT_STREAM_EVENT } = shared;
+const { BOOKING_STRATEGY, ROLE, SEAT_STREAM_EVENT } = shared;
 
 /** Marks a route that needs no token (a token that is sent is still verified). */
 export const PUBLIC = 'public';
@@ -37,6 +37,7 @@ export const SCHEMAS = {
   SimulationProgress: shared.SimulationProgressSchema,
   SimulationRun: shared.SimulationRunSchema,
   StartSimulationRequest: shared.StartSimulationRequestSchema,
+  TicketDownload: shared.TicketDownloadSchema,
   TokenResponse: shared.TokenResponseSchema,
   VenueList: shared.VenueListResponseSchema,
   WaitingRoomStatus: shared.WaitingRoomStatusSchema,
@@ -139,6 +140,7 @@ export const ROUTES: Record<string, RouteDoc> = {
       schema: 'EventSummary',
     },
     errors: {
+      400: `A malformed body or unknown strategy, or \`${BOOKING_STRATEGY.NAIVE}\` when \`UNSAFE_STRATEGIES_ENABLED\` is false.`,
       404: 'Unknown event. A demo admin may switch only their own sandbox events, a regular admin only public events; any other event is 404.',
     },
   },
@@ -150,6 +152,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     body: 'HoldRequest',
     success: { status: 201, description: 'The new booking, HELD.', schema: 'Booking' },
     errors: {
+      400: `A malformed body, or the event uses \`${BOOKING_STRATEGY.NAIVE}\` while \`UNSAFE_STRATEGIES_ENABLED\` is false.`,
       404: 'The seat is not in the event, or the event is another user’s sandbox event.',
       409: 'The seat is not available.',
     },
@@ -198,12 +201,13 @@ export const ROUTES: Record<string, RouteDoc> = {
   'TicketsController.download': {
     method: 'get',
     path: '/api/bookings/{id}/ticket',
-    summary: 'Download the ticket of a confirmed booking',
+    summary: 'Issue a short-lived presigned download URL for a confirmed booking ticket',
     access: [ROLE.CUSTOMER],
     success: {
       status: 200,
       description:
-        'The ticket as `application/pdf`, an attachment named `ticket-<id>.pdf`. Not JSON: the response has no schema.',
+        'A presigned S3 download URL and its expiry timestamp (`ticket-<id>.pdf`, expires after 60 s).',
+      schema: 'TicketDownload',
     },
     errors: {
       403: FOREIGN_BOOKING,
@@ -232,7 +236,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     body: 'CreateEventRequest',
     success: { status: 201, description: 'The new event.', schema: 'EventSummary' },
     errors: {
-      400: 'A malformed body, or a `startsAt` that is not in the future.',
+      400: `A malformed body, a \`startsAt\` that is not in the future, or \`${BOOKING_STRATEGY.NAIVE}\` when \`UNSAFE_STRATEGIES_ENABLED\` is false.`,
       404: 'Unknown venue.',
       409: 'The owner already has 20 events.',
       429: 'Rate limit exceeded (`CREATE_EVENT`).',
@@ -246,6 +250,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     body: 'StartSimulationRequest',
     success: { status: 201, description: 'The run, QUEUED.', schema: 'SimulationRun' },
     errors: {
+      400: `A malformed body, or \`${BOOKING_STRATEGY.NAIVE}\` when \`UNSAFE_STRATEGIES_ENABLED\` is false.`,
       429: 'Rate limit exceeded (`SIMULATION`), or two runs are active (then without `Retry-After`).',
     },
   },
@@ -292,6 +297,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     body: 'DemoLoginRequest',
     success: { status: 200, description: 'The tokens of the new user.', schema: 'TokenResponse' },
     errors: {
+      403: 'Demo login is disabled (`DEMO_LOGIN_ENABLED` is false).',
       429: 'Rate limit exceeded (`DEMO_LOGIN`).',
       503: 'The demo is full (200 demo users, nothing is created), or Keycloak does not answer within 5 s.',
     },

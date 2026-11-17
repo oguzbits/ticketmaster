@@ -1,5 +1,5 @@
-import { ROLE } from '@app/shared';
-import { Controller, Get, Param, StreamableFile } from '@nestjs/common';
+import { ROLE, type TicketDownload } from '@app/shared';
+import { Controller, Get, Param } from '@nestjs/common';
 import { z } from 'zod';
 
 import { ZodPipe } from '../../infrastructure/http/zod.pipe.js';
@@ -13,14 +13,10 @@ export class TicketsController {
 
   @Roles(ROLE.CUSTOMER)
   @Get(':id/ticket')
-  async download(
+  download(
     @Param('id', new ZodPipe(z.uuid())) id: string,
     @CurrentUser() user: AuthUser
-  ): Promise<StreamableFile> {
-    const pdf = await this.tickets.download(user.id, id);
-    return new StreamableFile(pdf, {
-      type: 'application/pdf',
-      disposition: `attachment; filename="ticket-${id}.pdf"`,
-    });
+  ): Promise<TicketDownload> {
+    return this.tickets.downloadUrl(user.id, id);
   }
 }

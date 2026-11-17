@@ -65,6 +65,8 @@ export {
   SeatChangeSchema,
   type SeatSnapshot,
   SeatSnapshotSchema,
+  type TicketDownload,
+  TicketDownloadSchema,
 } from './bookings-api.js';
 export {
   type EventDetail,

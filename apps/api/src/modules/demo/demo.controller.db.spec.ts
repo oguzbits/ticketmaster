@@ -91,4 +91,43 @@ describe('demo login and refresh endpoints', () => {
       await post('/auth/refresh', { refreshToken: 'any' }, client).expect(429);
     });
   });
+
+  describe('when DEMO_LOGIN_ENABLED is false', () => {
+    let disabledApp: INestApplication;
+
+    beforeAll(async () => {
+      const { DEMO_OPTIONS } = await import('./demo.service.js');
+      const { SEAT_CHANGE_PUBLISHER } = await import('../bookings/index.js');
+      const { loadEnv } = await import('../../config/config.module.js');
+      const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+        .overrideProvider(KEYCLOAK_ADMIN)
+        .useValue(keycloak)
+        .overrideProvider(DEMO_OPTIONS)
+        .useFactory({
+          factory: (seatChanges) => ({
+            loginEnabled: false,
+            userTtlSeconds: loadEnv().DEMO_USER_TTL_SECONDS,
+            maxUsers: 200,
+            seatChanges,
+          }),
+          inject: [SEAT_CHANGE_PUBLISHER],
+        })
+        .compile();
+      disabledApp = configureApp(moduleRef.createNestApplication<NestExpressApplication>());
+      await disabledApp.init();
+    });
+    afterAll(() => disabledApp.close());
+
+    it('refuses POST /api/demo-login with 403 without creating a Keycloak user', async () => {
+      const before = keycloak.created.length;
+
+      await request(disabledApp.getHttpServer())
+        .post('/api/demo-login')
+        .set('X-Forwarded-For', randomClientAddress())
+        .send({ role: ROLE.CUSTOMER })
+        .expect(403);
+
+      expect(keycloak.created).toHaveLength(before);
+    });
+  });
 });

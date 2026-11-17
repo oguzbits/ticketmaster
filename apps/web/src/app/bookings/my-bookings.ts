@@ -60,8 +60,8 @@ export class MyBookings {
     this.downloading.set(booking.id);
     this.downloadFailed.set(null);
     this.service.downloadTicket(booking.id).subscribe({
-      next: (blob) => {
-        saveFile(blob, `ticket-${booking.id}.pdf`);
+      next: ({ url }) => {
+        triggerDownload(url, `ticket-${booking.id}.pdf`);
         this.downloading.set(null);
       },
       error: () => {
@@ -86,13 +86,11 @@ export class MyBookings {
   }
 }
 
-/** Hands the file to the browser through a temporary link; the object URL is released right after. */
-function saveFile(blob: Blob, name: string): void {
-  const url = URL.createObjectURL(blob);
+/** Hands the presigned URL to the browser through a temporary anchor element. */
+function triggerDownload(url: string, name: string): void {
   const link = document.createElement('a');
   link.href = url;
   link.download = name;
+  link.rel = 'noopener';
   link.click();
-  // After the click has been handled: Safari and Firefox cancel the download of a revoked URL.
-  setTimeout(() => URL.revokeObjectURL(url));
 }

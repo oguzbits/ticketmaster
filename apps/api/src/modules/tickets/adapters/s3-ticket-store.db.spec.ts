@@ -53,4 +53,29 @@ describe('S3TicketStore against the local emulator', () => {
       name: 'NoSuchBucket',
     });
   });
+
+  it('issues a presigned download URL that returns the PDF as an attachment', async () => {
+    const bookingId = randomUUID();
+    await store.put(bookingId, PDF);
+
+    const url = await store.presignDownload(bookingId, 60);
+    const response = await fetch(url);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toMatch(/^application\/pdf/);
+    expect(response.headers.get('content-disposition')).toBe(
+      `attachment; filename="ticket-${bookingId}.pdf"`
+    );
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(PDF);
+  });
+
+  it('rewrites the presigned URL origin when presignBaseUrl is set while keeping path and signature', async () => {
+    const bookingId = randomUUID();
+    const proxiedStore = new S3TicketStore(client, BUCKET, '/storage');
+
+    const url = await proxiedStore.presignDownload(bookingId, 60);
+
+    expect(url).toMatch(new RegExp(`^/storage/${BUCKET}/tickets/${bookingId}\\.pdf\\?`));
+    expect(url).toContain('X-Amz-Signature=');
+  });
 });

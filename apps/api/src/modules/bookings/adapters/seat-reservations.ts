@@ -1,5 +1,10 @@
 import { BOOKING_STRATEGY, type BookingStrategy } from '@app/shared';
+import { BadRequestException } from '@nestjs/common';
 
+import {
+  isStrategyAllowed,
+  UNSAFE_STRATEGY_DISABLED_MESSAGE,
+} from '../../../core/booking-strategy-policy.js';
 import type { Clock } from '../../../core/clock.js';
 import type { Database } from '../../../infrastructure/database/database.module.js';
 import type { Redis } from '../../../infrastructure/redis/redis.module.js';
@@ -15,14 +20,16 @@ export class SeatReservations {
   private readonly byStrategy: Record<BookingStrategy, SeatReservation>;
 
   private readonly ttlSeconds: number;
+  private readonly unsafeStrategiesEnabled: boolean;
 
   constructor(
     db: Database,
     redis: Redis,
     private readonly clock: Clock,
-    hold: { ttlSeconds: number; audit: AuditService }
+    hold: { ttlSeconds: number; audit: AuditService; unsafeStrategiesEnabled?: boolean }
   ) {
     this.ttlSeconds = hold.ttlSeconds;
+    this.unsafeStrategiesEnabled = hold.unsafeStrategiesEnabled ?? true;
     this.byStrategy = {
       [BOOKING_STRATEGY.NAIVE]: new NaiveReservation(db, hold.audit),
       [BOOKING_STRATEGY.PESSIMISTIC]: new PessimisticReservation(db, hold.audit),
@@ -32,6 +39,9 @@ export class SeatReservations {
   }
 
   hold(strategy: BookingStrategy, input: HoldInput): Promise<HoldResult> {
+    if (!isStrategyAllowed(strategy, this.unsafeStrategiesEnabled)) {
+      throw new BadRequestException(UNSAFE_STRATEGY_DISABLED_MESSAGE);
+    }
     return this.byStrategy[strategy].hold({
       ...input,
       now: this.clock.now(),

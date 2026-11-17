@@ -6,6 +6,8 @@ import {
   BookingSchema,
   IDEMPOTENCY_KEY_HEADER,
   IdempotencyKeySchema,
+  type TicketDownload,
+  TicketDownloadSchema,
 } from '@app/shared';
 import { map, type Observable } from 'rxjs';
 
@@ -40,10 +42,10 @@ export class BookingsService {
       .pipe(map((body) => BookingListResponseSchema.parse(body)));
   }
 
-  /** The PDF of a confirmed booking; the answer is binary, so it is not parsed. */
-  downloadTicket(bookingId: string): Observable<Blob> {
-    return this.http.get(`/api/bookings/${encodeURIComponent(bookingId)}/ticket`, {
-      responseType: 'blob',
-    });
+  /** A short-lived presigned download URL for the ticket PDF of a confirmed booking. */
+  downloadTicket(bookingId: string): Observable<TicketDownload> {
+    return this.http
+      .get(`/api/bookings/${encodeURIComponent(bookingId)}/ticket`)
+      .pipe(map((body) => TicketDownloadSchema.parse(body)));
   }
 }

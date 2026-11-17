@@ -39,6 +39,9 @@ const LOCAL_DEFAULTS = {
   AWS_SECRET_ACCESS_KEY: 'test',
   // Mailpit of docker-compose.yml.
   SMTP_URL: 'smtp://localhost:1025',
+  // Enabled locally for the demo and strategy comparison; off by default in production.
+  DEMO_LOGIN_ENABLED: 'true',
+  UNSAFE_STRATEGIES_ENABLED: 'true',
 };
 
 export const EnvSchema = z
@@ -64,8 +67,18 @@ export const EnvSchema = z
       .int()
       .positive()
       .default(DEFAULT_DEMO_USER_TTL_SECONDS),
+    // Off by default in production; local Compose and development enable the demo login explicitly.
+    DEMO_LOGIN_ENABLED: z.stringbool().default(false),
+    // Off by default in production; prevents configuring or holding under the NAIVE strategy.
+    UNSAFE_STRATEGIES_ENABLED: z.stringbool().default(false),
     // Unset in production means real AWS; parseEnv fills the local emulator otherwise.
     AWS_ENDPOINT_URL: z.url().optional(),
+    // Optional origin/path prefix for presigned S3 ticket URLs (e.g. `/storage` behind Caddy).
+    S3_PRESIGN_BASE_URL: z
+      .string()
+      .min(1)
+      .transform((base) => base.replace(/\/+$/, ''))
+      .optional(),
     AWS_REGION: z.string().min(1).default(DEFAULT_AWS_REGION),
     AWS_ACCESS_KEY_ID: z.string().min(1),
     AWS_SECRET_ACCESS_KEY: z.string().min(1),

@@ -43,6 +43,8 @@ describe('parseEnv', () => {
       KEYCLOAK_DEMO_CLIENT_ID: 'api-demo',
       KEYCLOAK_DEMO_CLIENT_SECRET: LOCAL_KEYCLOAK_SECRET,
       DEMO_USER_TTL_SECONDS: 3600,
+      DEMO_LOGIN_ENABLED: true,
+      UNSAFE_STRATEGIES_ENABLED: true,
       AWS_ENDPOINT_URL: LOCAL_AWS_ENDPOINT_URL,
       AWS_REGION: 'us-east-1',
       AWS_ACCESS_KEY_ID: LOCAL_AWS_CREDENTIAL,
@@ -287,5 +289,28 @@ describe('parseEnv', () => {
       'http://localhost:3000'
     );
     expect(() => parseEnv({ GRAFANA_URL: 'not a url' })).toThrow(/GRAFANA_URL/);
+  });
+
+  it('disables demo login and unsafe strategies by default in production unless opted in', () => {
+    const prod = parseEnv({ ...PRODUCTION_BASE, ...KEYCLOAK_PRODUCTION });
+    expect(prod.DEMO_LOGIN_ENABLED).toBe(false);
+    expect(prod.UNSAFE_STRATEGIES_ENABLED).toBe(false);
+
+    const optedIn = parseEnv({
+      ...PRODUCTION_BASE,
+      ...KEYCLOAK_PRODUCTION,
+      DEMO_LOGIN_ENABLED: 'true',
+      UNSAFE_STRATEGIES_ENABLED: 'true',
+    });
+    expect(optedIn.DEMO_LOGIN_ENABLED).toBe(true);
+    expect(optedIn.UNSAFE_STRATEGIES_ENABLED).toBe(true);
+  });
+
+  it('strips trailing slashes from S3_PRESIGN_BASE_URL and leaves it undefined by default', () => {
+    expect(parseEnv({}).S3_PRESIGN_BASE_URL).toBeUndefined();
+    expect(parseEnv({ S3_PRESIGN_BASE_URL: '/storage/' }).S3_PRESIGN_BASE_URL).toBe('/storage');
+    expect(parseEnv({ S3_PRESIGN_BASE_URL: 'https://cdn.example.com/' }).S3_PRESIGN_BASE_URL).toBe(
+      'https://cdn.example.com'
+    );
   });
 });

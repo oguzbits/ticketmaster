@@ -5,9 +5,10 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 import type { Env } from '../../../config/env.js';
-import { ticketObjectKey, type TicketStore } from '../domain/ticket.js';
+import { ticketFilename, ticketObjectKey, type TicketStore } from '../domain/ticket.js';
 
 /** A put or a get that takes longer fails: the queue delivers the message again. */
 const S3_REQUEST_TIMEOUT_MS = 10_000;
@@ -48,7 +49,8 @@ export function createS3Client(
 export class S3TicketStore implements TicketStore {
   constructor(
     private readonly client: S3Client,
-    private readonly bucket: string
+    private readonly bucket: string,
+    private readonly presignBaseUrl?: string
   ) {}
 
   async put(bookingId: string, pdf: Uint8Array): Promise<void> {
@@ -73,6 +75,22 @@ export class S3TicketStore implements TicketStore {
       if (error instanceof NoSuchKey) return null;
       throw error;
     }
+  }
+
+  async presignDownload(bookingId: string, ttlSeconds: number): Promise<string> {
+    const signed = await getSignedUrl(
+      this.client,
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: ticketObjectKey(bookingId),
+        ResponseContentDisposition: `attachment; filename="${ticketFilename(bookingId)}"`,
+        ResponseContentType: PDF_CONTENT_TYPE,
+      }),
+      { expiresIn: ttlSeconds }
+    );
+    if (this.presignBaseUrl === undefined) return signed;
+    const parsed = new URL(signed);
+    return `${this.presignBaseUrl}${parsed.pathname}${parsed.search}`;
   }
 
   async delete(bookingId: string): Promise<void> {

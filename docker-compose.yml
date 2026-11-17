@@ -219,7 +219,10 @@ services:
       REDIS_URL: redis://redis:6379
       KEYCLOAK_URL: http://keycloak:8080
       KEYCLOAK_DEMO_CLIENT_SECRET: local-demo-client-secret
+      DEMO_LOGIN_ENABLED: ${DEMO_LOGIN_ENABLED:-true}
+      UNSAFE_STRATEGIES_ENABLED: ${UNSAFE_STRATEGIES_ENABLED:-true}
       AWS_ENDPOINT_URL: http://aws:4566
+      S3_PRESIGN_BASE_URL: /storage
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       # Off unless started as `TRACING_ENABLED=true docker compose --profile observability up`,
@@ -261,6 +264,7 @@ services:
       REDIS_URL: redis://redis:6379
       KEYCLOAK_URL: http://keycloak:8080
       KEYCLOAK_DEMO_CLIENT_SECRET: local-demo-client-secret
+      UNSAFE_STRATEGIES_ENABLED: ${UNSAFE_STRATEGIES_ENABLED:-true}
       AWS_ENDPOINT_URL: http://aws:4566
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test

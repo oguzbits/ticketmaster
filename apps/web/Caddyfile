@@ -54,6 +54,14 @@
 		}
 	}
 
+	# Presigned S3 downloads share the origin in Compose so the browser and E2E stack reach
+	# the local AWS emulator without exposing its port.
+	handle_path /storage/* {
+		reverse_proxy aws:4566 {
+			header_up Host aws:4566
+		}
+	}
+
 	handle {
 		root * /srv
 		try_files {path} /index.html

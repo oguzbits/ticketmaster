@@ -50,8 +50,14 @@ export const SEAT_STREAM_EVENT = {
   CHANGE: 'change',
 } as const;
 
+export const TicketDownloadSchema = z.object({
+  url: z.union([z.url(), z.string().startsWith('/')]),
+  expiresAt: z.iso.datetime(),
+});
+
 export type HoldRequest = z.infer<typeof HoldRequestSchema>;
 export type BookingTransition = z.infer<typeof BookingTransitionSchema>;
 export type Booking = z.infer<typeof BookingSchema>;
 export type SeatChange = z.infer<typeof SeatChangeSchema>;
 export type SeatSnapshot = z.infer<typeof SeatSnapshotSchema>;
+export type TicketDownload = z.infer<typeof TicketDownloadSchema>;

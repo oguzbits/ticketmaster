@@ -1,4 +1,4 @@
-import type { TicketStore } from '../domain/ticket.js';
+import { ticketObjectKey, type TicketStore } from '../domain/ticket.js';
 
 /** A ticket store in memory that counts the puts and deletes and can hide or fail tickets. */
 export class FakeTicketStore implements TicketStore {
@@ -19,6 +19,12 @@ export class FakeTicketStore implements TicketStore {
   get(bookingId: string): Promise<Uint8Array | null> {
     return Promise.resolve(
       this.hidden.has(bookingId) ? null : (this.objects.get(bookingId) ?? null)
+    );
+  }
+
+  presignDownload(bookingId: string, ttlSeconds: number): Promise<string> {
+    return Promise.resolve(
+      `https://storage.test/${ticketObjectKey(bookingId)}?expiresIn=${ttlSeconds}`
     );
   }
 

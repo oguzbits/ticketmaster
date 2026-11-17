@@ -23,7 +23,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { AppModule } from '../../app.module.js';
 import { configureApp } from '../../app.setup.js';
-import { loadEnv } from '../../config/config.module.js';
+import { APP_CONFIG, loadEnv } from '../../config/config.module.js';
 import { CLOCK } from '../../core/clock.js';
 import { CacheAside } from '../../infrastructure/cache/cache-aside.js';
 import { SystemClock } from '../../infrastructure/clock/system-clock.js';
@@ -441,6 +441,45 @@ describe('events endpoints', () => {
       await patch(randomUUID(), { strategy: BOOKING_STRATEGY.NAIVE }, ADMIN_TOKEN).expect(404);
       await patch('not-a-uuid', { strategy: BOOKING_STRATEGY.NAIVE }, ADMIN_TOKEN).expect(400);
       await patch(eventId, { strategy: 'FAST' }, ADMIN_TOKEN).expect(400);
+    });
+
+    describe('when UNSAFE_STRATEGIES_ENABLED is false', () => {
+      let guardedApp: INestApplication;
+
+      beforeAll(async () => {
+        const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+          .overrideProvider(APP_CONFIG)
+          .useValue({ ...loadEnv(), UNSAFE_STRATEGIES_ENABLED: false })
+          .overrideProvider(CLOCK)
+          .useValue({ now: () => SPEC_NOW })
+          .overrideProvider(TOKEN_VERIFIER)
+          .useValue(fakeTokenVerifier({ [ADMIN_TOKEN]: ADMIN }))
+          .compile();
+        guardedApp = configureApp(moduleRef.createNestApplication<NestExpressApplication>());
+        await guardedApp.init();
+      });
+      afterAll(() => guardedApp.close());
+
+      it('refuses switching to NAIVE with 400 and allows safe strategies', async () => {
+        const { eventId } = await createTestEvent(db, { strategy: STRATEGY, seats: 1 });
+
+        await request(guardedApp.getHttpServer())
+          .patch(`/api/events/${eventId}/strategy`)
+          .set('X-Forwarded-For', randomClientAddress())
+          .set('Authorization', `Bearer ${ADMIN_TOKEN}`)
+          .send({ strategy: BOOKING_STRATEGY.NAIVE })
+          .expect(400);
+
+        const unchanged = await get(`/api/events/${eventId}`).expect(200);
+        expect(EventDetailSchema.parse(unchanged.body).strategy).toBe(STRATEGY);
+
+        await request(guardedApp.getHttpServer())
+          .patch(`/api/events/${eventId}/strategy`)
+          .set('X-Forwarded-For', randomClientAddress())
+          .set('Authorization', `Bearer ${ADMIN_TOKEN}`)
+          .send({ strategy: BOOKING_STRATEGY.OPTIMISTIC })
+          .expect(200);
+      });
     });
   });
 });

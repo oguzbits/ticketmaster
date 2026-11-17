@@ -320,6 +320,19 @@ Light portal redesign complete
   event page, my bookings, the organizer page (empty submit shows the name error), the simulator
   with a finished run, the audit log, and the focus ring on white.
 
+Enterprise production alignment, slice 1 (production config guards and S3 presigned ticket downloads):
+
+- `DEMO_LOGIN_ENABLED` and `UNSAFE_STRATEGIES_ENABLED` default to `false` in `EnvSchema` (local
+  defaults and `docker-compose.yml` enable them explicitly so the local stack and `pnpm e2e` keep
+  working). When `false`, `POST /api/demo-login` answers 403 and creating, switching, simulating or
+  holding under `NAIVE` answers 400 (`isStrategyAllowed` in `apps/api/src/core`).
+- `GET /api/bookings/:id/ticket` returns a 60 s presigned S3 URL (`TicketDownloadSchema`: `{ url, expiresAt }`)
+  with `ResponseContentDisposition: attachment` instead of proxying the PDF bytes through the API.
+  `S3_PRESIGN_BASE_URL=/storage` in Compose lets Caddy proxy `/storage/*` to `aws:4566` with `Host: aws:4566`
+  so browser downloads and `pnpm e2e` share the origin without exposing the emulator port.
+  Note: Floci accepts presigned `GetObject` parameters cleanly but does not reject tampered
+  `X-Amz-Signature` values (real S3 enforces SigV4).
+
 ## Deviations from the plan
 
 - **No SWC for NestJS decorators.** Vitest (Vite 8, Oxc) reads `experimentalDecorators` and

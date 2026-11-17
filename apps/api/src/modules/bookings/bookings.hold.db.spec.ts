@@ -7,7 +7,7 @@ import {
   BOOKING_STRATEGY,
   TRANSITION_REASON,
 } from '@app/shared';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { count, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -277,5 +277,65 @@ describe.each(Object.values(BOOKING_STRATEGY))('hold under %s', (strategy) => {
 
       expect(metrics.calls).toEqual([]);
     });
+  });
+});
+
+describe('hold when UNSAFE_STRATEGIES_ENABLED is false', () => {
+  const database = openTestDatabase();
+  const { db } = database;
+  const env = loadEnv();
+  let redis: Redis;
+  let service: BookingsService;
+
+  beforeAll(async () => {
+    redis = await openTestRedis();
+    const reservations = new SeatReservations(db, redis, clock, {
+      ttlSeconds: env.HOLD_TTL_SECONDS,
+      audit: new AuditService(db, clock),
+      unsafeStrategiesEnabled: false,
+    });
+    service = createBookingsService(
+      db,
+      redis,
+      clock,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      reservations
+    );
+  });
+  afterAll(async () => {
+    await redis.quit();
+    await database.close();
+  });
+
+  it('refuses a NAIVE hold with BadRequestException and writes no booking, while PESSIMISTIC succeeds', async () => {
+    const naiveEvent = await createTestEvent(db, { strategy: BOOKING_STRATEGY.NAIVE, seats: 1 });
+    const naiveSeatId = naiveEvent.seatIds[0] ?? '';
+
+    await expect(
+      service.hold({
+        eventId: naiveEvent.eventId,
+        seatId: naiveSeatId,
+        userId: randomUUID(),
+        requestId: null,
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    const rows = await db.select().from(bookings).where(eq(bookings.seatId, naiveSeatId));
+    expect(rows).toEqual([]);
+
+    const safeEvent = await createTestEvent(db, {
+      strategy: BOOKING_STRATEGY.PESSIMISTIC,
+      seats: 1,
+    });
+    const safeHold = await service.hold({
+      eventId: safeEvent.eventId,
+      seatId: safeEvent.seatIds[0] ?? '',
+      userId: randomUUID(),
+      requestId: null,
+    });
+    expect(safeHold.outcome).toBe(HOLD_OUTCOME.PLACED);
   });
 });

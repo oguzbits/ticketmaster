@@ -19,7 +19,7 @@ Ports of the local stack (`docker-compose.yml`):
 
 | Service  | Host port | Notes                                             |
 | -------- | --------- | ------------------------------------------------- |
-| web      | 8080      | Caddy: static web app, proxies `/health/*` and `/api/*` to the two api replicas |
+| web      | 8080      | Caddy: static web app, proxies `/health/*`, `/api/*` and `/storage/*` (presigned tickets) |
 | keycloak | 8081      | bound to 127.0.0.1; admin console, local admin user `admin` / `admin` |
 | postgres | 54330     | databases `app` and `keycloak`; owner `app`, runtime login `app_runtime` (see below) |
 | pgbouncer | 64320    | connection pooler (transaction mode) in front of postgres; api and worker connect through it, see [ADR 0005](docs/adr/0005-pgbouncer-transaction-mode.md) |
@@ -79,7 +79,10 @@ variable with a comment; the table is generated (`pnpm docs:generate`).
 | `KEYCLOAK_DEMO_CLIENT_ID` | default `api-demo` |
 | `KEYCLOAK_DEMO_CLIENT_SECRET` | required |
 | `DEMO_USER_TTL_SECONDS` | default `3600` |
+| `DEMO_LOGIN_ENABLED` | default `false` |
+| `UNSAFE_STRATEGIES_ENABLED` | default `false` |
 | `AWS_ENDPOINT_URL` | optional |
+| `S3_PRESIGN_BASE_URL` | optional |
 | `AWS_REGION` | default `us-east-1` |
 | `AWS_ACCESS_KEY_ID` | required |
 | `AWS_SECRET_ACCESS_KEY` | required |

@@ -28,7 +28,12 @@ import { SEAT_CHANGE_PUBLISHER, type SeatChangePublisher } from './domain/seat-c
       // Four parameters is the factory limit: the TTL and the audit service travel as one object.
       useFactory: (
         ...[db, redis, clock, env, audit]: [Database, Redis, Clock, Env, AuditService]
-      ) => new SeatReservations(db, redis, clock, { ttlSeconds: env.HOLD_TTL_SECONDS, audit }),
+      ) =>
+        new SeatReservations(db, redis, clock, {
+          ttlSeconds: env.HOLD_TTL_SECONDS,
+          audit,
+          unsafeStrategiesEnabled: env.UNSAFE_STRATEGIES_ENABLED,
+        }),
       inject: [DB, REDIS, CLOCK, APP_CONFIG, AuditService],
     },
     {

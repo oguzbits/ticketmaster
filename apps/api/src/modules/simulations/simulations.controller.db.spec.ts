@@ -20,6 +20,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { AppModule } from '../../app.module.js';
 import { configureApp } from '../../app.setup.js';
+import { APP_CONFIG, loadEnv } from '../../config/config.module.js';
 import { CLOCK } from '../../core/clock.js';
 import { events, seats, simulationRuns } from '../../infrastructure/database/schema.js';
 import { RATE_LIMIT } from '../../infrastructure/rate-limit/rate-limit.decorator.js';
@@ -158,6 +159,37 @@ describe('simulation endpoints', () => {
       const refused = await attempt().expect(429);
 
       expect(refused.headers['retry-after']).toBeDefined();
+    });
+
+    describe('when UNSAFE_STRATEGIES_ENABLED is false', () => {
+      let guardedApp: INestApplication;
+
+      beforeAll(async () => {
+        const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+          .overrideProvider(APP_CONFIG)
+          .useValue({ ...loadEnv(), UNSAFE_STRATEGIES_ENABLED: false })
+          .overrideProvider(TOKEN_VERIFIER)
+          .useValue(fakeTokenVerifier(TOKENS))
+          .overrideProvider(CLOCK)
+          .useValue({ now: () => SPEC_NOW })
+          .compile();
+        guardedApp = configureApp(moduleRef.createNestApplication<NestExpressApplication>());
+        await guardedApp.init();
+      });
+      afterAll(() => guardedApp.close());
+
+      it('refuses starting a NAIVE simulation with 400 and inserts no run', async () => {
+        const before = await db.select().from(simulationRuns);
+
+        await request(guardedApp.getHttpServer())
+          .post('/api/simulations')
+          .set('X-Forwarded-For', randomClientAddress())
+          .set('Authorization', 'Bearer admin')
+          .send({ buyers: 5, seats: 5, strategy: BOOKING_STRATEGY.NAIVE })
+          .expect(400);
+
+        expect(await db.select().from(simulationRuns)).toHaveLength(before.length);
+      });
     });
   });
 

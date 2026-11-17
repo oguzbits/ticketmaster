@@ -17,7 +17,12 @@ import {
 } from '@nestjs/common';
 import { asc, count, eq, inArray, sql } from 'drizzle-orm';
 
-import { CLOCK, type Clock } from '../../core/clock.js';
+import type { Env } from '../../config/env.js';
+import {
+  isStrategyAllowed,
+  UNSAFE_STRATEGY_DISABLED_MESSAGE,
+} from '../../core/booking-strategy-policy.js';
+import type { Clock } from '../../core/clock.js';
 import { type Database, DB, type Tx } from '../../infrastructure/database/database.module.js';
 import {
   bookings,
@@ -33,13 +38,20 @@ import { EventCache } from '../event-cache/index.js';
 /** Events one owner may have; every event copies a venue's seats, so the table cannot grow unbounded. */
 export const MAX_EVENTS_PER_OWNER = 20;
 
+export const ORGANIZER_DEPS = Symbol('ORGANIZER_DEPS');
+
+export interface OrganizerDeps {
+  clock: Clock;
+  audit: AuditService;
+  eventCache: EventCache;
+  env: Pick<Env, 'UNSAFE_STRATEGIES_ENABLED'>;
+}
+
 @Injectable()
 export class OrganizerService {
   constructor(
     @Inject(DB) private readonly db: Database,
-    @Inject(CLOCK) private readonly clock: Clock,
-    private readonly audit: AuditService,
-    private readonly eventCache: EventCache
+    @Inject(ORGANIZER_DEPS) private readonly deps: OrganizerDeps
   ) {}
 
   /**
@@ -51,59 +63,75 @@ export class OrganizerService {
     ownerId: string,
     requestId: string
   ): Promise<EventSummary> {
+    if (!isStrategyAllowed(input.strategy, this.deps.env.UNSAFE_STRATEGIES_ENABLED)) {
+      throw new BadRequestException(UNSAFE_STRATEGY_DISABLED_MESSAGE);
+    }
     const startsAt = new Date(input.startsAt);
-    if (startsAt.getTime() <= this.clock.now().getTime()) {
+    if (startsAt.getTime() <= this.deps.clock.now().getTime()) {
       throw new BadRequestException('startsAt must lie in the future');
     }
-    const created = await this.db.transaction(async (tx) => {
-      await this.assertBelowCap(tx, ownerId);
-      const [venue] = await tx
-        .select({ id: venues.id, name: venues.name })
-        .from(venues)
-        .where(eq(venues.id, input.venueId));
-      if (venue === undefined) throw new NotFoundException('Venue not found');
-      const [demoUser] = await tx
-        .select({ userId: demoUsers.userId })
-        .from(demoUsers)
-        .where(eq(demoUsers.userId, ownerId));
-      const [event] = await tx
-        .insert(events)
-        .values({
-          venueId: venue.id,
-          name: input.name,
-          startsAt,
-          strategy: input.strategy,
-          waitingRoomCapacity: input.waitingRoomCapacity,
-          ownerId,
-          sandboxUserId: demoUser === undefined ? null : ownerId,
-        })
-        .returning({ id: events.id });
-      if (event === undefined) throw new Error('event insert returned no row');
-      await this.audit.record(tx, {
-        actorId: ownerId,
-        action: AUDIT_ACTION.EVENT_CREATED,
-        subjectType: AUDIT_SUBJECT.EVENT,
-        subjectId: event.id,
-        requestId,
-      });
-      // One INSERT ... SELECT in the database; drizzle's insert-select wants every column of seats.
-      await tx.execute(sql`
-        insert into ${seats} (event_id, section, row, number, price_cents)
-        select ${event.id}::uuid, section, row, number, price_cents
-        from ${venueSeats}
-        where venue_id = ${venue.id}
-      `);
-      return {
-        id: event.id,
+    const created = await this.db.transaction((tx) =>
+      this.insertEvent(tx, { input, startsAt, ownerId, requestId })
+    );
+    await this.deps.eventCache.invalidate(created.id);
+    return created;
+  }
+
+  private async insertEvent(
+    tx: Tx,
+    params: {
+      input: CreateEventRequest;
+      startsAt: Date;
+      ownerId: string;
+      requestId: string;
+    }
+  ): Promise<EventSummary> {
+    const { input, startsAt, ownerId, requestId } = params;
+    await this.assertBelowCap(tx, ownerId);
+    const [venue] = await tx
+      .select({ id: venues.id, name: venues.name })
+      .from(venues)
+      .where(eq(venues.id, input.venueId));
+    if (venue === undefined) throw new NotFoundException('Venue not found');
+    const [demoUser] = await tx
+      .select({ userId: demoUsers.userId })
+      .from(demoUsers)
+      .where(eq(demoUsers.userId, ownerId));
+    const [event] = await tx
+      .insert(events)
+      .values({
+        venueId: venue.id,
         name: input.name,
-        startsAt: startsAt.toISOString(),
-        venueName: venue.name,
+        startsAt,
         strategy: input.strategy,
         waitingRoomCapacity: input.waitingRoomCapacity,
-      };
+        ownerId,
+        sandboxUserId: demoUser === undefined ? null : ownerId,
+      })
+      .returning({ id: events.id });
+    if (event === undefined) throw new Error('event insert returned no row');
+    await this.deps.audit.record(tx, {
+      actorId: ownerId,
+      action: AUDIT_ACTION.EVENT_CREATED,
+      subjectType: AUDIT_SUBJECT.EVENT,
+      subjectId: event.id,
+      requestId,
     });
-    await this.eventCache.invalidate(created.id);
-    return created;
+    // One INSERT ... SELECT in the database; drizzle's insert-select wants every column of seats.
+    await tx.execute(sql`
+      insert into ${seats} (event_id, section, row, number, price_cents)
+      select ${event.id}::uuid, section, row, number, price_cents
+      from ${venueSeats}
+      where venue_id = ${venue.id}
+    `);
+    return {
+      id: event.id,
+      name: input.name,
+      startsAt: startsAt.toISOString(),
+      venueName: venue.name,
+      strategy: input.strategy,
+      waitingRoomCapacity: input.waitingRoomCapacity,
+    };
   }
 
   /** Serializes one owner's creations, so parallel requests cannot all pass the count. */

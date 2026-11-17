@@ -138,13 +138,22 @@ describe('MyBookings', () => {
 describe('MyBookings ticket', () => {
   const READY: Booking = { ...BOOKING, ticketReady: true };
   const TICKET_URL = `${LIST_URL}/${READY.id}/ticket`;
-  const OBJECT_URL = 'blob:ticket';
-  const createObjectURL = vi.fn(() => OBJECT_URL);
-  const revokeObjectURL = vi.fn();
-  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+  const PRESIGNED = {
+    url: `/storage/tickets/tickets/${READY.id}.pdf?X-Amz-Signature=sig`,
+    expiresAt: '2027-06-01T19:03:00.000Z',
+  };
+  let clickedHref = '';
+  let clickedDownload = '';
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+    this: HTMLAnchorElement
+  ) {
+    clickedHref = this.getAttribute('href') ?? '';
+    clickedDownload = this.download;
+  });
 
   beforeEach(() => {
-    Object.assign(URL, { createObjectURL, revokeObjectURL });
+    clickedHref = '';
+    clickedDownload = '';
     vi.clearAllMocks();
   });
   afterEach(() => TestBed.inject(HttpTestingController).verify());
@@ -169,7 +178,7 @@ describe('MyBookings ticket', () => {
     expect(button(/Download ticket/)).toBeUndefined();
   });
 
-  it('downloads once for a double click and releases the object URL', async () => {
+  it('downloads once for a double click and navigates an anchor to the presigned URL', async () => {
     const { element, http, answer, button } = render();
     await answer(() => http.expectOne(LIST_URL).flush([READY]));
     expect(element.textContent).not.toContain('Ticket is being prepared');
@@ -179,13 +188,11 @@ describe('MyBookings ticket', () => {
     download?.click();
     TestBed.tick();
     expect(download?.disabled).toBe(true);
-    http.expectOne(TICKET_URL).flush(new Blob(['%PDF']));
+    await answer(() => http.expectOne(TICKET_URL).flush(PRESIGNED));
 
-    expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect(click).toHaveBeenCalledTimes(1);
-    // Not in the same task as the click: Safari and Firefox cancel the download otherwise.
-    expect(revokeObjectURL).not.toHaveBeenCalled();
-    await vi.waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith(OBJECT_URL));
+    expect(clickedHref).toBe(PRESIGNED.url);
+    expect(clickedDownload).toBe(`ticket-${READY.id}.pdf`);
     expect(button(/Download ticket/)?.disabled).toBe(false);
   });
 
@@ -202,7 +209,7 @@ describe('MyBookings ticket', () => {
     expect(click).not.toHaveBeenCalled();
 
     button(/Try again/)?.click();
-    await answer(() => http.expectOne(TICKET_URL).flush(new Blob(['%PDF'])));
+    await answer(() => http.expectOne(TICKET_URL).flush(PRESIGNED));
 
     expect(click).toHaveBeenCalledTimes(1);
     expect(element.querySelector('[role=alert]')).toBeNull();

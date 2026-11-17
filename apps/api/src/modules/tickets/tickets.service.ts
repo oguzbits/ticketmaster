@@ -1,10 +1,11 @@
-import { BOOKING_STATUS } from '@app/shared';
+import { BOOKING_STATUS, type TicketDownload } from '@app/shared';
 import { ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { and, asc, eq, inArray, isNotNull, lte } from 'drizzle-orm';
 
+import { CLOCK, type Clock } from '../../core/clock.js';
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
 import { bookings } from '../../infrastructure/database/schema.js';
-import { TICKET_STORE, type TicketStore } from './domain/ticket.js';
+import { PRESIGNED_TICKET_TTL_SECONDS, TICKET_STORE, type TicketStore } from './domain/ticket.js';
 
 @Injectable()
 export class TicketsService {
@@ -12,15 +13,16 @@ export class TicketsService {
 
   constructor(
     @Inject(DB) private readonly db: Database,
-    @Inject(TICKET_STORE) private readonly store: TicketStore
+    @Inject(TICKET_STORE) private readonly store: TicketStore,
+    @Inject(CLOCK) private readonly clock: Clock = { now: () => new Date() }
   ) {}
 
   /**
-   * The PDF of the caller's own booking. 404 for an unknown booking, 403 for one of someone else,
-   * and 404 while the ticket does not exist: not stored yet, or the booking is no longer confirmed
-   * (a cancelled booking keeps its PDF until the retention job removes it).
+   * Short-lived presigned download URL for the caller's confirmed booking. 404 for an unknown
+   * booking, 403 for someone else's, and 404 while the ticket does not exist (`ticketReadyAt` is
+   * null or the booking is no longer confirmed).
    */
-  async download(userId: string, bookingId: string): Promise<Uint8Array> {
+  async downloadUrl(userId: string, bookingId: string): Promise<TicketDownload> {
     const [booking] = await this.db
       .select({
         ownerId: bookings.userId,
@@ -34,10 +36,11 @@ export class TicketsService {
     if (booking.status !== BOOKING_STATUS.CONFIRMED || booking.ticketReadyAt === null) {
       throw new NotFoundException('The ticket is not available');
     }
-    const pdf = await this.store.get(bookingId);
-    // The flag says it is stored: an absent object is a fault of ours, not a missing ticket.
-    if (pdf === null) throw new Error(`ticket of booking ${bookingId} is marked ready but absent`);
-    return pdf;
+    const url = await this.store.presignDownload(bookingId, PRESIGNED_TICKET_TTL_SECONDS);
+    const expiresAt = new Date(
+      this.clock.now().getTime() + PRESIGNED_TICKET_TTL_SECONDS * 1000
+    ).toISOString();
+    return { url, expiresAt };
   }
 
   /**

@@ -26,8 +26,9 @@ const S3_CLIENT = Symbol('S3_CLIENT');
     },
     {
       provide: TICKET_STORE,
-      useFactory: (client: S3Client) => new S3TicketStore(client, BUCKET_NAME.TICKETS),
-      inject: [S3_CLIENT],
+      useFactory: (client: S3Client, env: Env) =>
+        new S3TicketStore(client, BUCKET_NAME.TICKETS, env.S3_PRESIGN_BASE_URL),
+      inject: [S3_CLIENT, APP_CONFIG],
     },
     {
       provide: MAIL_SENDER,

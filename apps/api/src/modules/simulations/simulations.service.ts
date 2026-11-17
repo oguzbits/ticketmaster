@@ -9,6 +9,7 @@ import {
   type StartSimulationRequest,
 } from '@app/shared';
 import {
+  BadRequestException,
   HttpException,
   HttpStatus,
   Inject,
@@ -20,13 +21,18 @@ import { and, count, desc, eq, gte, inArray, lt, notExists, sql } from 'drizzle-
 import { alias } from 'drizzle-orm/pg-core';
 
 import type { Env } from '../../config/env.js';
+import {
+  isStrategyAllowed,
+  UNSAFE_STRATEGY_DISABLED_MESSAGE,
+} from '../../core/booking-strategy-policy.js';
 import { CLOCK, type Clock } from '../../core/clock.js';
-import { type Database, DB } from '../../infrastructure/database/database.module.js';
-import { events, seats, simulationRuns, venues } from '../../infrastructure/database/schema.js';
+import { type Database, DB, type Tx } from '../../infrastructure/database/database.module.js';
+import { events, seats, simulationRuns } from '../../infrastructure/database/schema.js';
 import { REDIS } from '../../infrastructure/redis/redis.module.js';
 import { currentTraceparent } from '../../infrastructure/tracing/index.js';
 import { AuditService } from '../audit/index.js';
 import { traceLink } from './domain/trace-link.js';
+import { insertSimulationSandboxEvent } from './sandbox-event.js';
 import {
   EMPTY_METRICS,
   SIMULATION_PROGRESS_TTL_SECONDS,
@@ -52,10 +58,6 @@ const STREAM_CAP = {
   },
 } as const;
 const ACTIVE_STATUSES = [SIMULATION_STATUS.QUEUED, SIMULATION_STATUS.RUNNING];
-const SANDBOX_SECTION = 'SIM';
-const SEATS_PER_ROW = 20;
-const SANDBOX_SEAT_PRICE_CENTS = 1000;
-const DAY_MS = 24 * 60 * 60 * 1000;
 /** The trace link's time range starts and ends this far outside the run (the request precedes the row). */
 const TRACE_WINDOW_MARGIN_MS = 60_000;
 /** Serializes the cap check of all starts, so parallel requests cannot all pass it. */
@@ -82,12 +84,11 @@ export interface ClaimedRun {
   traceparent: string | null;
 }
 
-type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 type RunRow = typeof simulationRuns.$inferSelect;
 
 /** What the service needs besides the database, the queue and the clock. */
 export interface SimulationDeps {
-  env: Pick<Env, 'GRAFANA_URL'>;
+  env: Pick<Env, 'GRAFANA_URL'> & Partial<Pick<Env, 'UNSAFE_STRATEGIES_ENABLED'>>;
   audit: AuditService;
 }
 
@@ -137,13 +138,16 @@ export class SimulationsService {
     adminId: string,
     requestId: string
   ): Promise<SimulationRun> {
+    if (!isStrategyAllowed(input.strategy, this.deps.env.UNSAFE_STRATEGIES_ENABLED ?? true)) {
+      throw new BadRequestException(UNSAFE_STRATEGY_DISABLED_MESSAGE);
+    }
     const traceparent = currentTraceparent();
     const run = await this.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${START_LOCK_KEY}))`);
       // Read under the lock: a reading from before it could miss runs that committed meanwhile.
       const now = this.clock.now();
       await this.assertBelowCap(tx, now);
-      const eventId = await this.insertSandboxEvent(tx, input, adminId, now);
+      const eventId = await insertSimulationSandboxEvent(tx, input, adminId, now);
       const [row] = await tx
         .insert(simulationRuns)
         .values({
@@ -189,37 +193,6 @@ export class SimulationsService {
       throw error;
     }
     return run;
-  }
-
-  /** The admin's private sandbox event with `input.seats` generated seats; returns its ID. */
-  private async insertSandboxEvent(
-    tx: Tx,
-    input: StartSimulationRequest,
-    adminId: string,
-    now: Date
-  ): Promise<string> {
-    const [venue] = await tx.select({ id: venues.id }).from(venues).orderBy(venues.name).limit(1);
-    if (venue === undefined) throw new Error('a simulation needs a venue, none exists');
-    const [event] = await tx
-      .insert(events)
-      .values({
-        venueId: venue.id,
-        name: `Rush ${input.strategy} ${input.buyers} buyers`,
-        startsAt: new Date(now.getTime() + DAY_MS),
-        strategy: input.strategy,
-        ownerId: adminId,
-        // Private to the admin, so the event never shows in the public list.
-        sandboxUserId: adminId,
-      })
-      .returning({ id: events.id });
-    if (event === undefined) throw new Error('event insert returned no row');
-    await tx.execute(sql`
-      insert into ${seats} (event_id, section, row, number, price_cents)
-      select ${event.id}::uuid, ${SANDBOX_SECTION}, (n - 1) / ${SEATS_PER_ROW} + 1,
-        (n - 1) % ${SEATS_PER_ROW} + 1, ${SANDBOX_SEAT_PRICE_CENTS}
-      from generate_series(1, ${input.seats}::int) as n
-    `);
-    return event.id;
   }
 
   /** Deletes a sandbox event; its seats, bookings and run go with it (foreign keys cascade). */

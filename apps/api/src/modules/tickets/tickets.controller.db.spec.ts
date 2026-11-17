@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
 
-import { BOOKING_STRATEGY, BookingSchema, IDEMPOTENCY_KEY_HEADER, ROLE } from '@app/shared';
+import {
+  BOOKING_STRATEGY,
+  BookingSchema,
+  IDEMPOTENCY_KEY_HEADER,
+  ROLE,
+  TicketDownloadSchema,
+} from '@app/shared';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
@@ -11,11 +17,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../../app.module.js';
 import { configureApp } from '../../app.setup.js';
 import { APP_CONFIG, loadEnv } from '../../config/config.module.js';
+import { CLOCK } from '../../core/clock.js';
 import { bookings } from '../../infrastructure/database/schema.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { fakeTokenVerifier, randomClientAddress } from '../../testing/http.js';
+import { SPEC_NOW } from '../../testing/time.js';
 import { TOKEN_VERIFIER } from '../auth/index.js';
-import { TICKET_STORE } from './domain/ticket.js';
+import { PRESIGNED_TICKET_TTL_SECONDS, TICKET_STORE } from './domain/ticket.js';
 import { FakeTicketStore } from './testing/fake-ticket-store.js';
 
 const ALICE = { id: randomUUID(), roles: [ROLE.CUSTOMER] };
@@ -35,6 +43,8 @@ describe('GET /bookings/:id/ticket', () => {
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(CLOCK)
+      .useValue({ now: () => SPEC_NOW })
       .overrideProvider(TOKEN_VERIFIER)
       .useValue(fakeTokenVerifier(TOKENS))
       // Every payment succeeds: the tickets belong to confirmed bookings.
@@ -61,7 +71,7 @@ describe('GET /bookings/:id/ticket', () => {
   };
 
   const ticket = (bookingId: string, caller?: Caller) =>
-    call('get', `/bookings/${bookingId}/ticket`, caller).responseType('blob');
+    call('get', `/bookings/${bookingId}/ticket`, caller);
 
   /** Alice's confirmed booking; the worker's part is played by the two lines at the end. */
   async function confirmedBooking(options: { ticketStored: boolean }): Promise<string> {
@@ -78,19 +88,23 @@ describe('GET /bookings/:id/ticket', () => {
       .expect(200);
     if (options.ticketStored) {
       await store.put(id, PDF);
-      await db.update(bookings).set({ ticketReadyAt: new Date() }).where(eq(bookings.id, id));
+      await db.update(bookings).set({ ticketReadyAt: SPEC_NOW }).where(eq(bookings.id, id));
     }
     return id;
   }
 
-  it('streams the stored PDF to the owner as an attachment', async () => {
+  it('returns a short-lived presigned download URL to the owner', async () => {
     const id = await confirmedBooking({ ticketStored: true });
 
     const response = await ticket(id, 'alice').expect(200);
 
-    expect(response.headers['content-type']).toMatch(/^application\/pdf/);
-    expect(response.headers['content-disposition']).toContain(`ticket-${id}.pdf`);
-    expect(Buffer.from(response.body)).toEqual(PDF);
+    const payload = TicketDownloadSchema.parse(response.body);
+    expect(payload.url).toBe(
+      `https://storage.test/tickets/${id}.pdf?expiresIn=${PRESIGNED_TICKET_TTL_SECONDS}`
+    );
+    expect(payload.expiresAt).toBe(
+      new Date(SPEC_NOW.getTime() + PRESIGNED_TICKET_TTL_SECONDS * 1000).toISOString()
+    );
   });
 
   it('answers 403 for the booking of another customer, 403 for an organizer and an admin, 401 without a token', async () => {

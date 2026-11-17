@@ -1,7 +1,12 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { type Booking, BOOKING_STATUS, IDEMPOTENCY_KEY_HEADER } from '@app/shared';
+import {
+  type Booking,
+  BOOKING_STATUS,
+  IDEMPOTENCY_KEY_HEADER,
+  type TicketDownload,
+} from '@app/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { BookingsService } from './bookings.service';
@@ -78,16 +83,19 @@ describe('BookingsService', () => {
     expect(failed).toBe(true);
   });
 
-  it('downloads the ticket as a blob from the ticket URL', () => {
+  it('reads and parses the presigned ticket download URL', () => {
     const http = TestBed.inject(HttpTestingController);
-    let received: Blob | undefined;
+    const payload: TicketDownload = {
+      url: `/storage/tickets/tickets/${BOOKING.id}.pdf?X-Amz-Signature=abc`,
+      expiresAt: '2027-06-01T19:03:00.000Z',
+    };
+    let received: TicketDownload | undefined;
     TestBed.inject(BookingsService)
       .downloadTicket(BOOKING.id)
-      .subscribe((blob) => (received = blob));
+      .subscribe((download) => (received = download));
     const request = http.expectOne(`/api/bookings/${BOOKING.id}/ticket`);
     expect(request.request.method).toBe('GET');
-    expect(request.request.responseType).toBe('blob');
-    request.flush(new Blob(['%PDF']));
-    expect(received?.size).toBe(4);
+    request.flush(payload);
+    expect(received).toEqual(payload);
   });
 });

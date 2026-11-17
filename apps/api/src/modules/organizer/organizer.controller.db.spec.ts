@@ -22,6 +22,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { AppModule } from '../../app.module.js';
 import { configureApp } from '../../app.setup.js';
+import { APP_CONFIG, loadEnv } from '../../config/config.module.js';
 import { CLOCK } from '../../core/clock.js';
 import {
   bookings,
@@ -350,6 +351,43 @@ describe('organizer endpoints', () => {
 
       expect(await db.select().from(events).where(eq(events.name, name))).toEqual([]);
       expect((await auditRows(db)).filter((row) => row.requestId === requestId)).toEqual([]);
+    });
+
+    describe('when UNSAFE_STRATEGIES_ENABLED is false', () => {
+      let guardedApp: INestApplication;
+
+      beforeAll(async () => {
+        const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+          .overrideProvider(APP_CONFIG)
+          .useValue({ ...loadEnv(), UNSAFE_STRATEGIES_ENABLED: false })
+          .overrideProvider(TOKEN_VERIFIER)
+          .useValue(fakeTokenVerifier(TOKENS))
+          .overrideProvider(CLOCK)
+          .useValue({ now: () => SPEC_NOW })
+          .compile();
+        guardedApp = configureApp(moduleRef.createNestApplication<NestExpressApplication>());
+        await guardedApp.init();
+      });
+      afterAll(() => guardedApp.close());
+
+      it('refuses creating an event with NAIVE strategy with 400 and creates nothing', async () => {
+        const venueId = await venueWith(PRICED);
+        const name = `blocked-naive-${randomUUID()}`;
+
+        await request(guardedApp.getHttpServer())
+          .post('/api/events')
+          .set('X-Forwarded-For', randomClientAddress())
+          .set('Authorization', 'Bearer a')
+          .send({
+            venueId,
+            name,
+            startsAt: DAY_AFTER,
+            strategy: BOOKING_STRATEGY.NAIVE,
+          })
+          .expect(400);
+
+        expect(await db.select().from(events).where(eq(events.name, name))).toEqual([]);
+      });
     });
   });
 

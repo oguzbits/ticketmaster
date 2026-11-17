@@ -125,6 +125,7 @@
   "devDependencies": {
     "@aws-sdk/client-s3": "^3.1168.0",
     "@aws-sdk/client-sqs": "^3.1168.0",
+    "@aws-sdk/s3-request-presigner": "^3.1170.0",
     "@eslint/js": "^10.0.1",
     "@stryker-mutator/core": "10.1.1",
     "@stryker-mutator/vitest-runner": "10.1.1",

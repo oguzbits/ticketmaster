@@ -27,6 +27,7 @@ import {
   SendMessageCommand,
   SQSClient,
 } from '@aws-sdk/client-sqs';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 import { QUEUE_POLICY } from '../packages/shared/dist/index.js';
 
@@ -196,6 +197,24 @@ try {
     const object = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: 'a/b.txt' }));
     assert.equal(await object.Body.transformToString(), 'ticket');
     assert.equal(object.ContentType, 'text/plain');
+  });
+
+  await check('bucket presigned download', async () => {
+    const url = await getSignedUrl(
+      s3,
+      new GetObjectCommand({
+        Bucket: bucket,
+        Key: 'a/b.txt',
+        ResponseContentDisposition: 'attachment; filename="ticket.pdf"',
+        ResponseContentType: 'application/pdf',
+      }),
+      { expiresIn: 60 }
+    );
+    const response = await fetch(url);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'application/pdf');
+    assert.equal(response.headers.get('content-disposition'), 'attachment; filename="ticket.pdf"');
+    assert.equal(await response.text(), 'ticket');
   });
 } finally {
   await Promise.allSettled([

@@ -190,7 +190,7 @@
             }
           },
           "400": {
-            "description": "A malformed body, or a `startsAt` that is not in the future.",
+            "description": "A malformed body, a `startsAt` that is not in the future, or `NAIVE` when `UNSAFE_STRATEGIES_ENABLED` is false.",
             "content": {
               "application/json": {
                 "schema": {
@@ -494,7 +494,7 @@
             }
           },
           "400": {
-            "description": "Invalid request.",
+            "description": "A malformed body or unknown strategy, or `NAIVE` when `UNSAFE_STRATEGIES_ENABLED` is false.",
             "content": {
               "application/json": {
                 "schema": {
@@ -588,7 +588,7 @@
             }
           },
           "400": {
-            "description": "Invalid request.",
+            "description": "A malformed body, or the event uses `NAIVE` while `UNSAFE_STRATEGIES_ENABLED` is false.",
             "content": {
               "application/json": {
                 "schema": {
@@ -953,7 +953,7 @@
     "/api/bookings/{id}/ticket": {
       "get": {
         "operationId": "TicketsController_download",
-        "summary": "Download the ticket of a confirmed booking",
+        "summary": "Issue a short-lived presigned download URL for a confirmed booking ticket",
         "parameters": [
           {
             "name": "id",
@@ -969,7 +969,14 @@
         ],
         "responses": {
           "200": {
-            "description": "The ticket as `application/pdf`, an attachment named `ticket-<id>.pdf`. Not JSON: the response has no schema."
+            "description": "A presigned S3 download URL and its expiry timestamp (`ticket-<id>.pdf`, expires after 60 s).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDownload"
+                }
+              }
+            }
           },
           "400": {
             "description": "Invalid request.",
@@ -1194,7 +1201,7 @@
             }
           },
           "400": {
-            "description": "Invalid request.",
+            "description": "A malformed body, or `NAIVE` when `UNSAFE_STRATEGIES_ENABLED` is false.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1526,6 +1533,16 @@
           },
           "401": {
             "description": "The bearer token that was sent is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Demo login is disabled (`DEMO_LOGIN_ENABLED` is false).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2792,6 +2809,34 @@
         "items": {
           "$ref": "#/components/schemas/Booking"
         }
+      },
+      "TicketDownload": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uri"
+              },
+              {
+                "type": "string",
+                "format": "starts_with",
+                "pattern": "^\\/.*"
+              }
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "url",
+          "expiresAt"
+        ],
+        "additionalProperties": false
       },
       "VenueList": {
         "type": "array",

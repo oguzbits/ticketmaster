@@ -51,18 +51,18 @@ a compromised customer account, and an operator of the host.
 
 ## 5. API and worker to SQS and S3
 
-| STRIDE | Threat                                       | Control                                                                                                                 | Evidence                                                                                                                                          |
-| ------ | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| T      | A message is delivered twice or out of order | Transactional outbox, idempotent consumers keyed by message ID                                                          | [consumer spec](../../apps/worker/src/queue-consumer.db.spec.ts), [outbox spec](../../apps/api/src/modules/outbox/outbox.process-once.db.spec.ts) |
-| D      | A poison message blocks the queue            | Moved directly to dead-letter queue (unparsable) or after receive limit (handler failure)                               | [consumer spec](../../apps/worker/src/queue-consumer.db.spec.ts)                                                                                  |
-| I      | Someone else downloads a ticket PDF          | The PDF is served only by the API after the ownership check; the code issues no presigned URL and sets no public access | [tickets spec](../../apps/api/src/modules/tickets/tickets.controller.db.spec.ts)                                                                  |
+| STRIDE | Threat                                       | Control                                                                                                                                                                                                            | Evidence                                                                                                                                                                  |
+| ------ | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| T      | A message is delivered twice or out of order | Transactional outbox, idempotent consumers keyed by message ID                                                                                                                                                     | [consumer spec](../../apps/worker/src/queue-consumer.db.spec.ts), [outbox spec](../../apps/api/src/modules/outbox/outbox.process-once.db.spec.ts)                         |
+| D      | A poison message blocks the queue            | Moved directly to dead-letter queue (unparsable) or after receive limit (handler failure)                                                                                                                          | [consumer spec](../../apps/worker/src/queue-consumer.db.spec.ts)                                                                                                          |
+| I      | Someone else downloads a ticket PDF          | Ownership and `CONFIRMED` status are verified before issuing a 60 s presigned URL (`GET /api/bookings/:id/ticket`); Caddy proxies `/storage/*` only to the emulator in Compose, and no public bucket access is set | [tickets spec](../../apps/api/src/modules/tickets/tickets.controller.db.spec.ts), [S3 store spec](../../apps/api/src/modules/tickets/adapters/s3-ticket-store.db.spec.ts) |
 
 ## 6. API to Keycloak
 
-| STRIDE | Threat                                                | Control                                                          | Evidence                                                                                                                                                                                                   |
-| ------ | ----------------------------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| S      | A token from another issuer or with another algorithm | Issuer, client and RS256 are fixed in the verifier               | [token verifier spec](../../apps/api/src/modules/auth/adapters/jwks-token-verifier.spec.ts)                                                                                                                |
-| D      | The one-click demo login is used to create many users | A cap on live demo users, a TTL, and a cleanup job in the worker | [demo service spec](../../apps/api/src/modules/demo/demo.service.db.spec.ts), [cleanup job spec](../../apps/worker/src/demo-cleanup.job.spec.ts), [ADR 0003](../adr/0003-authentication-and-demo-login.md) |
+| STRIDE | Threat                                                | Control                                                                                                                  | Evidence                                                                                                                                                                                                   |
+| ------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S      | A token from another issuer or with another algorithm | Issuer, client and RS256 are fixed in the verifier                                                                       | [token verifier spec](../../apps/api/src/modules/auth/adapters/jwks-token-verifier.spec.ts)                                                                                                                |
+| D      | The one-click demo login is used to create many users | A cap on live demo users, a TTL, a cleanup job in the worker, and `DEMO_LOGIN_ENABLED` defaults to `false` in production | [demo service spec](../../apps/api/src/modules/demo/demo.service.db.spec.ts), [cleanup job spec](../../apps/worker/src/demo-cleanup.job.spec.ts), [ADR 0003](../adr/0003-authentication-and-demo-login.md) |
 
 ## 7. Containers and supply chain
 
@@ -74,17 +74,17 @@ a compromised customer account, and an operator of the host.
 
 ## ASVS 5.0 coverage
 
-| Chapter                                 | Where it is covered                                                                                          |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| V2 Validation and Business Logic        | Zod at every boundary; booking rules in the state machine and the idempotency keys of payment                |
-| V3 Web Frontend Security                | CSP and headers (section 1); no `HttpClient` in components                                                   |
-| V4 API and Web Service                  | Typed contracts in `packages/shared`, rate limits, CORS only for a named origin                              |
-| V5 File Handling                        | Ticket PDFs generated by the worker, served by the API with an ownership check                               |
-| V8 Authorization                        | Roles guard, ownership filters and row-level security (sections 1 and 3)                                     |
-| V9 Self-contained Tokens, V10 OAuth     | Keycloak issues, the API verifies signature, issuer, client, algorithm and expiry (section 6)                |
-| V13 Configuration                       | Config module with Zod, hardened containers, pinned images (sections 7)                                      |
-| V14 Data Protection                     | IDs only in logs and audit rows; the mail address is read from Keycloak when the mail is sent and not stored |
-| V16 Security Logging and Error Handling | Structured logs with request ID, audit log, no silent catch                                                  |
+| Chapter                                 | Where it is covered                                                                                                                        |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| V2 Validation and Business Logic        | Zod at every boundary; booking rules in the state machine and the idempotency keys of payment                                              |
+| V3 Web Frontend Security                | CSP and headers (section 1); no `HttpClient` in components                                                                                 |
+| V4 API and Web Service                  | Typed contracts in `packages/shared`, rate limits, CORS only for a named origin                                                            |
+| V5 File Handling                        | Ticket PDFs generated by the worker, served via 60 s presigned S3 URLs after an ownership check (`ResponseContentDisposition: attachment`) |
+| V8 Authorization                        | Roles guard, ownership filters and row-level security (sections 1 and 3)                                                                   |
+| V9 Self-contained Tokens, V10 OAuth     | Keycloak issues, the API verifies signature, issuer, client, algorithm and expiry (section 6)                                              |
+| V13 Configuration                       | Config module with Zod, hardened containers, pinned images (sections 7)                                                                    |
+| V14 Data Protection                     | IDs only in logs and audit rows; the mail address is read from Keycloak when the mail is sent and not stored                               |
+| V16 Security Logging and Error Handling | Structured logs with request ID, audit log, no silent catch                                                                                |
 
 Authentication itself (V6, V7) is delegated to Keycloak and not re-implemented.
 

@@ -1,7 +1,12 @@
 import { randomBytes } from 'node:crypto';
 
 import { BOOKING_STRATEGY, type Role, type TokenResponse } from '@app/shared';
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { and, count, eq, inArray, isNotNull, isNull, lte, or } from 'drizzle-orm';
 
 import type { Clock } from '../../core/clock.js';
@@ -30,6 +35,7 @@ const PASSWORD_BYTES = 24;
 
 /** Settings of the demo login and the notice the cleanup sends when it frees seats. */
 export interface DemoOptions {
+  loginEnabled: boolean;
   userTtlSeconds: number;
   maxUsers: number;
   seatChanges: SeatChangePublisher;
@@ -48,6 +54,9 @@ export class DemoService {
   ) {}
 
   async login(role: Role): Promise<TokenResponse> {
+    if (!this.options.loginEnabled) {
+      throw new ForbiddenException('Demo login is disabled');
+    }
     const [live] = await this.db.select({ total: count() }).from(demoUsers);
     if ((live?.total ?? 0) >= this.options.maxUsers) {
       throw new ServiceUnavailableException('The demo is full, try again later');

@@ -5,9 +5,15 @@ import {
   type EventDetail,
   type EventSummary,
 } from '@app/shared';
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, eq, inArray, isNull, or, type SQL, sql } from 'drizzle-orm';
 
+import { APP_CONFIG } from '../../config/config.module.js';
+import type { Env } from '../../config/env.js';
+import {
+  isStrategyAllowed,
+  UNSAFE_STRATEGY_DISABLED_MESSAGE,
+} from '../../core/booking-strategy-policy.js';
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
 import {
   bookings,
@@ -41,7 +47,11 @@ export class EventsService {
   constructor(
     @Inject(DB) private readonly db: Database,
     private readonly audit: AuditService,
-    private readonly eventCache: EventCache
+    private readonly eventCache: EventCache,
+    @Inject(APP_CONFIG)
+    private readonly env: Pick<Env, 'UNSAFE_STRATEGIES_ENABLED'> = {
+      UNSAFE_STRATEGIES_ENABLED: true,
+    }
   ) {}
 
   /** Public events from the cache, plus the caller's own sandbox events straight from the database. */
@@ -86,6 +96,9 @@ export class EventsService {
     callerId: string,
     requestId: string
   ): Promise<EventSummary> {
+    if (!isStrategyAllowed(strategy, this.env.UNSAFE_STRATEGIES_ENABLED)) {
+      throw new BadRequestException(UNSAFE_STRATEGY_DISABLED_MESSAGE);
+    }
     const [demoUser] = await this.db
       .select({ userId: demoUsers.userId })
       .from(demoUsers)

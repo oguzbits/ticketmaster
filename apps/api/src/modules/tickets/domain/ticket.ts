@@ -10,14 +10,22 @@ export interface TicketData {
   seat: { section: string; row: number; number: number };
 }
 
+/** Presigned ticket URLs expire quickly so forwarded links cannot be shared long-term. */
+export const PRESIGNED_TICKET_TTL_SECONDS = 60;
+
 /** The object key of a ticket: fixed per booking, so storing it twice leaves one object. */
 export const ticketObjectKey = (bookingId: string): string => `tickets/${bookingId}.pdf`;
+
+/** The download filename offered via Content-Disposition. */
+export const ticketFilename = (bookingId: string): string => `ticket-${bookingId}.pdf`;
 
 export const TICKET_STORE = Symbol('TICKET_STORE');
 export interface TicketStore {
   put(bookingId: string, pdf: Uint8Array): Promise<void>;
   /** Null when the object is absent; any other failure throws. */
   get(bookingId: string): Promise<Uint8Array | null>;
+  /** A short-lived download URL for the stored ticket object (does not check existence). */
+  presignDownload(bookingId: string, ttlSeconds: number): Promise<string>;
   /** Removes the stored object if present; an absent object is not an error. */
   delete(bookingId: string): Promise<void>;
 }

@@ -64,7 +64,12 @@ describe('DemoService', () => {
     },
   };
   const serviceWithCap = (maxUsers: number) =>
-    new DemoService(db, keycloak, clock, { userTtlSeconds: TTL_SECONDS, maxUsers, seatChanges });
+    new DemoService(db, keycloak, clock, {
+      loginEnabled: true,
+      userTtlSeconds: TTL_SECONDS,
+      maxUsers,
+      seatChanges,
+    });
   const service = serviceWithCap(MAX_DEMO_USERS);
   const deleteExpired = (at: Date) =>
     service.deleteExpired(at, (bookingId) => ticketStore.delete(bookingId));

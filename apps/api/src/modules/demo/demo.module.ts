@@ -35,6 +35,7 @@ import { KEYCLOAK_ADMIN, type KeycloakAdmin } from './domain/demo-user.js';
     {
       provide: DEMO_OPTIONS,
       useFactory: (env: Env, seatChanges: SeatChangePublisher): DemoOptions => ({
+        loginEnabled: env.DEMO_LOGIN_ENABLED,
         userTtlSeconds: env.DEMO_USER_TTL_SECONDS,
         maxUsers: MAX_DEMO_USERS,
         seatChanges,

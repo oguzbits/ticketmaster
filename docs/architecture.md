@@ -65,6 +65,7 @@ flowchart LR
   events --> audit
   events --> auth
   events --> bookings
+  events --> core
   events --> event_cache
   events --> infrastructure
   health --> auth
@@ -85,6 +86,7 @@ flowchart LR
   simulations --> core
   simulations --> infrastructure
   tickets --> auth
+  tickets --> core
   tickets --> demo
   tickets --> infrastructure
   waiting_room --> audit
