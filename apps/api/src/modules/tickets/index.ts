@@ -11,3 +11,4 @@ export {
   type UserDirectory,
 } from './domain/ticket.js';
 export { TicketsModule } from './tickets.module.js';
+export { TicketsService } from './tickets.service.js';

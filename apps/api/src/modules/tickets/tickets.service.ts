@@ -1,6 +1,6 @@
 import { BOOKING_STATUS } from '@app/shared';
-import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { and, asc, eq, inArray, isNotNull, lte } from 'drizzle-orm';
 
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
 import { bookings } from '../../infrastructure/database/schema.js';
@@ -8,6 +8,8 @@ import { TICKET_STORE, type TicketStore } from './domain/ticket.js';
 
 @Injectable()
 export class TicketsService {
+  private readonly logger = new Logger(TicketsService.name);
+
   constructor(
     @Inject(DB) private readonly db: Database,
     @Inject(TICKET_STORE) private readonly store: TicketStore
@@ -16,7 +18,7 @@ export class TicketsService {
   /**
    * The PDF of the caller's own booking. 404 for an unknown booking, 403 for one of someone else,
    * and 404 while the ticket does not exist: not stored yet, or the booking is no longer confirmed
-   * (a cancelled booking keeps its PDF, but not its ticket).
+   * (a cancelled booking keeps its PDF until the retention job removes it).
    */
   async download(userId: string, bookingId: string): Promise<Uint8Array> {
     const [booking] = await this.db
@@ -36,5 +38,51 @@ export class TicketsService {
     // The flag says it is stored: an absent object is a fault of ours, not a missing ticket.
     if (pdf === null) throw new Error(`ticket of booking ${bookingId} is marked ready but absent`);
     return pdf;
+  }
+
+  /**
+   * Deletes up to `limit` stored PDFs of cancelled bookings whose cancellation was committed at or
+   * before `before`, then clears `ticketReadyAt` on those bookings. A booking whose object deletion
+   * fails keeps `ticketReadyAt` so the next run retries; the others still clear.
+   */
+  async deleteCancelled(before: Date, limit: number): Promise<number> {
+    const due = await this.db
+      .select({ id: bookings.id })
+      .from(bookings)
+      .where(
+        and(
+          eq(bookings.status, BOOKING_STATUS.CANCELLED),
+          isNotNull(bookings.ticketReadyAt),
+          lte(bookings.updatedAt, before)
+        )
+      )
+      .orderBy(asc(bookings.updatedAt))
+      .limit(limit);
+    if (due.length === 0) return 0;
+    const deletedIds: string[] = [];
+    const failures: Error[] = [];
+    for (const { id } of due) {
+      try {
+        await this.store.delete(id);
+        deletedIds.push(id);
+      } catch (error) {
+        const failure = error instanceof Error ? error : new Error(String(error));
+        this.logger.error(`could not delete ticket PDF of booking ${id}: ${failure.name}`);
+        failures.push(failure);
+      }
+    }
+    if (deletedIds.length > 0) {
+      await this.db
+        .update(bookings)
+        .set({ ticketReadyAt: null })
+        .where(inArray(bookings.id, deletedIds));
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures,
+        `${failures.length} cancelled ticket PDFs could not be deleted`
+      );
+    }
+    return deletedIds.length;
   }
 }

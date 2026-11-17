@@ -81,12 +81,15 @@ Phase 2, slice B (confirmation mail and ticket PDF) is complete:
 - Each `BOOKING_CONFIRMED` message runs two effects in order, each under its own dedupe name: the
   ticket PDF (pdfkit and qrcode, DejaVu Sans for Turkish glyphs) is rendered and stored in the
   bucket under `tickets/<bookingId>.pdf`, then `bookings.ticket_ready_at` is set; the mail with the
-  PDF attached goes out through SMTP (Mailpit locally). The mail reads the PDF back from the store
-  and the address from Keycloak, so the message carries IDs only and logs carry IDs only.
+  PDF attached goes out through SMTP (Mailpit locally). Both effects read the booking inside their
+  transaction with a share lock so a concurrent cancel waits or skips them. The mail reads the PDF
+  back from the store and the address from Keycloak, so the message carries IDs only and logs carry
+  IDs only.
 - `GET /api/bookings/:id/ticket` streams the PDF to its owner (403 for a foreign booking, 404 for
   an unknown one, a ticket that is not stored yet, or a booking that is no longer `CONFIRMED`).
   `ticketReady` is part of the booking contract; my bookings shows "Ticket is being prepared" and
-  then a download button.
+  then a download button. `TicketRetentionJob` removes stored PDFs of cancelled bookings and clears
+  `bookings.ticket_ready_at`.
 - The visibility timeout is 120 s and every external call has its own timeout (S3 10 s, SMTP 10 s,
   Keycloak 5 s, one attempt), so a handler stays inside the timeout instead of sending a heartbeat.
 - Specs: renderer, store, sender and address lookup against Mailpit and the emulator, both effects
@@ -535,14 +538,9 @@ open points below.
 - **A handler that runs longer than the 120 s visibility timeout** still sees its message delivered
   again while it works (the dedupe record serializes the two); the timeouts of the external calls
   keep a run well below that.
-- **A cancel between the status check and the send still gets a mail.** Both ticket effects read
-  the booking status outside their transaction and without a lock, so a customer who cancels in
-  that window receives a ticket mail (and the PDF flag may be set on the cancelled booking). The
-  download route answers 404 for it. Reading the status in the effect's transaction with a share
-  lock would close the window.
-- **The PDF stays after a cancel and is never deleted.** The download answers 404 for a booking
-  that is no longer `CONFIRMED`, but the object remains in the bucket; a retention job would
-  remove it.
+- **Demo cleanup leaves stored PDFs behind.** `TicketRetentionJob` removes stored PDFs of cancelled
+  bookings (`status = CANCELLED`), while expired demo users cascade-delete their `bookings` rows
+  without removing objects from the bucket.
 - **The mail effect costs one Keycloak call per message** (the address is read when the mail is
   sent, not stored). Acceptable at demo volume; a cache or a stored address needs a data-protection
   decision first.

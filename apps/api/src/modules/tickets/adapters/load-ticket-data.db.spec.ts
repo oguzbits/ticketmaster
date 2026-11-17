@@ -32,7 +32,7 @@ describe('loadTicketData', () => {
       holdExpiresAt: new Date(),
     });
 
-    const ticket = await loadTicketData(db, bookingId);
+    const ticket = await db.transaction((tx) => loadTicketData(tx, bookingId));
 
     expect(ticket).toMatchObject({
       bookingId,
@@ -45,6 +45,6 @@ describe('loadTicketData', () => {
   });
 
   it('answers null for a booking that does not exist', async () => {
-    expect(await loadTicketData(db, randomUUID())).toBeNull();
+    expect(await db.transaction((tx) => loadTicketData(tx, randomUUID()))).toBeNull();
   });
 });

@@ -1,4 +1,10 @@
-import { GetObjectCommand, NoSuchKey, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  NoSuchKey,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 
 import type { Env } from '../../../config/env.js';
 import { ticketObjectKey, type TicketStore } from '../domain/ticket.js';
@@ -67,5 +73,11 @@ export class S3TicketStore implements TicketStore {
       if (error instanceof NoSuchKey) return null;
       throw error;
     }
+  }
+
+  async delete(bookingId: string): Promise<void> {
+    await this.client.send(
+      new DeleteObjectCommand({ Bucket: this.bucket, Key: ticketObjectKey(bookingId) })
+    );
   }
 }

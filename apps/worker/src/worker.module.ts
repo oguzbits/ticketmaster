@@ -24,6 +24,7 @@ import { BOOKING_CONFIRMED_EFFECTS, QueueConsumer } from './queue-consumer.js';
 import { SimulationConsumer } from './simulation.consumer.js';
 import { SimulationReaperJob } from './simulation-reaper.job.js';
 import { SimulationRetentionJob } from './simulation-retention.job.js';
+import { TicketRetentionJob } from './ticket-retention.job.js';
 import { WaitingRoomAdmissionJob } from './waiting-room-admission.job.js';
 import { workerLogOptions } from './worker-logger.js';
 
@@ -51,6 +52,7 @@ import { workerLogOptions } from './worker-logger.js';
     DemoCleanupJob,
     SimulationReaperJob,
     SimulationRetentionJob,
+    TicketRetentionJob,
     SimulationConsumer,
     TicketPdfHandler,
     ConfirmationMailHandler,

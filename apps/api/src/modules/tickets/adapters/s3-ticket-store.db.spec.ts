@@ -35,9 +35,22 @@ describe('S3TicketStore against the local emulator', () => {
     expect(await store.get(randomUUID())).toBeNull();
   });
 
+  it('deletes a stored ticket and ignores an absent one', async () => {
+    const bookingId = randomUUID();
+    await store.put(bookingId, PDF);
+
+    await store.delete(bookingId);
+    expect(await store.get(bookingId)).toBeNull();
+
+    await expect(store.delete(bookingId)).resolves.toBeUndefined();
+  });
+
   it('rethrows any other failure instead of reporting an absent ticket', async () => {
     const missingBucket = new S3TicketStore(client, `missing-${randomUUID()}`);
 
     await expect(missingBucket.get(randomUUID())).rejects.toMatchObject({ name: 'NoSuchBucket' });
+    await expect(missingBucket.delete(randomUUID())).rejects.toMatchObject({
+      name: 'NoSuchBucket',
+    });
   });
 });

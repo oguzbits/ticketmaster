@@ -37,7 +37,7 @@ const S3_CLIENT = Symbol('S3_CLIENT');
     // The admin client of the demo module already holds the Keycloak token and the timeout.
     { provide: USER_DIRECTORY, useExisting: KEYCLOAK_ADMIN },
   ],
-  exports: [TICKET_STORE, MAIL_SENDER, USER_DIRECTORY],
+  exports: [TicketsService, TICKET_STORE, MAIL_SENDER, USER_DIRECTORY],
 })
 export class TicketsModule implements OnApplicationShutdown {
   constructor(@Inject(S3_CLIENT) private readonly client: S3Client) {}

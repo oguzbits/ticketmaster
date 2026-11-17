@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 
+import { AuditService } from '@app/api/audit';
 import { BookingsService, HOLD_OUTCOME } from '@app/api/bookings';
 import { createTestEvent, RecordingMetrics } from '@app/api/bookings/testing';
 import { APP_CONFIG, loadEnv } from '@app/api/config';
@@ -620,7 +621,7 @@ describe('QueueConsumer against the local emulator', () => {
         const mail = moduleRef.get(ConfirmationMailHandler);
         await storePdf(message);
 
-        await expect(mail.handle(message)).rejects.toThrow(/no email/);
+        await expect(db.transaction((tx) => mail.handle(message, tx))).rejects.toThrow(/no email/);
 
         expect(mailer.sent).toEqual([]);
       });
@@ -633,11 +634,137 @@ describe('QueueConsumer against the local emulator', () => {
         await storePdf(message);
         store.hidden.add(message.bookingId);
 
-        await expect(moduleRef.get(ConfirmationMailHandler).handle(message)).rejects.toThrow(
-          /ticket/
-        );
+        await expect(
+          db.transaction((tx) => moduleRef.get(ConfirmationMailHandler).handle(message, tx))
+        ).rejects.toThrow(/ticket/);
 
         expect(mailer.sent).toEqual([]);
+      });
+    });
+
+    const gate = () => {
+      let open!: () => void;
+      const promise = new Promise<void>((resolve) => {
+        open = resolve;
+      });
+      return { promise, open };
+    };
+
+    it('a cancel in flight blocks both ticket effects; once committed they skip the PDF and the mail', async () => {
+      reset();
+      await withRelaysLocked(async () => {
+        const { message, userId } = await confirmedBooking();
+        const audit = moduleRef.get(AuditService, { strict: false });
+        const originalRecord = audit.record.bind(audit);
+        const locked = gate();
+        const commit = gate();
+        vi.spyOn(audit, 'record').mockImplementationOnce(async (tx, entry) => {
+          locked.open();
+          await commit.promise;
+          await originalRecord(tx, entry);
+        });
+
+        const cancelling = bookings.cancel({
+          bookingId: message.bookingId,
+          userId,
+          requestId: 'spec',
+        });
+        await locked.promise;
+
+        const pdfRun = outbox.processOnce(CONSUMER_NAME.TICKET_PDF, randomUUID(), (tx) =>
+          moduleRef.get(TicketPdfHandler).handle(message, tx)
+        );
+        const mailRun = outbox.processOnce(CONSUMER_NAME.CONFIRMATION_MAIL, randomUUID(), (tx) =>
+          moduleRef.get(ConfirmationMailHandler).handle(message, tx)
+        );
+        await sleep(100);
+        // Both effects wait on the share lock instead of reading the uncommitted CONFIRMED state.
+        expect(store.puts).toBe(0);
+        expect(mailer.sent).toEqual([]);
+
+        commit.open();
+        await cancelling;
+        await pdfRun;
+        await mailRun;
+
+        expect(store.puts).toBe(0);
+        expect(mailer.sent).toEqual([]);
+        expect(await ticketReady(userId)).toBe(false);
+      });
+    });
+
+    it('an in-flight PDF effect serializes ahead of a concurrent cancel, and mail skips afterwards', async () => {
+      reset();
+      await withRelaysLocked(async () => {
+        const { message, userId } = await confirmedBooking();
+        const putStarted = gate();
+        const putDone = gate();
+        const originalPut = store.put.bind(store);
+        vi.spyOn(store, 'put').mockImplementationOnce(async (id, bytes) => {
+          putStarted.open();
+          await putDone.promise;
+          await originalPut(id, bytes);
+        });
+
+        const pdfRun = outbox.processOnce(CONSUMER_NAME.TICKET_PDF, randomUUID(), (tx) =>
+          moduleRef.get(TicketPdfHandler).handle(message, tx)
+        );
+        await putStarted.promise;
+
+        let cancelSettled = false;
+        const cancelRun = bookings
+          .cancel({ bookingId: message.bookingId, userId, requestId: 'spec' })
+          .then((result) => {
+            cancelSettled = true;
+            return result;
+          });
+        await sleep(100);
+        expect(cancelSettled).toBe(false);
+
+        putDone.open();
+        await pdfRun;
+        expect((await cancelRun).status).toBe(BOOKING_STATUS.CANCELLED);
+
+        await outbox.processOnce(CONSUMER_NAME.CONFIRMATION_MAIL, randomUUID(), (tx) =>
+          moduleRef.get(ConfirmationMailHandler).handle(message, tx)
+        );
+        expect(mailer.sent).toEqual([]);
+      });
+    });
+
+    it('an in-flight confirmation mail blocks a concurrent cancel until the mail transaction commits', async () => {
+      reset();
+      await withRelaysLocked(async () => {
+        const { message, userId } = await confirmedBooking();
+        await storePdf(message);
+        const sendStarted = gate();
+        const sendDone = gate();
+        const originalSend = mailer.send.bind(mailer);
+        vi.spyOn(mailer, 'send').mockImplementationOnce(async (mail) => {
+          sendStarted.open();
+          await sendDone.promise;
+          await originalSend(mail);
+        });
+
+        const mailRun = outbox.processOnce(CONSUMER_NAME.CONFIRMATION_MAIL, randomUUID(), (tx) =>
+          moduleRef.get(ConfirmationMailHandler).handle(message, tx)
+        );
+        await sendStarted.promise;
+
+        let cancelSettled = false;
+        const cancelRun = bookings
+          .cancel({ bookingId: message.bookingId, userId, requestId: 'spec' })
+          .then((result) => {
+            cancelSettled = true;
+            return result;
+          });
+        await sleep(100);
+        expect(cancelSettled).toBe(false);
+
+        sendDone.open();
+        await mailRun;
+        expect((await cancelRun).status).toBe(BOOKING_STATUS.CANCELLED);
+        expect(mailer.sent).toHaveLength(1);
       });
     });
   });

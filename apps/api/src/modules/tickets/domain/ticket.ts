@@ -18,6 +18,8 @@ export interface TicketStore {
   put(bookingId: string, pdf: Uint8Array): Promise<void>;
   /** Null when the object is absent; any other failure throws. */
   get(bookingId: string): Promise<Uint8Array | null>;
+  /** Removes the stored object if present; an absent object is not an error. */
+  delete(bookingId: string): Promise<void>;
 }
 
 export const MAIL_SENDER = Symbol('MAIL_SENDER');

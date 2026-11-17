@@ -1,4 +1,4 @@
-import { type Database, DB } from '@app/api/database';
+import type { Tx } from '@app/api/database';
 import {
   loadTicketData,
   MAIL_SENDER,
@@ -18,9 +18,11 @@ import {
 } from './booking-confirmed-effect.js';
 
 /**
- * Mails the stored ticket to the user of a confirmed booking. The address is fetched by user ID at
- * send time (messages carry IDs only). Delivery is at least once: a crash between the send and the
- * dedupe commit sends the mail again, which is accepted (it is not money).
+ * Mails the stored ticket to the user of a confirmed booking. The booking row is read with a
+ * share lock inside the effect's transaction so a concurrent cancel waits or prevents the mail. The
+ * address is fetched by user ID at send time (messages carry IDs only). Delivery is at least once:
+ * a crash between the send and the dedupe commit sends the mail again, which is accepted (it is not
+ * money).
  */
 @Injectable()
 export class ConfirmationMailHandler implements BookingConfirmedEffect {
@@ -28,14 +30,13 @@ export class ConfirmationMailHandler implements BookingConfirmedEffect {
   private readonly logger = new Logger(ConfirmationMailHandler.name);
 
   constructor(
-    @Inject(DB) private readonly db: Database,
     @Inject(TICKET_STORE) private readonly store: TicketStore,
     @Inject(USER_DIRECTORY) private readonly directory: UserDirectory,
     @Inject(MAIL_SENDER) private readonly mailer: MailSender
   ) {}
 
-  async handle(message: BookingConfirmedMessage): Promise<void> {
-    const ticket = await loadTicketData(this.db, message.bookingId);
+  async handle(message: BookingConfirmedMessage, tx: Tx): Promise<void> {
+    const ticket = await loadTicketData(tx, message.bookingId);
     if (ticket?.status !== BOOKING_STATUS.CONFIRMED) {
       this.logger.log(`booking ${message.bookingId} is not confirmed, no mail`);
       return;

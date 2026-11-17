@@ -1,5 +1,5 @@
 import { CLOCK, type Clock } from '@app/api/clock';
-import { type Database, DB, type Tx } from '@app/api/database';
+import type { Tx } from '@app/api/database';
 import {
   loadTicketData,
   markTicketReady,
@@ -19,7 +19,7 @@ import {
 /**
  * Renders the ticket of a confirmed booking, stores it under its fixed key and marks it ready, in
  * the transaction of the dedupe record. A booking that is not confirmed any more (cancelled before
- * the message arrived) gets no ticket.
+ * or serialized ahead of the message) gets no ticket.
  */
 @Injectable()
 export class TicketPdfHandler implements BookingConfirmedEffect {
@@ -27,13 +27,12 @@ export class TicketPdfHandler implements BookingConfirmedEffect {
   private readonly logger = new Logger(TicketPdfHandler.name);
 
   constructor(
-    @Inject(DB) private readonly db: Database,
     @Inject(TICKET_STORE) private readonly store: TicketStore,
     @Inject(CLOCK) private readonly clock: Clock
   ) {}
 
   async handle(message: BookingConfirmedMessage, tx: Tx): Promise<void> {
-    const ticket = await loadTicketData(this.db, message.bookingId);
+    const ticket = await loadTicketData(tx, message.bookingId);
     if (ticket?.status !== BOOKING_STATUS.CONFIRMED) {
       this.logger.log(`booking ${message.bookingId} is not confirmed, no ticket`);
       return;
