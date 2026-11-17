@@ -295,7 +295,7 @@ describe('QueueConsumer against the local emulator', () => {
         .poll(() => handler.handled.slice().sort(), { timeout: DLQ_WAIT_MS })
         .toEqual([good1.messageId, good2.messageId].sort());
       expect(receiveSpy).toHaveBeenCalledWith(10, expect.any(AbortSignal));
-      expect(deleteSpy).toHaveBeenCalledTimes(2);
+      await expect.poll(() => deleteSpy.mock.calls.length, { timeout: DLQ_WAIT_MS }).toBe(2);
       expect(await inDlq(dlq, 1)).toEqual([failing.messageId]);
       expect(await leftOver(queue, consumer)).toEqual([]);
     },
