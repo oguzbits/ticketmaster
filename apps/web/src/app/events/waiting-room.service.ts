@@ -3,7 +3,9 @@ import { inject, Injectable } from '@angular/core';
 import { WAITING_ROOM_STATE, type WaitingRoomStatus, WaitingRoomStatusSchema } from '@app/shared';
 import { map, Observable, type Subscriber } from 'rxjs';
 
+import { SessionStore } from '../auth/session.store';
 import {
+  FETCH,
   isRetryable,
   SeatStreamService,
   sleep,
@@ -25,6 +27,8 @@ const RETRY_MS = 3000;
 export class WaitingRoomService {
   private readonly http = inject(HttpClient);
   private readonly connection = inject(SeatStreamService);
+  private readonly fetcher = inject(FETCH);
+  private readonly session = inject(SessionStore);
 
   /** The user comes from the token. */
   join(eventId: string): Observable<WaitingRoomStatus> {
@@ -39,6 +43,17 @@ export class WaitingRoomService {
 
   leave(eventId: string): Observable<void> {
     return this.http.delete<void>(url(eventId));
+  }
+
+  /** Best-effort tab-close leave so an abandoned waiting or admitted slot frees capacity at once. */
+  leaveKeepalive(eventId: string): void {
+    const token = this.session.accessToken();
+    if (token === null || eventId === '') return;
+    void this.fetcher(url(eventId), {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+      keepalive: true,
+    }).catch(() => undefined);
   }
 
   /**

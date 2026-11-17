@@ -400,6 +400,10 @@ Enterprise hardening follow-ups:
 - `QueueConsumer` (`apps/worker/src/queue-consumer.ts`) receives batches of up to 10 SQS messages
   (`receive(10)`) and processes/deletes each message independently so a failing or unparsable
   message never blocks or discards the rest of the batch.
+- `WaitingRoomStore` (`apps/web/src/app/events/waiting-room.store.ts`) dispatches a `fetch`
+  `keepalive: true` `DELETE /api/events/:id/waiting-room` via `WaitingRoomService.leaveKeepalive`
+  on non-persisted `pagehide` while `WAITING` or `ADMITTED`, freeing abandoned queue/admission
+  capacity on tab close immediately.
 
 ## Deviations from the plan
 
@@ -564,8 +568,9 @@ open points below.
 - **The actor filter takes an ID, not a name.** The audit page filters by a pasted actor ID (checked as a UUID, applied on change); there is no user lookup, because rows hold IDs only.
 - **The infrastructure script never deletes.** A resource removed from `INFRASTRUCTURE` stays in
   the account until it is deleted by hand ([ADR 0006](adr/0006-infrastructure-as-code.md)).
-- **A closed tab stays admitted until the admission runs out** (five minutes) and can fill the
-  capacity meanwhile. No presence heartbeat drops it earlier.
+- **A killed browser process or dropped connection stays admitted until the admission runs out**
+  (five minutes). Closing a tab normally fires a best-effort `keepalive` `DELETE` on `pagehide`;
+  hard crashes still wait for the TTL because there is no server-side presence heartbeat.
 - **Joins in the same millisecond are ordered by user ID** (the sorted set breaks a score tie by
   member).
 - **The queue keys of a deleted event expire after a day**, not at once.
@@ -708,9 +713,6 @@ Phase 3, slice D:
 
 Phase 3, slice B:
 
-- **No alert delivery.** There is no Alertmanager; alerts show in the Prometheus UI only.
-- **No burn-rate rules.** The 30-day availability budget is not computed; the 5 % short-window rule
-  is its stand-in. Prometheus keeps 2 days.
 - **`tm_db_queries_active` is in-flight queries, not pool usage,** and `tm_waiting_room_waiting` and
   `tm_db_queries_active` have no alert.
 - **`tm_waiting_room_waiting` keeps a queue counted for up to 24 hours** after an event drops its

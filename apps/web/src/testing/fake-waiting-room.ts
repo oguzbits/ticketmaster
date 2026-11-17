@@ -8,6 +8,7 @@ export class FakeWaitingRoom {
   readonly statusCalls: Subject<WaitingRoomStatus>[] = [];
   readonly joinCalls: Subject<WaitingRoomStatus>[] = [];
   readonly leaveCalls: Subject<void>[] = [];
+  readonly keepaliveLeaves: string[] = [];
   readonly streams: Subject<WaitingRoomStreamMessage>[] = [];
   private track<T>(list: Subject<T>[]): Subject<T> {
     const subject = new Subject<T>();
@@ -22,6 +23,9 @@ export class FakeWaitingRoom {
   }
   leave() {
     return this.track(this.leaveCalls);
+  }
+  leaveKeepalive(eventId: string): void {
+    this.keepaliveLeaves.push(eventId);
   }
   updates() {
     return this.track(this.streams);

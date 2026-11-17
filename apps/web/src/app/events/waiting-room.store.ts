@@ -1,4 +1,4 @@
-import { computed, DestroyRef, inject, Injectable, signal } from '@angular/core';
+import { computed, DestroyRef, DOCUMENT, inject, Injectable, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { WAITING_ROOM_STATE, type WaitingRoomStatus } from '@app/shared';
 import { map, type Subscription, timer } from 'rxjs';
@@ -73,7 +73,22 @@ export class WaitingRoomStore {
   });
 
   constructor() {
-    inject(DestroyRef).onDestroy(() => this.stopUpdates());
+    const windowRef = inject(DOCUMENT).defaultView;
+    const onPageHide = (event: Event) => {
+      if ('persisted' in event && event.persisted === true) return;
+      const current = this.state();
+      if (
+        this.eventId !== '' &&
+        (current === WAITING_ROOM_STATE.WAITING || current === WAITING_ROOM_STATE.ADMITTED)
+      ) {
+        this.service.leaveKeepalive(this.eventId);
+      }
+    };
+    windowRef?.addEventListener('pagehide', onPageHide);
+    inject(DestroyRef).onDestroy(() => {
+      windowRef?.removeEventListener('pagehide', onPageHide);
+      this.stopUpdates();
+    });
   }
 
   /** Reads the status of the event; a waiting caller then follows the live stream. */

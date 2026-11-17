@@ -244,4 +244,32 @@ describe('WaitingRoomService', () => {
     expect(calls).toHaveLength(2);
     subscription.unsubscribe();
   });
+
+  it('sends a keepalive DELETE with the bearer token on tab close and skips when signed out', () => {
+    const fetchSpy = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response(null, { status: 204 }))
+    );
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        { provide: FETCH, useValue: fetchSpy },
+      ],
+    });
+    const session = TestBed.inject(SessionStore);
+    session.set(tokensFor(ROLE.CUSTOMER));
+    const service = TestBed.inject(WaitingRoomService);
+
+    service.leaveKeepalive(EVENT_ID);
+    expect(fetchSpy).toHaveBeenCalledWith(URL, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${session.accessToken()}` },
+      keepalive: true,
+    });
+
+    session.clear();
+    service.leaveKeepalive(EVENT_ID);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
 });

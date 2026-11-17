@@ -234,4 +234,29 @@ describe('WaitingRoomStore', () => {
 
     expect(fake.streams[0]?.observed).toBe(false);
   });
+
+  it('releases active waiting or admitted presence on non-persisted pagehide only', () => {
+    const { fake, opened } = setup();
+    const firePageHide = (persisted = false) =>
+      window.dispatchEvent(Object.assign(new Event('pagehide'), { persisted }));
+
+    opened(NONE);
+    firePageHide(false);
+    expect(fake.keepaliveLeaves).toEqual([]);
+
+    opened(WAITING);
+    firePageHide(true);
+    expect(fake.keepaliveLeaves).toEqual([]);
+
+    firePageHide(false);
+    expect(fake.keepaliveLeaves).toEqual([EVENT_ID]);
+
+    opened(ADMITTED);
+    firePageHide(false);
+    expect(fake.keepaliveLeaves).toEqual([EVENT_ID, EVENT_ID]);
+
+    TestBed.resetTestingModule();
+    firePageHide(false);
+    expect(fake.keepaliveLeaves).toEqual([EVENT_ID, EVENT_ID]);
+  });
 });
