@@ -30,4 +30,11 @@ export class EventsService {
       .patch(`/api/events/${encodeURIComponent(id)}/strategy`, { strategy })
       .pipe(map((body) => EventSummarySchema.parse(body)));
   }
+
+  /** The server decides which events this organizer or admin may change; any other answers 404. */
+  setWaitingRoomCapacity(id: string, capacity: number | null): Observable<EventSummary> {
+    return this.http
+      .put(`/api/events/${encodeURIComponent(id)}/waiting-room/settings`, { capacity })
+      .pipe(map((body) => EventSummarySchema.parse(body)));
+  }
 }

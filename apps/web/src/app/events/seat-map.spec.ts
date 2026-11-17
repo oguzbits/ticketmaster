@@ -664,6 +664,39 @@ describe('SeatMap', () => {
     });
   });
 
+  describe('waiting room settings', () => {
+    it.each([ROLE.CUSTOMER, null])('is not offered to %s', async (role) => {
+      const { element, loaded } = render(role);
+      await loaded();
+
+      expect(element.textContent).not.toContain('Admission capacity');
+    });
+
+    it('is offered to organizers and updates the current capacity after save', async () => {
+      const { element, http, answer, press, loaded } = render(ROLE.ORGANIZER);
+      await loaded();
+      const input = element.querySelector<HTMLInputElement>('#waiting-room-capacity');
+      if (!input) throw new Error('No capacity input');
+      input.value = '15';
+      input.dispatchEvent(new Event('input'));
+      TestBed.tick();
+
+      press(/Save capacity/);
+      await answer(() =>
+        http.expectOne(`${EVENT_URL}/waiting-room/settings`).flush({
+          id: EVENT_ID,
+          name: DETAIL.name,
+          startsAt: DETAIL.startsAt,
+          venueName: DETAIL.venueName,
+          strategy: DETAIL.strategy,
+          waitingRoomCapacity: 15,
+        })
+      );
+
+      expect(element.textContent).toContain('Current capacity: 15');
+    });
+  });
+
   describe('live updates', () => {
     const HELD_SEAT = 'Section B, row 1, seat 1, held';
     const change = (status: DetailStatus) => ({

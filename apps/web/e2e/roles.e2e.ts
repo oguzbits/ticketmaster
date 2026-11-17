@@ -36,6 +36,16 @@ test('an admin switches the booking strategy of an event', async ({ adminContext
   await page.getByRole('button', { name: 'Confirm' }).click();
   await expect(page.getByText(`The strategy is now ${next}.`)).toBeVisible();
 
+  await expect(page.getByRole('heading', { name: 'Waiting room' })).toBeVisible();
+  await page.getByLabel('Admission capacity').fill('5');
+  await page.getByRole('button', { name: 'Save capacity' }).click();
+  await expect(page.getByText('Waiting room capacity is now 5.')).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('Current capacity: 5')).toBeVisible();
+  await page.getByRole('button', { name: 'Turn off' }).click();
+  await expect(page.getByText('Waiting room is now off.')).toBeVisible();
+  await expect(page.getByText('Current capacity: Off')).toBeVisible();
+
   // Same session: the demo login allows five a minute, so the audit log is checked here.
   await page
     .getByRole('navigation', { name: 'Main' })

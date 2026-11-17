@@ -24,12 +24,21 @@
       </div>
     </header>
 
-    @if (isAdmin()) {
-      <app-strategy-switch
-        [eventId]="id()"
-        [strategy]="strategy() ?? detail.strategy"
-        (switched)="strategy.set($event)"
-      />
+    @if (isAdmin() || isOrganizer()) {
+      <div class="grid gap-4 lg:grid-cols-2">
+        @if (isAdmin()) {
+          <app-strategy-switch
+            [eventId]="id()"
+            [strategy]="strategy() ?? detail.strategy"
+            (switched)="strategy.set($event)"
+          />
+        }
+        <app-waiting-room-settings
+          [eventId]="id()"
+          [capacity]="waitingRoomCapacity()"
+          (saved)="waitingRoomCapacity.set($event)"
+        />
+      </div>
     }
 
     @switch (live()) {

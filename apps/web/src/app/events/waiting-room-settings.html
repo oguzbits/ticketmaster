@@ -1,0 +1,53 @@
+<h2 class="text-lg font-medium">Waiting room</h2>
+<p>
+  Current capacity:
+  {{ capacity() === null ? 'Off' : capacity() }}
+</p>
+
+<form class="flex flex-col gap-3" (submit)="submit($event)" novalidate>
+  <div class="flex flex-col gap-1">
+    <label for="waiting-room-capacity" class="text-sm font-medium">Admission capacity</label>
+    <input
+      id="waiting-room-capacity"
+      type="text"
+      inputmode="numeric"
+      aria-describedby="waiting-room-capacity-hint"
+      placeholder="Off"
+      class="field disabled:opacity-60"
+      [disabled]="pending()"
+      [value]="draft()"
+      (input)="edit(capacityInput.value)"
+      #capacityInput
+    />
+    <p id="waiting-room-capacity-hint" class="text-sm text-text-muted">
+      How many customers may pick seats at once. Leave empty to turn off.
+    </p>
+  </div>
+
+  @if (problem(); as text) {
+    <p role="alert" class="text-danger">{{ text }}</p>
+  }
+  @if (confirmation(); as text) {
+    <p role="status">{{ text }}</p>
+  }
+
+  <div class="flex flex-wrap gap-3">
+    <button
+      type="submit"
+      class="btn disabled:cursor-not-allowed disabled:opacity-60"
+      [disabled]="pending() || unchanged()"
+    >
+      {{ pending() ? 'Saving…' : 'Save capacity' }}
+    </button>
+    @if (capacity() !== null) {
+      <button
+        type="button"
+        class="btn-secondary disabled:cursor-not-allowed disabled:opacity-60"
+        [disabled]="pending()"
+        (click)="turnOff()"
+      >
+        Turn off
+      </button>
+    }
+  </div>
+</form>

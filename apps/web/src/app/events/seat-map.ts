@@ -19,6 +19,7 @@ import {
 import { strategyLabel } from './strategy-label';
 import { WaitingRoomStore } from './waiting-room.store';
 import { WaitingRoomPanel } from './waiting-room-panel';
+import { WaitingRoomSettings } from './waiting-room-settings';
 
 interface SeatRow {
   row: number;
@@ -32,7 +33,15 @@ interface SeatSection {
 
 @Component({
   selector: 'app-seat-map',
-  imports: [CurrencyPipe, DatePipe, EventArtBlock, RouterLink, StrategySwitch, WaitingRoomPanel],
+  imports: [
+    CurrencyPipe,
+    DatePipe,
+    EventArtBlock,
+    RouterLink,
+    StrategySwitch,
+    WaitingRoomPanel,
+    WaitingRoomSettings,
+  ],
   templateUrl: './seat-map.html',
   providers: [BookingsStore, WaitingRoomStore],
   host: { class: 'flex flex-col gap-4' },
@@ -58,8 +67,14 @@ export class SeatMap {
   /** The strategy as shown; an admin's switch replaces it without reloading the page. */
   protected readonly strategy = linkedSignal(() => this.event.value()?.strategy);
 
+  /** The waiting room capacity as shown; an update replaces it without reloading the page. */
+  protected readonly waitingRoomCapacity = linkedSignal(
+    () => this.event.value()?.waitingRoomCapacity ?? null
+  );
+
   protected readonly role = this.session.role;
   protected readonly isAdmin = computed(() => this.role() === ROLE.ADMIN);
+  protected readonly isOrganizer = computed(() => this.role() === ROLE.ORGANIZER);
   protected readonly isCustomer = computed(() => this.role() === ROLE.CUSTOMER);
   protected readonly strategyText = strategyLabel;
   protected readonly action = BOOKING_ACTION;
@@ -68,9 +83,7 @@ export class SeatMap {
   protected readonly cancelled = BOOKING_STATUS.CANCELLED;
 
   /** The event has a waiting room: a customer needs an admission before holding a seat. */
-  protected readonly gated = computed(
-    () => (this.event.value()?.waitingRoomCapacity ?? null) !== null
-  );
+  protected readonly gated = computed(() => this.waitingRoomCapacity() !== null);
 
   protected readonly notFound = computed(() => {
     const error = this.event.error();
