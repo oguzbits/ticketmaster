@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 
 import { BOOKING_STRATEGY, type Role, type TokenResponse } from '@app/shared';
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
-import { and, count, eq, inArray, isNull, lte } from 'drizzle-orm';
+import { and, count, eq, inArray, isNotNull, isNull, lte, or } from 'drizzle-orm';
 
 import type { Clock } from '../../core/clock.js';
 import type { Database } from '../../infrastructure/database/database.module.js';
@@ -80,9 +80,12 @@ export class DemoService {
   /**
    * Cleans up every demo user whose time, plus the grace of its access token, has passed and
    * returns how many it cleaned, at most one batch (`DEMO_CLEANUP_BATCH`, oldest first) per call. A user whose
-   * Keycloak call fails keeps its row, so the next run tries again; the others are cleaned anyway.
+   * Keycloak call or ticket PDF deletion fails keeps its row, so the next run tries again; the others are cleaned anyway.
    */
-  async deleteExpired(now: Date): Promise<number> {
+  async deleteExpired(
+    now: Date,
+    deleteTicket: (bookingId: string) => Promise<void>
+  ): Promise<number> {
     const due = await this.db
       .select({ userId: demoUsers.userId })
       .from(demoUsers)
@@ -92,7 +95,7 @@ export class DemoService {
     const failures: Error[] = [];
     for (const { userId } of due) {
       try {
-        await this.deleteUser(userId, now);
+        await this.deleteUser(userId, now, deleteTicket);
       } catch (error) {
         const failure = error instanceof Error ? error : new Error(String(error));
         this.logger.error(`could not clean up demo user ${userId}: ${failure.name}`);
@@ -131,9 +134,29 @@ export class DemoService {
     });
   }
 
-  /** Keycloak first: if the database part fails afterwards, the row stays and the next run retries. */
-  private async deleteUser(userId: string, now: Date): Promise<void> {
+  /**
+   * Keycloak and stored PDFs first: if either fails, the database row stays and the next run
+   * retries (both deletes are idempotent).
+   */
+  private async deleteUser(
+    userId: string,
+    now: Date,
+    deleteTicket: (bookingId: string) => Promise<void>
+  ): Promise<void> {
     await this.keycloak.deleteUser(userId);
+    const readyTickets = await this.db
+      .select({ id: bookings.id })
+      .from(bookings)
+      .innerJoin(events, eq(events.id, bookings.eventId))
+      .where(
+        and(
+          isNotNull(bookings.ticketReadyAt),
+          or(eq(bookings.userId, userId), eq(events.sandboxUserId, userId))
+        )
+      );
+    for (const { id } of readyTickets) {
+      await deleteTicket(id);
+    }
     const freed = await this.db.transaction(async (tx) => {
       // A demo customer may have booked seats of public events too; those go with the user. Seats
       // of the user's own sandbox events need no notice: only the user ever looked at them.

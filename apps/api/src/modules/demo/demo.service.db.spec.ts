@@ -24,6 +24,7 @@ import { HALL, layoutSeats, SEED, seed } from '../../infrastructure/database/see
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { EXPIRY_SPEC_END, SPEC_NOW } from '../../testing/time.js';
 import type { SeatChangePublisher } from '../bookings/index.js';
+import { FakeTicketStore } from '../tickets/testing/fake-ticket-store.js';
 import {
   ACCESS_TOKEN_GRACE_SECONDS,
   DEMO_CLEANUP_BATCH,
@@ -39,11 +40,13 @@ const GRACE_MS = ACCESS_TOKEN_GRACE_SECONDS * 1000;
 // other user (the login tests use SPEC_NOW, other specs the real clock) is due by then.
 const era = (year: number): Date => new Date(`${year}-01-01T00:00:00Z`);
 const STRATEGIES = Object.values(BOOKING_STRATEGY).toSorted();
+const PDF = Buffer.from('%PDF-1.3 demo');
 
 describe('DemoService', () => {
   const database = openTestDatabase();
   const { db } = database;
   const keycloak = new FakeKeycloakAdmin();
+  const ticketStore = new FakeTicketStore();
   let now = SPEC_NOW;
   const clock = { now: () => now };
   const published: { change: SeatChange; bookingsLeft: number }[] = [];
@@ -63,10 +66,15 @@ describe('DemoService', () => {
   const serviceWithCap = (maxUsers: number) =>
     new DemoService(db, keycloak, clock, { userTtlSeconds: TTL_SECONDS, maxUsers, seatChanges });
   const service = serviceWithCap(MAX_DEMO_USERS);
+  const deleteExpired = (at: Date) =>
+    service.deleteExpired(at, (bookingId) => ticketStore.delete(bookingId));
 
   beforeAll(() => seed(db));
   beforeEach(() => {
     now = SPEC_NOW;
+    ticketStore.objects.clear();
+    ticketStore.failingDeletes.clear();
+    ticketStore.deletes = 0;
   });
   afterAll(() => database.close());
 
@@ -108,7 +116,7 @@ describe('DemoService', () => {
   // The expiry spec expires every hold of the table that is due on its day: a hold of this spec
   // that is due earlier turns EXPIRED under a test that still needs it HELD.
   it('keeps the holds of its users out of reach of the sweeps of the expiry spec', async () => {
-    const { bookingId } = await loginWithBooking(era(2010), BOOKING_STATUS.HELD);
+    const { bookingId } = await loginWithBooking(era(2099), BOOKING_STATUS.HELD);
 
     const [held] = await bookingRows(bookingId);
 
@@ -243,7 +251,7 @@ describe('DemoService', () => {
       const active = await loginWithBooking(new Date(start.getTime() + HOUR_MS / 2));
       const due = new Date(start.getTime() + HOUR_MS + GRACE_MS);
 
-      await expect(service.deleteExpired(due)).resolves.toBe(1);
+      await expect(deleteExpired(due)).resolves.toBe(1);
 
       expect(keycloak.deleted).toContain(expired.userId);
       expect(keycloak.deleted).not.toContain(active.userId);
@@ -259,11 +267,11 @@ describe('DemoService', () => {
       const { userId } = await loginWithBooking(era(2001));
       const cutoff = new Date(era(2001).getTime() + HOUR_MS + GRACE_MS);
 
-      await expect(service.deleteExpired(new Date(cutoff.getTime() - 1000))).resolves.toBe(0);
+      await expect(deleteExpired(new Date(cutoff.getTime() - 1000))).resolves.toBe(0);
       expect(await demoUserRows(userId)).toHaveLength(1);
       expect(keycloak.deleted).not.toContain(userId);
 
-      await expect(service.deleteExpired(cutoff)).resolves.toBe(1);
+      await expect(deleteExpired(cutoff)).resolves.toBe(1);
       expect(await demoUserRows(userId)).toEqual([]);
     });
 
@@ -275,7 +283,7 @@ describe('DemoService', () => {
         reason: TRANSITION_REASON.CONFIRMED,
       });
 
-      await service.deleteExpired(new Date(era(2004).getTime() + HOUR_MS + GRACE_MS));
+      await deleteExpired(new Date(era(2004).getTime() + HOUR_MS + GRACE_MS));
 
       const [left] = await db
         .select({ total: count() })
@@ -295,7 +303,7 @@ describe('DemoService', () => {
       const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
 
       try {
-        await expect(service.deleteExpired(due)).rejects.toThrow(AggregateError);
+        await expect(deleteExpired(due)).rejects.toThrow(AggregateError);
         // The cause is in the log, not only inside the AggregateError: user ID and error name.
         expect(logged).toHaveBeenCalledWith(expect.stringContaining(stuck.userId));
         expect(logged).toHaveBeenCalledWith(expect.stringContaining('Error'));
@@ -310,7 +318,7 @@ describe('DemoService', () => {
       expect(await demoUserRows(stuck.userId)).toHaveLength(1);
       expect(await sandboxEvents(stuck.userId)).toHaveLength(STRATEGIES.length);
 
-      await expect(service.deleteExpired(due)).resolves.toBe(1);
+      await expect(deleteExpired(due)).resolves.toBe(1);
       expect(await demoUserRows(stuck.userId)).toEqual([]);
     });
 
@@ -322,15 +330,15 @@ describe('DemoService', () => {
         .values(userIds.map((userId) => ({ userId, role: ROLE.CUSTOMER, expiresAt })));
       const due = new Date(expiresAt.getTime() + GRACE_MS);
 
-      await expect(service.deleteExpired(due)).resolves.toBe(DEMO_CLEANUP_BATCH);
+      await expect(deleteExpired(due)).resolves.toBe(DEMO_CLEANUP_BATCH);
       const [left] = await db
         .select({ total: count() })
         .from(demoUsers)
         .where(eq(demoUsers.expiresAt, expiresAt));
       expect(left?.total).toBe(1);
 
-      await expect(service.deleteExpired(due)).resolves.toBe(1);
-      await expect(service.deleteExpired(due)).resolves.toBe(0);
+      await expect(deleteExpired(due)).resolves.toBe(1);
+      await expect(deleteExpired(due)).resolves.toBe(0);
     });
 
     describe('seat changes', () => {
@@ -344,7 +352,7 @@ describe('DemoService', () => {
         const buyer = await loginWithBooking(start, BOOKING_STATUS.CONFIRMED);
         const gone = await loginWithBooking(start, BOOKING_STATUS.CANCELLED);
 
-        await service.deleteExpired(dueAfter(start));
+        await deleteExpired(dueAfter(start));
 
         for (const { eventId, seatId } of [holder, buyer]) {
           expect(publishedFor(seatId)).toEqual([
@@ -375,7 +383,7 @@ describe('DemoService', () => {
           holdExpiresAt: SPEC_NOW,
         });
 
-        await service.deleteExpired(dueAfter(start));
+        await deleteExpired(dueAfter(start));
 
         expect(publishedFor(leaving.seatId).map(({ change }) => change.status)).toEqual([
           SEAT_STATUS.SOLD,
@@ -399,7 +407,7 @@ describe('DemoService', () => {
           holdExpiresAt: SPEC_NOW,
         });
 
-        await service.deleteExpired(dueAfter(start));
+        await deleteExpired(dueAfter(start));
 
         expect(publishedFor(seat?.id ?? '')).toEqual([]);
       });
@@ -411,7 +419,7 @@ describe('DemoService', () => {
         const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
 
         try {
-          await expect(service.deleteExpired(dueAfter(start))).resolves.toBe(1);
+          await expect(deleteExpired(dueAfter(start))).resolves.toBe(1);
           expect(logged).toHaveBeenCalledWith(expect.stringContaining(userId));
         } finally {
           publishFails = false;
@@ -422,8 +430,97 @@ describe('DemoService', () => {
       });
     });
 
+    it('deletes stored ticket PDFs of expired users (public and sandbox bookings) and skips non-ready or active ones', async () => {
+      const start = era(2011);
+      const expired = await loginWithBooking(start);
+      const active = await loginWithBooking(new Date(start.getTime() + HOUR_MS / 2));
+      const held = await loginWithBooking(start, BOOKING_STATUS.HELD);
+
+      await db
+        .update(bookings)
+        .set({ ticketReadyAt: start })
+        .where(eq(bookings.id, expired.bookingId));
+      await db
+        .update(bookings)
+        .set({ ticketReadyAt: start })
+        .where(eq(bookings.id, active.bookingId));
+
+      const [sandbox] = await sandboxEvents(expired.userId);
+      const [sandboxSeat] = await db
+        .select()
+        .from(seats)
+        .where(eq(seats.eventId, sandbox?.id ?? ''));
+      const [sandboxBooking] = await db
+        .insert(bookings)
+        .values({
+          eventId: sandbox?.id ?? '',
+          seatId: sandboxSeat?.id ?? '',
+          userId: expired.userId,
+          strategy: sandbox?.strategy ?? BOOKING_STRATEGY.PESSIMISTIC,
+          status: BOOKING_STATUS.CONFIRMED,
+          holdExpiresAt: SPEC_NOW,
+          ticketReadyAt: start,
+        })
+        .returning({ id: bookings.id });
+      const sandboxBookingId = sandboxBooking?.id ?? '';
+
+      await ticketStore.put(expired.bookingId, PDF);
+      await ticketStore.put(sandboxBookingId, PDF);
+      await ticketStore.put(active.bookingId, PDF);
+
+      const due = new Date(start.getTime() + HOUR_MS + GRACE_MS);
+      await expect(deleteExpired(due)).resolves.toBe(2);
+
+      expect(await ticketStore.get(expired.bookingId)).toBeNull();
+      expect(await ticketStore.get(sandboxBookingId)).toBeNull();
+      expect(await ticketStore.get(active.bookingId)).not.toBeNull();
+      // Only bookings with ticketReadyAt call deleteTicket, not held/unready bookings (such as simulator holds).
+      expect(ticketStore.deletes).toBe(2);
+      expect(await bookingRows(held.bookingId)).toEqual([]);
+
+      await expect(deleteExpired(new Date(due.getTime() + HOUR_MS))).resolves.toBe(1);
+      expect(await ticketStore.get(active.bookingId)).toBeNull();
+    });
+
+    it('keeps the user and bookings intact for retry when deleting a stored PDF fails', async () => {
+      const start = era(2012);
+      const stuck = await loginWithBooking(start);
+      const fine = await loginWithBooking(start);
+      await db
+        .update(bookings)
+        .set({ ticketReadyAt: start })
+        .where(eq(bookings.id, stuck.bookingId));
+      await db
+        .update(bookings)
+        .set({ ticketReadyAt: start })
+        .where(eq(bookings.id, fine.bookingId));
+      await ticketStore.put(stuck.bookingId, PDF);
+      await ticketStore.put(fine.bookingId, PDF);
+      ticketStore.failingDeletes.add(stuck.bookingId);
+
+      const due = new Date(start.getTime() + HOUR_MS + GRACE_MS);
+      const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      try {
+        await expect(deleteExpired(due)).rejects.toThrow(AggregateError);
+      } finally {
+        ticketStore.failingDeletes.clear();
+        logged.mockRestore();
+      }
+
+      expect(await ticketStore.get(fine.bookingId)).toBeNull();
+      expect(await demoUserRows(fine.userId)).toEqual([]);
+      expect(await ticketStore.get(stuck.bookingId)).not.toBeNull();
+      expect(await demoUserRows(stuck.userId)).toHaveLength(1);
+      expect(await bookingRows(stuck.bookingId)).toHaveLength(1);
+
+      await expect(deleteExpired(due)).resolves.toBe(1);
+      expect(await ticketStore.get(stuck.bookingId)).toBeNull();
+      expect(await demoUserRows(stuck.userId)).toEqual([]);
+      expect(await bookingRows(stuck.bookingId)).toEqual([]);
+    });
+
     it('does nothing when nobody is due', async () => {
-      await expect(service.deleteExpired(era(2000))).resolves.toBe(0);
+      await expect(deleteExpired(era(2000))).resolves.toBe(0);
     });
   });
 });

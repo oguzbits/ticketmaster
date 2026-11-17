@@ -89,7 +89,8 @@ Phase 2, slice B (confirmation mail and ticket PDF) is complete:
   an unknown one, a ticket that is not stored yet, or a booking that is no longer `CONFIRMED`).
   `ticketReady` is part of the booking contract; my bookings shows "Ticket is being prepared" and
   then a download button. `TicketRetentionJob` removes stored PDFs of cancelled bookings and clears
-  `bookings.ticket_ready_at`.
+  `bookings.ticket_ready_at`; `DemoCleanupJob` removes stored PDFs of expired demo users before
+  deleting their bookings.
 - The visibility timeout is 120 s and every external call has its own timeout (S3 10 s, SMTP 10 s,
   Keycloak 5 s, one attempt), so a handler stays inside the timeout instead of sending a heartbeat.
 - Specs: renderer, store, sender and address lookup against Mailpit and the emulator, both effects
@@ -538,9 +539,6 @@ open points below.
 - **A handler that runs longer than the 120 s visibility timeout** still sees its message delivered
   again while it works (the dedupe record serializes the two); the timeouts of the external calls
   keep a run well below that.
-- **Demo cleanup leaves stored PDFs behind.** `TicketRetentionJob` removes stored PDFs of cancelled
-  bookings (`status = CANCELLED`), while expired demo users cascade-delete their `bookings` rows
-  without removing objects from the bucket.
 - **The mail effect costs one Keycloak call per message** (the address is read when the mail is
   sent, not stored). Acceptable at demo volume; a cache or a stored address needs a data-protection
   decision first.

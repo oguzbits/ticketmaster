@@ -5,6 +5,7 @@ import { WaitingRoomService } from '@app/api/waiting-room';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it } from 'vitest';
 
+import { DemoCleanupJob } from './demo-cleanup.job.js';
 import { OperationalGauges } from './operational-gauges.js';
 import { OutboxRelayJob } from './outbox-relay.job.js';
 import { SimulationConsumer } from './simulation.consumer.js';
@@ -20,6 +21,7 @@ describe('WorkerModule', () => {
 
     expect(moduleRef.get(BookingsService, { strict: false })).toBeInstanceOf(BookingsService);
     expect(moduleRef.get(DemoService, { strict: false })).toBeInstanceOf(DemoService);
+    expect(moduleRef.get(DemoCleanupJob)).toBeInstanceOf(DemoCleanupJob);
     expect(moduleRef.get(SimulationConsumer)).toBeInstanceOf(SimulationConsumer);
     // The relay needs the queue adapter, which connects to the emulator at start.
     expect(moduleRef.get(OutboxService, { strict: false })).toBeInstanceOf(OutboxService);
