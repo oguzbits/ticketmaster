@@ -1,11 +1,17 @@
 import { DatePipe } from '@angular/common';
 import { Component, DestroyRef, inject, signal } from '@angular/core';
-import { AUDIT_ACTION, type AuditAction, AuditActionSchema, type AuditEntry } from '@app/shared';
+import {
+  AUDIT_ACTION,
+  type AuditAction,
+  AuditActionSchema,
+  type AuditEntry,
+  AuditLogQuerySchema,
+} from '@app/shared';
 import { Subscription } from 'rxjs';
 
 import { AuditLogService } from './audit-log.service';
 
-/** The admin's audit log: who did what to which subject, newest first, filtered by action. */
+/** The admin's audit log: who did what to which subject, newest first, filtered by action and actor. */
 @Component({
   selector: 'app-audit-log-page',
   imports: [DatePipe],
@@ -18,6 +24,9 @@ export class AuditLogPage {
 
   protected readonly actions = Object.values(AUDIT_ACTION);
   protected readonly action = signal<AuditAction | undefined>(undefined);
+  protected readonly actorId = signal<string | undefined>(undefined);
+  /** The text in the actor field is not an ID; the filter and the rows stay as they were. */
+  protected readonly actorInvalid = signal(false);
   protected readonly items = signal<AuditEntry[]>([]);
   protected readonly nextCursor = signal<string | null>(null);
   protected readonly loading = signal(false);
@@ -32,6 +41,19 @@ export class AuditLogPage {
 
   protected pickAction(value: string): void {
     this.action.set(value === '' ? undefined : AuditActionSchema.parse(value));
+    this.reload();
+  }
+
+  protected pickActor(value: string): void {
+    const text = value.trim();
+    const parsed = AuditLogQuerySchema.shape.actorId.safeParse(text === '' ? undefined : text);
+    this.actorInvalid.set(!parsed.success);
+    if (!parsed.success) return;
+    this.actorId.set(parsed.data);
+    this.reload();
+  }
+
+  private reload(): void {
     this.items.set([]);
     this.nextCursor.set(null);
     this.load(undefined);
@@ -54,6 +76,7 @@ export class AuditLogPage {
     this.request = this.service
       .page({
         ...(this.action() ? { action: this.action() } : {}),
+        ...(this.actorId() ? { actorId: this.actorId() } : {}),
         ...(cursor ? { cursor } : {}),
       })
       .subscribe({

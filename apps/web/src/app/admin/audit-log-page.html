@@ -1,18 +1,37 @@
 <h1 class="text-2xl font-semibold">Audit log</h1>
 
-<div class="flex flex-col gap-1">
-  <label for="audit-action" class="text-sm font-medium">Action</label>
-  <select
-    id="audit-action"
-    class="field w-fit"
-    (change)="pickAction(actionInput.value)"
-    #actionInput
-  >
-    <option value="">All actions</option>
-    @for (item of actions; track item) {
-      <option [value]="item" [selected]="item === action()">{{ item }}</option>
+<div class="flex flex-wrap items-start gap-4">
+  <div class="flex flex-col gap-1">
+    <label for="audit-action" class="text-sm font-medium">Action</label>
+    <select
+      id="audit-action"
+      class="field w-fit"
+      (change)="pickAction(actionInput.value)"
+      #actionInput
+    >
+      <option value="">All actions</option>
+      @for (item of actions; track item) {
+        <option [value]="item" [selected]="item === action()">{{ item }}</option>
+      }
+    </select>
+  </div>
+  <div class="flex flex-col gap-1">
+    <label for="audit-actor" class="text-sm font-medium">Actor ID</label>
+    <input
+      id="audit-actor"
+      type="text"
+      class="field w-80 max-w-full font-mono text-xs"
+      placeholder="All actors"
+      autocomplete="off"
+      spellcheck="false"
+      [attr.aria-invalid]="actorInvalid() ? 'true' : null"
+      (change)="pickActor(actorInput.value)"
+      #actorInput
+    />
+    @if (actorInvalid()) {
+      <p role="alert" class="text-sm text-danger">Enter a valid ID, for example from the table.</p>
     }
-  </select>
+  </div>
 </div>
 
 @if (failed()) {

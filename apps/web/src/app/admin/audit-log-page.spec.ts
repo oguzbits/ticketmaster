@@ -180,6 +180,72 @@ describe('AuditLogPage', () => {
     expect(rows()).toHaveLength(1);
     expect(rows()[0]).toContain('req-eight');
   });
+
+  describe('actor filter', () => {
+    const ACTOR = ENTRY.actorId;
+    const isList = (req: { url: string }) => req.url === URL;
+
+    function type(element: HTMLElement, value: string): void {
+      const input = element.querySelector<HTMLInputElement>('#audit-actor');
+      if (!input) throw new Error('actor filter missing');
+      input.value = value;
+      input.dispatchEvent(new Event('change'));
+    }
+
+    it('reloads from the first page with the actor ID, next to the action', async () => {
+      const { element, http, settle, flush, rows } = render();
+      await flush({ items: [ENTRY], nextCursor: ENTRY.id });
+      const select = element.querySelector<HTMLSelectElement>('#audit-action');
+      if (!select) throw new Error('filter missing');
+      select.value = AUDIT_ACTION.BOOKING_PAID;
+      select.dispatchEvent(new Event('change'));
+      await settle();
+      http.expectOne(isList).flush({ items: [ENTRY], nextCursor: ENTRY.id });
+      await settle();
+
+      type(element, ` ${ACTOR} `);
+      await settle();
+
+      const request = http.expectOne(isList);
+      expect(request.request.params.get('actorId')).toBe(ACTOR);
+      expect(request.request.params.get('action')).toBe(AUDIT_ACTION.BOOKING_PAID);
+      expect(request.request.params.has('cursor')).toBe(false);
+      request.flush({ items: [OLDER], nextCursor: null });
+      await settle();
+      expect(rows()).toHaveLength(1);
+      expect(rows()[0]).toContain('req-eight');
+    });
+
+    it('says so for text that is not an ID, sends nothing and keeps the rows', async () => {
+      const { element, settle, flush, rows } = render();
+      await flush({ items: [ENTRY], nextCursor: null });
+
+      type(element, 'not-an-id');
+      await settle();
+
+      expect(element.querySelector('#audit-actor')?.getAttribute('aria-invalid')).toBe('true');
+      expect(element.querySelector('[role=alert]')?.textContent).toContain('valid ID');
+      expect(rows()).toHaveLength(1);
+    });
+
+    it('drops the actor filter when the field is emptied, and the error with it', async () => {
+      const { element, http, settle, flush } = render();
+      await flush({ items: [ENTRY], nextCursor: null });
+      type(element, ACTOR);
+      await settle();
+      http.expectOne(isList).flush({ items: [ENTRY], nextCursor: null });
+      await settle();
+      type(element, 'not-an-id');
+      await settle();
+
+      type(element, '');
+      await settle();
+
+      expect(http.expectOne(isList).request.params.has('actorId')).toBe(false);
+      expect(element.querySelector('[role=alert]')).toBeNull();
+      expect(element.querySelector('#audit-actor')?.getAttribute('aria-invalid')).toBeNull();
+    });
+  });
 });
 
 describe('audit log route', () => {
