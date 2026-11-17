@@ -68,9 +68,11 @@ export class WaitingRoomController {
   async stream(
     @Param('id', new ZodPipe(z.uuid())) id: string,
     @CurrentUser() user: AuthUser
-  ): Promise<Observable<MessageEvent>> {
+  ): Promise<Observable<MessageEvent | { comment: string }>> {
     // Nest sends the 200 headers as soon as it subscribes, so the 503 has to come before.
-    return (await this.places.stream(id, user.id)).pipe(map((data) => ({ data })));
+    return (await this.places.stream(id, user.id)).pipe(
+      map((message) => ('comment' in message ? message : { data: message }))
+    );
   }
 
   @Roles(ROLE.ORGANIZER, ROLE.ADMIN)

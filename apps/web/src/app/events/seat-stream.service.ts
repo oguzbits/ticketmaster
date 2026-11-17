@@ -30,7 +30,7 @@ const BACKOFF_BASE_MS = 1000;
 const BACKOFF_MAX_MS = 30_000;
 const RETRY_AFTER_MAX_MS = 60_000;
 /** The server sends a heartbeat every 15 s; three missed ones mean the connection is dead. */
-const IDLE_MS = 45_000;
+export const STREAM_IDLE_MS = 45_000;
 const BUSY_STATUSES: readonly number[] = [429, 503];
 const FATAL_STATUSES: readonly number[] = [400, 404];
 
@@ -114,7 +114,7 @@ export class SeatStreamService {
     let idle: ReturnType<typeof setTimeout> | undefined;
     const alive = () => {
       clearTimeout(idle);
-      idle = setTimeout(abort, IDLE_MS);
+      idle = setTimeout(abort, STREAM_IDLE_MS);
     };
     try {
       alive();

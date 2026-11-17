@@ -15,7 +15,11 @@ import { AuditService } from '../audit/index.js';
 import { createUncachedEventCache } from '../event-cache/testing/index.js';
 import { RedisWaitingRoomStore } from './adapters/redis-waiting-room-store.js';
 import { WaitingRoomService } from './waiting-room.service.js';
-import { WaitingRoomStreamService } from './waiting-room-stream.service.js';
+import {
+  WAITING_ROOM_HEARTBEAT_MS,
+  type WaitingRoomStreamMessage,
+  WaitingRoomStreamService,
+} from './waiting-room-stream.service.js';
 
 const POLL_MS = 20;
 const CAPACITY = 5;
@@ -50,6 +54,7 @@ describe('WaitingRoomStreamService', () => {
   afterEach(async () => {
     for (const subscription of open.splice(0)) subscription.unsubscribe();
     stream.maxStreams = 200;
+    stream.heartbeatMs = WAITING_ROOM_HEARTBEAT_MS;
     // A slot is released a moment after the unsubscribe; the next test starts from zero.
     await vi.waitFor(async () => expect(await redis.zCard(slotKey)).toBe(0));
   });
@@ -82,16 +87,18 @@ describe('WaitingRoomStreamService', () => {
 
   async function listen(eventId: string, userId: string) {
     const messages: WaitingRoomStatus[] = [];
+    const raw: WaitingRoomStreamMessage[] = [];
     const state = { completed: false };
     const subscription = (await stream.stream(eventId, userId)).subscribe({
-      next: (message) => messages.push(message),
+      next: (message) => {
+        raw.push(message);
+        if (!('comment' in message)) messages.push(message);
+      },
       complete: () => (state.completed = true),
     });
     open.push(subscription);
-    return { messages, state, subscription };
+    return { messages, raw, state, subscription };
   }
-  const settle = (milliseconds: number) =>
-    new Promise((resolve) => setTimeout(resolve, milliseconds));
 
   it('emits the position and ends with ADMITTED', async () => {
     const { eventId, userIds } = await queue(2);
@@ -111,15 +118,17 @@ describe('WaitingRoomStreamService', () => {
     ]);
   });
 
-  it('emits on change only', async () => {
+  it('emits on change only and sends heartbeats while waiting', async () => {
+    stream.heartbeatMs = POLL_MS * 2;
     const { eventId, userIds } = await queue(2);
     const [, second = ''] = userIds;
-    const { messages } = await listen(eventId, second);
+    const { messages, raw } = await listen(eventId, second);
     await expect.poll(() => messages).toHaveLength(1);
 
-    await settle(POLL_MS * 5);
+    await expect.poll(() => raw.filter((entry) => 'comment' in entry)).toHaveLength(2);
 
     expect(messages).toHaveLength(1);
+    expect(raw.find((entry) => 'comment' in entry)).toEqual({ comment: 'heartbeat' });
   });
 
   it('ends at once for a user who is not queued', async () => {

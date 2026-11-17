@@ -221,4 +221,24 @@ describe('WaitingRoomService', () => {
 
     expect(errors).toHaveLength(1);
   });
+
+  it('reconnects after a silent connection misses heartbeats and resets the timer on heartbeat', async () => {
+    const { open, calls, messages, follow, settle } = setup();
+    const first = open();
+    open();
+    const subscription = follow();
+    await settle();
+
+    first.push(frame(WAITING));
+    await settle(40_000);
+    first.push(': heartbeat\n\n');
+    await settle(40_000);
+    expect(calls).toHaveLength(1);
+
+    await settle(5_000);
+    expect(messages).toContainEqual(RECONNECTING);
+    await settle(3_000);
+    expect(calls).toHaveLength(2);
+    subscription.unsubscribe();
+  });
 });

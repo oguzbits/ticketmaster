@@ -3,7 +3,13 @@ import { inject, Injectable } from '@angular/core';
 import { WAITING_ROOM_STATE, type WaitingRoomStatus, WaitingRoomStatusSchema } from '@app/shared';
 import { map, Observable, type Subscriber } from 'rxjs';
 
-import { isRetryable, SeatStreamService, sleep, sseMessages } from './seat-stream.service';
+import {
+  isRetryable,
+  SeatStreamService,
+  sleep,
+  sseMessages,
+  STREAM_IDLE_MS,
+} from './seat-stream.service';
 
 export const WAITING_ROOM_STREAM = { STATUS: 'status', RECONNECTING: 'reconnecting' } as const;
 
@@ -81,17 +87,24 @@ export class WaitingRoomService {
     const connection = new AbortController();
     const abort = () => connection.abort();
     signal.addEventListener('abort', abort, { once: true });
+    let idle: ReturnType<typeof setTimeout> | undefined;
+    const alive = () => {
+      clearTimeout(idle);
+      idle = setTimeout(abort, STREAM_IDLE_MS);
+    };
     try {
+      alive();
       const response = await this.connection.connect(`${url(eventId)}/stream`, connection.signal);
       if (response.body === null) return null;
       let last: WaitingRoomStatus | null = null;
-      for await (const raw of sseMessages(response.body, () => undefined)) {
+      for await (const raw of sseMessages(response.body, alive)) {
         last = WaitingRoomStatusSchema.parse(JSON.parse(raw.data));
         subscriber.next({ type: WAITING_ROOM_STREAM.STATUS, status: last });
         if (last.state !== WAITING_ROOM_STATE.WAITING) break;
       }
       return last;
     } finally {
+      clearTimeout(idle);
       signal.removeEventListener('abort', abort);
       connection.abort();
     }
