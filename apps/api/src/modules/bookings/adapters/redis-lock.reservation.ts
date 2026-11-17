@@ -11,7 +11,7 @@ import {
   type HoldResult,
   type SeatReservation,
 } from '../domain/seat-reservation.js';
-import { insertHold, isSeatTaken } from './insert-hold.js';
+import { anySeatTaken, insertHold } from './insert-hold.js';
 
 const LOCK_KEY_PREFIX = 'lock:seat:';
 const LOCK_TTL_MS = 5000;
@@ -24,7 +24,7 @@ export async function releaseLock(redis: Redis, key: string, token: string): Pro
   return deleted === 1;
 }
 
-/** A short-lived Redis lock per seat; whoever does not get it sees the seat as taken. */
+/** Short-lived Redis locks per seat acquired in canonical order; whoever misses one sees a seat as taken. */
 export class RedisLockReservation implements SeatReservation {
   private readonly logger = new Logger(RedisLockReservation.name);
 
@@ -35,24 +35,31 @@ export class RedisLockReservation implements SeatReservation {
   ) {}
 
   async hold(input: HoldInput & { now: Date; ttlSeconds: number }): Promise<HoldResult> {
-    const key = `${LOCK_KEY_PREFIX}${input.seatId}`;
-    const token = randomUUID();
-    const acquired = await this.redis.set(key, token, {
-      condition: 'NX',
-      expiration: { type: 'PX', value: LOCK_TTL_MS },
-    });
-    if (acquired === null) return { outcome: HOLD_OUTCOME.SEAT_TAKEN };
+    const ordered = [...input.seatIds].sort();
+    const acquired: { key: string; token: string; seatId: string }[] = [];
     try {
+      for (const seatId of ordered) {
+        const key = `${LOCK_KEY_PREFIX}${seatId}`;
+        const token = randomUUID();
+        const lockResult = await this.redis.set(key, token, {
+          condition: 'NX',
+          expiration: { type: 'PX', value: LOCK_TTL_MS },
+        });
+        if (lockResult === null) return { outcome: HOLD_OUTCOME.SEAT_TAKEN };
+        acquired.push({ key, token, seatId });
+      }
       return await this.db.transaction(async (tx) =>
-        (await isSeatTaken(tx, input.seatId))
+        (await anySeatTaken(tx, ordered))
           ? { outcome: HOLD_OUTCOME.SEAT_TAKEN }
-          : insertHold(tx, input, this.audit)
+          : insertHold(tx, { ...input, seatIds: ordered }, this.audit)
       );
     } finally {
-      // A failed release must not replace a committed hold; the lock expires by itself after its TTL.
-      await releaseLock(this.redis, key, token).catch((error: Error) =>
-        this.logger.error(`lock release failed for seat ${input.seatId}: ${error.message}`)
-      );
+      for (const lock of [...acquired].reverse()) {
+        // A failed release must not replace a committed hold; the lock expires by itself after its TTL.
+        await releaseLock(this.redis, lock.key, lock.token).catch((error: Error) =>
+          this.logger.error(`lock release failed for seat ${lock.seatId}: ${error.message}`)
+        );
+      }
     }
   }
 }

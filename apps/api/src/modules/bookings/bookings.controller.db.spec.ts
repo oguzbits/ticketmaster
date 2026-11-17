@@ -24,8 +24,8 @@ import { AppModule } from '../../app.module.js';
 import { configureApp } from '../../app.setup.js';
 import { loadEnv } from '../../config/config.module.js';
 import { CLOCK } from '../../core/clock.js';
-import { bookings } from '../../infrastructure/database/schema.js';
-import { createTestEvent, openTestDatabase } from '../../testing/database.js';
+import { bookings, bookingSeats } from '../../infrastructure/database/schema.js';
+import { createTestEvent, insertTestBooking, openTestDatabase } from '../../testing/database.js';
 import { fakeTokenVerifier, randomClientAddress } from '../../testing/http.js';
 import { lockSpecs } from '../../testing/spec-lock.js';
 import { SPEC_NOW } from '../../testing/time.js';
@@ -128,24 +128,25 @@ describe('booking endpoints', () => {
     return caller === undefined ? pending : pending.set('Authorization', `Bearer ${caller}`);
   };
 
-  async function freeSeat(
+  async function freeSeats(
+    count = 1,
     input: {
       sandboxUserId?: string;
       strategy?: BookingStrategy;
       waitingRoomCapacity?: number;
     } = {}
-  ): Promise<{ eventId: string; seatId: string }> {
+  ): Promise<{ eventId: string; seatIds: string[] }> {
     const { eventId, seatIds } = await createTestEvent(db, {
       strategy: BOOKING_STRATEGY.PESSIMISTIC,
-      seats: 1,
+      seats: count,
       ...input,
     });
-    return { eventId, seatId: seatIds[0] ?? '' };
+    return { eventId, seatIds };
   }
 
-  async function hold(caller: Caller, seat?: { eventId: string; seatId: string }) {
+  async function hold(caller: Caller, payload?: { eventId: string; seatIds: string[] }) {
     const response = await call('post', '/bookings', caller)
-      .send(seat ?? (await freeSeat()))
+      .send(payload ?? (await freeSeats()))
       .expect(201);
     return BookingSchema.parse(response.body);
   }
@@ -180,17 +181,20 @@ describe('booking endpoints', () => {
   });
 
   describe('hold', () => {
-    it('answers 201 with the booking, its seat position and the HOLD transition', async () => {
-      const seat = await freeSeat();
+    it('answers 201 with the booking, its seats, total price and the HOLD transition', async () => {
+      const payload = await freeSeats(2);
 
-      const booking = await hold('alice', seat);
+      const booking = await hold('alice', payload);
 
       expect(booking).toMatchObject({
-        eventId: seat.eventId,
-        seatId: seat.seatId,
+        eventId: payload.eventId,
         status: BOOKING_STATUS.HELD,
         holdExpiresAt: new Date(SPEC_NOW.getTime() + HOLD_TTL_SECONDS * 1000).toISOString(),
-        seat: { section: 'A', row: 1, number: 1 },
+        totalPriceCents: 2000,
+        seats: [
+          { id: payload.seatIds[0], section: 'A', row: 1, number: 1, priceCents: 1000 },
+          { id: payload.seatIds[1], section: 'A', row: 1, number: 2, priceCents: 1000 },
+        ],
         transitions: [
           { fromStatus: null, toStatus: BOOKING_STATUS.HELD, reason: TRANSITION_REASON.HOLD },
         ],
@@ -199,50 +203,59 @@ describe('booking endpoints', () => {
       expect(stored?.userId).toBe(ALICE.id);
     });
 
-    it('answers 409 when another customer holds the seat', async () => {
-      const seat = await freeSeat();
-      await hold('alice', seat);
+    it('answers 409 when another customer holds one of the requested seats', async () => {
+      const payload = await freeSeats(2);
+      await hold('alice', { eventId: payload.eventId, seatIds: [payload.seatIds[0] ?? ''] });
 
-      await call('post', '/bookings', 'bob').send(seat).expect(409);
+      await call('post', '/bookings', 'bob').send(payload).expect(409);
     });
 
-    it('answers 404 for a seat of another event and 400 for a malformed body', async () => {
-      const { eventId } = await freeSeat();
-      const other = await freeSeat();
+    it('answers 404 for a seat of another event and 400 for a malformed or duplicate body', async () => {
+      const { eventId, seatIds } = await freeSeats(7);
+      const other = await freeSeats();
 
-      await call('post', '/bookings', 'alice').send({ eventId, seatId: other.seatId }).expect(404);
-      await call('post', '/bookings', 'alice').send({ eventId, seatId: 'not-a-uuid' }).expect(400);
+      await call('post', '/bookings', 'alice')
+        .send({ eventId, seatIds: other.seatIds })
+        .expect(404);
+      await call('post', '/bookings', 'alice')
+        .send({ eventId, seatIds: ['not-a-uuid'] })
+        .expect(400);
+      await call('post', '/bookings', 'alice')
+        .send({ eventId, seatIds: [seatIds[0], seatIds[0]] })
+        .expect(400);
+      await call('post', '/bookings', 'alice').send({ eventId, seatIds: [] }).expect(400);
+      await call('post', '/bookings', 'alice').send({ eventId, seatIds }).expect(400);
       await call('post', '/bookings', 'alice').send({}).expect(400);
     });
 
     it('answers 404 for a seat of another user’s sandbox event, and nothing is held', async () => {
-      const seat = await freeSeat({ sandboxUserId: ALICE.id });
+      const payload = await freeSeats(1, { sandboxUserId: ALICE.id });
 
-      await call('post', '/bookings', 'bob').send(seat).expect(404);
-      await hold('alice', seat);
+      await call('post', '/bookings', 'bob').send(payload).expect(404);
+      await hold('alice', payload);
     });
 
     it('answers 409 when the database refuses a hold that raced past the seat check', async () => {
-      const seat = await freeSeat({ strategy: BOOKING_STRATEGY.OPTIMISTIC });
+      const payload = await freeSeats(1, { strategy: BOOKING_STRATEGY.OPTIMISTIC });
       let response: Promise<request.Response> | undefined;
       verifyDelayMs = SLOW_REQUEST_MS;
 
       // An uncommitted active booking of the seat: the request's seat check cannot see it, so its
       // insert waits on the unique index and fails once this transaction commits.
       await db.transaction(async (tx) => {
-        await tx.insert(bookings).values({
-          ...seat,
+        await insertTestBooking(tx, {
+          ...payload,
           userId: BOB.id,
           strategy: BOOKING_STRATEGY.OPTIMISTIC,
           status: BOOKING_STATUS.HELD,
           holdExpiresAt: SPEC_NOW,
         });
         response = call('post', '/bookings', 'alice')
-          .send(seat)
+          .send(payload)
           .then((answer) => answer);
         await vi.waitFor(async () => {
           const waiting = await db.execute(
-            sql`select 1 from pg_stat_activity where wait_event_type = 'Lock' and query ilike 'insert into "bookings"%'`
+            sql`select 1 from pg_stat_activity where wait_event_type = 'Lock' and query ilike 'insert into "booking_seats"%'`
           );
           expect(waiting.length).toBeGreaterThan(0);
         }, LOCK_WAIT_TIMEOUT_MS);
@@ -254,10 +267,10 @@ describe('booking endpoints', () => {
     // The body schema strips an unknown `userId`, so flipping the spread order in the controller is
     // not observable here; only a controller that read the raw body would be, and none does.
     it('takes the user from the token, never from the body', async () => {
-      const seat = await freeSeat();
+      const payload = await freeSeats();
 
       const response = await call('post', '/bookings', 'alice')
-        .send({ ...seat, userId: BOB.id })
+        .send({ ...payload, userId: BOB.id })
         .expect(201);
 
       const [stored] = await db
@@ -270,7 +283,7 @@ describe('booking endpoints', () => {
 
   describe('hold on a waiting-room event', () => {
     const CAPACITY = 5;
-    const room = () => freeSeat({ waitingRoomCapacity: CAPACITY });
+    const room = () => freeSeats(1, { waitingRoomCapacity: CAPACITY });
     async function admit(eventId: string, caller: Caller) {
       await call('post', `/events/${eventId}/waiting-room`, caller).expect(200);
       await app.get(WaitingRoomService).admitDue();
@@ -283,7 +296,10 @@ describe('booking endpoints', () => {
 
       await call('post', '/bookings', 'alice').send(seat).expect(403);
 
-      const rows = await db.select().from(bookings).where(eq(bookings.seatId, seat.seatId));
+      const rows = await db
+        .select()
+        .from(bookingSeats)
+        .where(eq(bookingSeats.seatId, seat.seatIds[0] ?? ''));
       expect(rows).toEqual([]);
     });
 
@@ -340,7 +356,7 @@ describe('booking endpoints', () => {
     });
 
     it('keeps a foreign sandbox event at 404, not 403', async () => {
-      const seat = await freeSeat({ sandboxUserId: BOB.id, waitingRoomCapacity: CAPACITY });
+      const seat = await freeSeats(1, { sandboxUserId: BOB.id, waitingRoomCapacity: CAPACITY });
 
       await call('post', '/bookings', 'alice').send(seat).expect(404);
     });

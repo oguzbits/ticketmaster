@@ -13,7 +13,7 @@ import {
   outboxMessages,
 } from '../../infrastructure/database/schema.js';
 import type { Redis } from '../../infrastructure/redis/redis.module.js';
-import { createTestEvent, openTestDatabase } from '../../testing/database.js';
+import { createTestEvent, insertTestBooking, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
 import { watchSeatChanges } from '../../testing/seat-changes.js';
 import { EXPIRY_SPEC_START, SPEC_NOW } from '../../testing/time.js';
@@ -64,7 +64,12 @@ describe('expireHolds', () => {
     });
     const ids: string[] = [];
     for (const seatId of seatIds) {
-      const result = await service.hold({ eventId, seatId, userId: randomUUID(), requestId: null });
+      const result = await service.hold({
+        eventId,
+        seatIds: [seatId],
+        userId: randomUUID(),
+        requestId: null,
+      });
       if (result.outcome !== HOLD_OUTCOME.PLACED) throw new Error('hold was not placed');
       ids.push(result.bookingId);
     }
@@ -116,20 +121,26 @@ describe('expireHolds', () => {
     ]);
   });
 
-  it('publishes AVAILABLE for each expired hold after the commit, and only for those', async () => {
+  it('publishes AVAILABLE for each expired hold seat after the commit, and only for those', async () => {
     const { eventId, seatIds } = await createTestEvent(db, {
       strategy: BOOKING_STRATEGY.PESSIMISTIC,
       seats: 3,
     });
     const [dueA, dueB, later] = seatIds;
-    for (const [seatId, heldAt] of [
-      [dueA, START],
-      [dueB, START],
-      [later, new Date(START.getTime() + ttlMs / 2)],
-    ] as const) {
-      now = heldAt;
-      await service.hold({ eventId, seatId: seatId ?? '', userId: randomUUID(), requestId: null });
-    }
+    now = START;
+    await service.hold({
+      eventId,
+      seatIds: [dueA ?? '', dueB ?? ''],
+      userId: randomUUID(),
+      requestId: null,
+    });
+    now = new Date(START.getTime() + ttlMs / 2);
+    await service.hold({
+      eventId,
+      seatIds: [later ?? ''],
+      userId: randomUUID(),
+      requestId: null,
+    });
     const watch = await watchSeatChanges(redis, eventId);
 
     await service.expireHolds(new Date(START.getTime() + ttlMs));
@@ -147,14 +158,14 @@ describe('expireHolds', () => {
       strategy: BOOKING_STRATEGY.NAIVE,
       seats: 1,
     });
-    const seat = { eventId, seatId: seatIds[0] ?? '' };
+    const seatId = seatIds[0] ?? '';
     now = START;
-    await service.hold({ ...seat, userId: randomUUID(), requestId: null });
+    await service.hold({ eventId, seatIds: [seatId], userId: randomUUID(), requestId: null });
     // NAIVE refuses a second hold only after it read the first; a race leaves two active
     // bookings, which this row stands for.
-    await db.insert(bookings).values({
-      ...seat,
-      userId: randomUUID(),
+    await insertTestBooking(db, {
+      eventId,
+      seatIds: [seatId],
       strategy: BOOKING_STRATEGY.NAIVE,
       status: BOOKING_STATUS.HELD,
       holdExpiresAt: SPEC_NOW,
@@ -231,7 +242,7 @@ describe('expireHolds', () => {
       });
       const held = await service.hold({
         eventId,
-        seatId: seatIds[0] ?? '',
+        seatIds: [seatIds[0] ?? ''],
         userId,
         requestId: null,
       });
@@ -285,7 +296,7 @@ describe('expireHolds', () => {
       now = START;
       const held = await service.hold({
         eventId,
-        seatId: seatIds[0] ?? '',
+        seatIds: [seatIds[0] ?? ''],
         userId,
         requestId: null,
       });

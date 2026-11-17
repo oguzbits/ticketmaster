@@ -574,7 +574,7 @@
     "/api/bookings": {
       "post": {
         "operationId": "BookingsController_hold",
-        "summary": "Hold a seat",
+        "summary": "Hold 1 to 6 seats",
         "parameters": [],
         "requestBody": {
           "required": true,
@@ -598,7 +598,7 @@
             }
           },
           "400": {
-            "description": "A malformed body, or the event uses `NAIVE` while `UNSAFE_STRATEGIES_ENABLED` is false.",
+            "description": "Malformed body, duplicate seats, or `NAIVE` while `UNSAFE_STRATEGIES_ENABLED` is false.",
             "content": {
               "application/json": {
                 "schema": {
@@ -628,7 +628,7 @@
             }
           },
           "404": {
-            "description": "The seat is not in the event, or the event is another user’s sandbox event.",
+            "description": "A seat is not in the event, or the event is another user’s sandbox event.",
             "content": {
               "application/json": {
                 "schema": {
@@ -638,7 +638,7 @@
             }
           },
           "409": {
-            "description": "The seat is not available.",
+            "description": "One or more seats are not available.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2276,10 +2276,15 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
-          "seatId": {
-            "type": "string",
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          "seatIds": {
+            "minItems": 1,
+            "maxItems": 6,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
           },
           "admissionToken": {
             "type": "string",
@@ -2288,7 +2293,7 @@
         },
         "required": [
           "eventId",
-          "seatId"
+          "seatIds"
         ]
       },
       "CreateEventRequest": {
@@ -2734,11 +2739,6 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
-          "seatId": {
-            "type": "string",
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-          },
           "status": {
             "type": "string",
             "enum": [
@@ -2757,29 +2757,49 @@
           "ticketReady": {
             "type": "boolean"
           },
-          "seat": {
-            "type": "object",
-            "properties": {
-              "section": {
-                "type": "string"
+          "totalPriceCents": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "seats": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "section": {
+                  "type": "string"
+                },
+                "row": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "number": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "priceCents": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
               },
-              "row": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "number": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              }
-            },
-            "required": [
-              "section",
-              "row",
-              "number"
-            ],
-            "additionalProperties": false
+              "required": [
+                "id",
+                "section",
+                "row",
+                "number",
+                "priceCents"
+              ],
+              "additionalProperties": false
+            }
           },
           "transitions": {
             "type": "array",
@@ -2843,11 +2863,11 @@
         "required": [
           "id",
           "eventId",
-          "seatId",
           "status",
           "holdExpiresAt",
           "ticketReady",
-          "seat",
+          "totalPriceCents",
+          "seats",
           "transitions"
         ],
         "additionalProperties": false

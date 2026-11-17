@@ -4,7 +4,11 @@ import { BOOKING_STATUS, BOOKING_STRATEGY, TRANSITION_REASON } from '@app/shared
 import { eq } from 'drizzle-orm';
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { bookings, bookingTransitions } from '../../../infrastructure/database/schema.js';
+import {
+  bookings,
+  bookingSeats,
+  bookingTransitions,
+} from '../../../infrastructure/database/schema.js';
 import { createTestEvent, openTestDatabase } from '../../../testing/database.js';
 import { SPEC_NOW } from '../../../testing/time.js';
 import type { TransitionResult } from '../domain/booking-state-machine.js';
@@ -29,7 +33,6 @@ describe('storeOwnTransition', () => {
       .insert(bookings)
       .values({
         eventId,
-        seatId: seatIds[0] ?? '',
         userId,
         strategy: BOOKING_STRATEGY.PESSIMISTIC,
         status: BOOKING_STATUS.HELD,
@@ -37,6 +40,13 @@ describe('storeOwnTransition', () => {
       })
       .returning({ id: bookings.id });
     if (row === undefined) throw new Error('insert returned no row');
+    await db.insert(bookingSeats).values({
+      bookingId: row.id,
+      eventId,
+      seatId: seatIds[0] ?? '',
+      strategy: BOOKING_STRATEGY.PESSIMISTIC,
+      status: BOOKING_STATUS.HELD,
+    });
     return {
       booking: { id: row.id, status: BOOKING_STATUS.CANCELLED, holdExpiresAt },
       record: {
@@ -54,6 +64,13 @@ describe('storeOwnTransition', () => {
     (
       await db.select({ status: bookings.status }).from(bookings).where(eq(bookings.id, bookingId))
     )[0]?.status;
+  const seatStatusOf = async (bookingId: string) =>
+    (
+      await db
+        .select({ status: bookingSeats.status })
+        .from(bookingSeats)
+        .where(eq(bookingSeats.bookingId, bookingId))
+    )[0]?.status;
   const transitionsOf = (bookingId: string) =>
     db.select().from(bookingTransitions).where(eq(bookingTransitions.bookingId, bookingId));
 
@@ -64,6 +81,7 @@ describe('storeOwnTransition', () => {
     await db.transaction((tx) => storeOwnTransition(tx, owner, result));
 
     expect(await statusOf(result.booking.id)).toBe(BOOKING_STATUS.CANCELLED);
+    expect(await seatStatusOf(result.booking.id)).toBe(BOOKING_STATUS.CANCELLED);
     expect(await transitionsOf(result.booking.id)).toHaveLength(1);
   });
 

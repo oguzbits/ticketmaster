@@ -15,13 +15,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import {
   bookings,
+  bookingSeats,
   bookingTransitions,
   demoUsers,
   events,
   seats,
 } from '../../infrastructure/database/schema.js';
 import { HALL, layoutSeats, SEED, seed } from '../../infrastructure/database/seed.js';
-import { createTestEvent, openTestDatabase } from '../../testing/database.js';
+import { createTestEvent, insertTestBooking, openTestDatabase } from '../../testing/database.js';
 import { EXPIRY_SPEC_END, SPEC_NOW } from '../../testing/time.js';
 import type { SeatChangePublisher } from '../bookings/index.js';
 import { FakeTicketStore } from '../tickets/testing/fake-ticket-store.js';
@@ -57,8 +58,8 @@ describe('DemoService', () => {
     publish: async (change) => {
       const [left] = await db
         .select({ total: count() })
-        .from(bookings)
-        .where(eq(bookings.seatId, change.seatId));
+        .from(bookingSeats)
+        .where(eq(bookingSeats.seatId, change.seatId));
       published.push({ change, bookingsLeft: left?.total ?? 0 });
       if (publishFails) throw new Error('redis down');
     },
@@ -101,18 +102,16 @@ describe('DemoService', () => {
       strategy: BOOKING_STRATEGY.PESSIMISTIC,
       seats: 1,
     });
-    const [booking] = await db
-      .insert(bookings)
-      .values({
-        eventId,
-        seatId: seatIds[0] ?? '',
-        userId,
-        strategy: BOOKING_STRATEGY.PESSIMISTIC,
-        status,
-        holdExpiresAt: SPEC_NOW,
-      })
-      .returning({ id: bookings.id });
-    return { userId, bookingId: booking?.id ?? '', eventId, seatId: seatIds[0] ?? '' };
+    const seatId = seatIds[0] ?? '';
+    const bookingId = await insertTestBooking(db, {
+      eventId,
+      seatIds: [seatId],
+      userId,
+      strategy: BOOKING_STRATEGY.PESSIMISTIC,
+      status,
+      holdExpiresAt: SPEC_NOW,
+    });
+    return { userId, bookingId, eventId, seatId };
   }
 
   const bookingRows = (bookingId: string) =>
@@ -379,10 +378,9 @@ describe('DemoService', () => {
       it('publishes the status the seat still has when another booking occupies it (NAIVE)', async () => {
         const start = era(2009);
         const leaving = await loginWithBooking(start, BOOKING_STATUS.HELD);
-        await db.insert(bookings).values({
+        await insertTestBooking(db, {
           eventId: leaving.eventId,
-          seatId: leaving.seatId,
-          userId: randomUUID(),
+          seatIds: [leaving.seatId],
           strategy: BOOKING_STRATEGY.NAIVE,
           status: BOOKING_STATUS.CONFIRMED,
           holdExpiresAt: SPEC_NOW,
@@ -403,9 +401,9 @@ describe('DemoService', () => {
           .select()
           .from(seats)
           .where(eq(seats.eventId, sandbox?.id ?? ''));
-        await db.insert(bookings).values({
+        await insertTestBooking(db, {
           eventId: seat?.eventId ?? '',
-          seatId: seat?.id ?? '',
+          seatIds: [seat?.id ?? ''],
           userId,
           strategy: sandbox?.strategy ?? BOOKING_STRATEGY.PESSIMISTIC,
           status: BOOKING_STATUS.HELD,
@@ -455,19 +453,15 @@ describe('DemoService', () => {
         .select()
         .from(seats)
         .where(eq(seats.eventId, sandbox?.id ?? ''));
-      const [sandboxBooking] = await db
-        .insert(bookings)
-        .values({
-          eventId: sandbox?.id ?? '',
-          seatId: sandboxSeat?.id ?? '',
-          userId: expired.userId,
-          strategy: sandbox?.strategy ?? BOOKING_STRATEGY.PESSIMISTIC,
-          status: BOOKING_STATUS.CONFIRMED,
-          holdExpiresAt: SPEC_NOW,
-          ticketReadyAt: start,
-        })
-        .returning({ id: bookings.id });
-      const sandboxBookingId = sandboxBooking?.id ?? '';
+      const sandboxBookingId = await insertTestBooking(db, {
+        eventId: sandbox?.id ?? '',
+        seatIds: [sandboxSeat?.id ?? ''],
+        userId: expired.userId,
+        strategy: sandbox?.strategy ?? BOOKING_STRATEGY.PESSIMISTIC,
+        status: BOOKING_STATUS.CONFIRMED,
+        holdExpiresAt: SPEC_NOW,
+        ticketReadyAt: start,
+      });
 
       await ticketStore.put(expired.bookingId, PDF);
       await ticketStore.put(sandboxBookingId, PDF);

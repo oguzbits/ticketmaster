@@ -11,7 +11,13 @@ import { and, count, eq, inArray, isNotNull, isNull, lte, or } from 'drizzle-orm
 
 import type { Clock } from '../../core/clock.js';
 import type { Database } from '../../infrastructure/database/database.module.js';
-import { bookings, demoUsers, events, seats } from '../../infrastructure/database/schema.js';
+import {
+  bookings,
+  bookingSeats,
+  demoUsers,
+  events,
+  seats,
+} from '../../infrastructure/database/schema.js';
 import { HALL, layoutSeats, SEED, STARTS_AT } from '../../infrastructure/database/seed.js';
 import {
   ACTIVE_BOOKING_STATUSES,
@@ -170,14 +176,15 @@ export class DemoService {
       // A demo customer may have booked seats of public events too; those go with the user. Seats
       // of the user's own sandbox events need no notice: only the user ever looked at them.
       const occupied = await tx
-        .select({ eventId: bookings.eventId, seatId: bookings.seatId })
-        .from(bookings)
+        .select({ eventId: bookingSeats.eventId, seatId: bookingSeats.seatId })
+        .from(bookingSeats)
+        .innerJoin(bookings, eq(bookings.id, bookingSeats.bookingId))
         .innerJoin(events, eq(events.id, bookings.eventId))
         .where(
           and(
             eq(bookings.userId, userId),
             isNull(events.sandboxUserId),
-            inArray(bookings.status, [...ACTIVE_BOOKING_STATUSES])
+            inArray(bookingSeats.status, [...ACTIVE_BOOKING_STATUSES])
           )
         );
       await tx.delete(bookings).where(eq(bookings.userId, userId));

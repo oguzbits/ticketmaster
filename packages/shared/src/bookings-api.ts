@@ -1,12 +1,36 @@
-import { array, boolean, type infer as ZodInfer, iso, object, string, union, url, uuid } from 'zod';
+import {
+  array,
+  boolean,
+  type infer as ZodInfer,
+  iso,
+  number,
+  object,
+  string,
+  union,
+  url,
+  uuid,
+} from 'zod';
 
 import { BookingStatusSchema, SeatStatusSchema, TransitionReasonSchema } from './booking.js';
 import { SeatSchema } from './events.js';
 
+export const BOOKING_LIMITS = {
+  MIN_SEATS: 1,
+  MAX_SEATS: 6,
+} as const;
+
 export const HoldRequestSchema = object({
   eventId: uuid(),
-  seatId: uuid(),
+  seatIds: array(uuid()).min(BOOKING_LIMITS.MIN_SEATS).max(BOOKING_LIMITS.MAX_SEATS),
   admissionToken: string().min(1).optional(),
+});
+
+export const BookingSeatSchema = SeatSchema.pick({
+  id: true,
+  section: true,
+  row: true,
+  number: true,
+  priceCents: true,
 });
 
 export const BookingTransitionSchema = object({
@@ -19,12 +43,12 @@ export const BookingTransitionSchema = object({
 export const BookingSchema = object({
   id: uuid(),
   eventId: uuid(),
-  seatId: uuid(),
   status: BookingStatusSchema,
   holdExpiresAt: iso.datetime(),
   // The ticket PDF is stored and can be downloaded.
   ticketReady: boolean(),
-  seat: SeatSchema.pick({ section: true, row: true, number: true }),
+  totalPriceCents: number().int().nonnegative(),
+  seats: array(BookingSeatSchema),
   transitions: array(BookingTransitionSchema),
 });
 
@@ -60,6 +84,7 @@ export const TicketDownloadSchema = object({
 });
 
 export type HoldRequest = ZodInfer<typeof HoldRequestSchema>;
+export type BookingSeat = ZodInfer<typeof BookingSeatSchema>;
 export type BookingTransition = ZodInfer<typeof BookingTransitionSchema>;
 export type Booking = ZodInfer<typeof BookingSchema>;
 export type SeatChange = ZodInfer<typeof SeatChangeSchema>;

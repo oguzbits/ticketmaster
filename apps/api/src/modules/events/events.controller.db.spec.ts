@@ -28,7 +28,7 @@ import { CLOCK } from '../../core/clock.js';
 import { CacheAside } from '../../infrastructure/cache/cache-aside.js';
 import { SystemClock } from '../../infrastructure/clock/system-clock.js';
 import { bookings, demoUsers } from '../../infrastructure/database/schema.js';
-import { createTestEvent, openTestDatabase } from '../../testing/database.js';
+import { createTestEvent, insertTestBooking, openTestDatabase } from '../../testing/database.js';
 import { fakeTokenVerifier, randomClientAddress } from '../../testing/http.js';
 import { openTestRedis } from '../../testing/redis.js';
 import { EXPIRY_SPEC_END, SPEC_NOW } from '../../testing/time.js';
@@ -232,10 +232,9 @@ describe('events endpoints', () => {
     const { eventId, seatIds } = await createTestEvent(db, { strategy: STRATEGY, seats: 5 });
     const [held, sold, expired, free, reheld] = seatIds;
     const book = (seatId: string | undefined, status: BookingStatus) =>
-      db.insert(bookings).values({
+      insertTestBooking(db, {
         eventId,
-        seatId: seatId ?? '',
-        userId: randomUUID(),
+        seatIds: [seatId ?? ''],
         strategy: STRATEGY,
         status,
         holdExpiresAt: SPEC_NOW,
@@ -268,10 +267,9 @@ describe('events endpoints', () => {
     });
     const [heldAndConfirmed, heldAndPaid] = seatIds;
     const book = (seatId: string | undefined, status: BookingStatus) =>
-      db.insert(bookings).values({
+      insertTestBooking(db, {
         eventId,
-        seatId: seatId ?? '',
-        userId: randomUUID(),
+        seatIds: [seatId ?? ''],
         strategy: BOOKING_STRATEGY.NAIVE,
         status,
         holdExpiresAt: SPEC_NOW,
@@ -357,7 +355,7 @@ describe('events endpoints', () => {
         .post('/api/bookings')
         .set('X-Forwarded-For', randomClientAddress())
         .set('Authorization', `Bearer ${OTHER_TOKEN}`)
-        .send({ eventId, seatId })
+        .send({ eventId, seatIds: [seatId] })
         .expect(201);
       return BookingSchema.parse(response.body).id;
     };

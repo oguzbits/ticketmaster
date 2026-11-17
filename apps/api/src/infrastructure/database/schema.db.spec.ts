@@ -17,6 +17,7 @@ import { SPEC_NOW } from '../../testing/time.js';
 import type { Database } from './database.module.js';
 import {
   bookings,
+  bookingSeats,
   events,
   outboxMessages,
   processedMessages,
@@ -30,7 +31,7 @@ import { HALL, SEED, seed } from './seed.js';
 const HOLD_MS = 600_000;
 const UNIQUE_VIOLATION = '23505';
 const CHECK_VIOLATION = '23514';
-const ACTIVE_SEAT_INDEX = 'bookings_active_seat_uidx';
+const ACTIVE_SEAT_INDEX = 'booking_seats_active_seat_uidx';
 const UNPUBLISHED_INDEX = 'outbox_messages_unpublished_idx';
 const SPEC_CONSUMER = 'schema-spec';
 
@@ -57,17 +58,25 @@ describe('booking schema', () => {
     strategy: BookingStrategy,
     status: BookingStatus
   ): Promise<void> {
+    const bookingId = randomUUID();
     await db.insert(bookings).values({
+      id: bookingId,
       eventId,
-      seatId,
       userId: randomUUID(),
       strategy,
       status,
       holdExpiresAt: new Date(SPEC_NOW.getTime() + HOLD_MS),
     });
+    await db.insert(bookingSeats).values({
+      bookingId,
+      eventId,
+      seatId,
+      strategy,
+      status,
+    });
   }
 
-  it('two active bookings of a PESSIMISTIC event on one seat violate bookings_active_seat_uidx', async () => {
+  it('two active bookings of a PESSIMISTIC event on one seat violate booking_seats_active_seat_uidx', async () => {
     const { eventId, seatId } = await book(BOOKING_STRATEGY.PESSIMISTIC, BOOKING_STATUS.HELD);
 
     await expect(

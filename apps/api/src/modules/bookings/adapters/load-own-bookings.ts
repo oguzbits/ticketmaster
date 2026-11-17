@@ -1,11 +1,16 @@
 import type { Booking } from '@app/shared';
-import { and, desc, eq, inArray, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, type SQL } from 'drizzle-orm';
 
 import type { Database, Tx } from '../../../infrastructure/database/database.module.js';
 import { withOwner } from '../../../infrastructure/database/rls.js';
-import { bookings, bookingTransitions, seats } from '../../../infrastructure/database/schema.js';
+import {
+  bookings,
+  bookingSeats,
+  bookingTransitions,
+  seats,
+} from '../../../infrastructure/database/schema.js';
 
-/** The user's bookings with their stored transitions, newest booking first. */
+/** The user's bookings with their seats and stored transitions, newest booking first. */
 export async function loadOwnBookings(
   db: Database,
   userId: string,
@@ -20,43 +25,59 @@ async function queryOwnBookings(tx: Tx, userId: string, extra?: SQL): Promise<Bo
     .select({
       id: bookings.id,
       eventId: bookings.eventId,
-      seatId: bookings.seatId,
       status: bookings.status,
       holdExpiresAt: bookings.holdExpiresAt,
       ticketReadyAt: bookings.ticketReadyAt,
-      section: seats.section,
-      row: seats.row,
-      number: seats.number,
     })
     .from(bookings)
-    .innerJoin(seats, eq(seats.id, bookings.seatId))
     .where(and(eq(bookings.userId, userId), extra))
     .orderBy(desc(bookings.createdAt));
   if (rows.length === 0) return [];
+  const bookingIds = rows.map(({ id }) => id);
+  const seatRows = await tx
+    .select({
+      bookingId: bookingSeats.bookingId,
+      id: seats.id,
+      section: seats.section,
+      row: seats.row,
+      number: seats.number,
+      priceCents: seats.priceCents,
+    })
+    .from(bookingSeats)
+    .innerJoin(seats, eq(seats.id, bookingSeats.seatId))
+    .where(inArray(bookingSeats.bookingId, bookingIds))
+    .orderBy(asc(seats.section), asc(seats.row), asc(seats.number));
   // The steps of one payment share a timestamp; the status enum order (HELD < PAID < CONFIRMED)
   // keeps them newest first.
   const stored = await tx
     .select()
     .from(bookingTransitions)
-    .where(
-      inArray(
-        bookingTransitions.bookingId,
-        rows.map(({ id }) => id)
-      )
-    )
+    .where(inArray(bookingTransitions.bookingId, bookingIds))
     .orderBy(desc(bookingTransitions.at), desc(bookingTransitions.toStatus));
-  return rows.map(({ section, row, number, holdExpiresAt, ticketReadyAt, ...booking }) => ({
-    ...booking,
-    holdExpiresAt: holdExpiresAt.toISOString(),
-    ticketReady: ticketReadyAt !== null,
-    seat: { section, row, number },
-    transitions: stored
+  return rows.map(({ holdExpiresAt, ticketReadyAt, ...booking }) => {
+    const bookedSeats = seatRows
       .filter(({ bookingId }) => bookingId === booking.id)
-      .map(({ fromStatus, toStatus, reason, at }) => ({
-        fromStatus,
-        toStatus,
-        reason,
-        at: at.toISOString(),
-      })),
-  }));
+      .map(({ id, section, row, number, priceCents }) => ({
+        id,
+        section,
+        row,
+        number,
+        priceCents,
+      }));
+    return {
+      ...booking,
+      holdExpiresAt: holdExpiresAt.toISOString(),
+      ticketReady: ticketReadyAt !== null,
+      totalPriceCents: bookedSeats.reduce((sum, seat) => sum + seat.priceCents, 0),
+      seats: bookedSeats,
+      transitions: stored
+        .filter(({ bookingId }) => bookingId === booking.id)
+        .map(({ fromStatus, toStatus, reason, at }) => ({
+          fromStatus,
+          toStatus,
+          reason,
+          at: at.toISOString(),
+        })),
+    };
+  });
 }

@@ -15,10 +15,10 @@ import { map, type Observable } from 'rxjs';
 export class BookingsService {
   private readonly http = inject(HttpClient);
 
-  /** The user comes from the token, so the body names only the event, seat and optional admission token. */
-  hold(eventId: string, seatId: string, admissionToken?: string): Observable<Booking> {
+  /** The user comes from the token, so the body names only the event, seats and optional admission token. */
+  hold(eventId: string, seatIds: readonly string[], admissionToken?: string): Observable<Booking> {
     const body =
-      admissionToken === undefined ? { eventId, seatId } : { eventId, seatId, admissionToken };
+      admissionToken === undefined ? { eventId, seatIds } : { eventId, seatIds, admissionToken };
     return this.http.post('/api/bookings', body).pipe(map((body) => BookingSchema.parse(body)));
   }
 

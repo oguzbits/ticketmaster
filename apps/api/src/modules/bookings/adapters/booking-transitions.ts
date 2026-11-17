@@ -5,7 +5,11 @@ import { z } from 'zod';
 
 import type { Database, Tx } from '../../../infrastructure/database/database.module.js';
 import { withOwner } from '../../../infrastructure/database/rls.js';
-import { bookings, bookingTransitions } from '../../../infrastructure/database/schema.js';
+import {
+  bookings,
+  bookingSeats,
+  bookingTransitions,
+} from '../../../infrastructure/database/schema.js';
 import {
   type BookingState,
   BookingTransitionError,
@@ -70,7 +74,7 @@ export async function releasePaymentKey(db: Database, bookingId: string): Promis
     .where(and(eq(bookings.id, bookingId), eq(bookings.status, BOOKING_STATUS.HELD)));
 }
 
-/** Writes the new status and the transition record; every transition is stored. */
+/** Writes the new status to `bookings` and `booking_seats` plus the transition record. */
 export async function storeTransition(
   tx: Tx,
   { booking, record }: TransitionResult
@@ -79,6 +83,10 @@ export async function storeTransition(
     .update(bookings)
     .set({ status: booking.status, updatedAt: record.at })
     .where(eq(bookings.id, booking.id));
+  await tx
+    .update(bookingSeats)
+    .set({ status: booking.status })
+    .where(eq(bookingSeats.bookingId, booking.id));
   await tx.insert(bookingTransitions).values(record);
   return booking;
 }

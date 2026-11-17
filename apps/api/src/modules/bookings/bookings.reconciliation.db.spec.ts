@@ -112,7 +112,7 @@ describe('payment reconciliation', () => {
     const [seatId] = seatIds;
     if (seatId === undefined) throw new Error('test event has no seat');
     const userId = randomUUID();
-    const result = await service.hold({ eventId, seatId, userId, requestId: null });
+    const result = await service.hold({ eventId, seatIds: [seatId], userId, requestId: null });
     if (result.outcome !== HOLD_OUTCOME.PLACED) throw new Error('hold was not placed');
     return { bookingId: result.bookingId, userId, eventId, seatId };
   }

@@ -1,12 +1,10 @@
-import { randomUUID } from 'node:crypto';
-
 import { BOOKING_STATUS, BOOKING_STRATEGY } from '@app/shared';
 import { Logger } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { bookings } from '../../infrastructure/database/schema.js';
-import { createTestEvent, openTestDatabase } from '../../testing/database.js';
+import { createTestEvent, insertTestBooking, openTestDatabase } from '../../testing/database.js';
 import { FakeTicketStore } from './testing/fake-ticket-store.js';
 import { TicketsService } from './tickets.service.js';
 
@@ -39,12 +37,9 @@ describe('TicketsService.deleteCancelled', () => {
       strategy: BOOKING_STRATEGY.PESSIMISTIC,
       seats: 1,
     });
-    const bookingId = randomUUID();
-    await db.insert(bookings).values({
-      id: bookingId,
+    const bookingId = await insertTestBooking(db, {
       eventId,
-      seatId: seatIds[0] ?? '',
-      userId: randomUUID(),
+      seatIds: [seatIds[0] ?? ''],
       strategy: BOOKING_STRATEGY.PESSIMISTIC,
       status: options.status,
       holdExpiresAt: EPOCH,

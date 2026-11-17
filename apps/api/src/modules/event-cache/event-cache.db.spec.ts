@@ -153,7 +153,9 @@ describe('event cache', () => {
     const [seatId] = seatIds;
     await detailOf(eventId);
 
-    await send('post', '/api/bookings', 'other').send({ eventId, seatId }).expect(201);
+    await send('post', '/api/bookings', 'other')
+      .send({ eventId, seatIds: [seatId] })
+      .expect(201);
 
     const detail = await detailOf(eventId);
     expect(detail.seats.find((seat) => seat.id === seatId)?.status).toBe(SEAT_STATUS.HELD);

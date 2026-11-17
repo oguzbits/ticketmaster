@@ -53,7 +53,7 @@ describe('customer paths set the user scope', () => {
     const userId = randomUUID();
     const result = await service.hold({
       eventId,
-      seatId: seatIds[0] ?? '',
+      seatIds: [seatIds[0] ?? ''],
       userId,
       requestId: null,
     });

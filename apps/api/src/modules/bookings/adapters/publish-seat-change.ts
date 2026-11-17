@@ -3,7 +3,7 @@ import type { Logger } from '@nestjs/common';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 
 import type { Database } from '../../../infrastructure/database/database.module.js';
-import { bookings } from '../../../infrastructure/database/schema.js';
+import { bookingSeats } from '../../../infrastructure/database/schema.js';
 import type { SeatChangePublisher } from '../domain/seat-change.js';
 import { ACTIVE_BOOKING_STATUSES, seatStatusOf } from '../domain/seat-status.js';
 
@@ -23,15 +23,15 @@ export async function publishSeatChange(
 ): Promise<void> {
   try {
     const [active] = await db
-      .select({ status: bookings.status })
-      .from(bookings)
+      .select({ status: bookingSeats.status })
+      .from(bookingSeats)
       .where(
         and(
-          eq(bookings.seatId, seat.seatId),
-          inArray(bookings.status, [...ACTIVE_BOOKING_STATUSES])
+          eq(bookingSeats.seatId, seat.seatId),
+          inArray(bookingSeats.status, [...ACTIVE_BOOKING_STATUSES])
         )
       )
-      .orderBy(desc(bookings.status))
+      .orderBy(desc(bookingSeats.status))
       .limit(1);
     await publisher.publish({ ...seat, status: seatStatusOf(active?.status ?? null) });
   } catch (error) {

@@ -82,7 +82,7 @@ describe('one booking is one trace', () => {
       });
       const held = await bookings.hold({
         eventId,
-        seatId: seatIds[0] ?? '',
+        seatIds: [seatIds[0] ?? ''],
         userId,
         requestId: null,
       });

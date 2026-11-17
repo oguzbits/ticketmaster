@@ -18,7 +18,7 @@ import { recordPaymentAttemptClaim, setPaymentAttemptStatus } from './payment-at
 import { refundLateCharge } from './refund-late-charge.js';
 
 export type SeatRef = { eventId: string; seatId: string };
-export type PaymentFlight = Promise<{ state: BookingState; seat: SeatRef | null }>;
+export type PaymentFlight = Promise<{ state: BookingState; seats: SeatRef[] | null }>;
 
 export interface PayInput {
   bookingId: string;
@@ -46,11 +46,11 @@ export interface PayBookingDeps {
 export async function payBooking(
   deps: PayBookingDeps,
   input: PayInput
-): Promise<{ state: BookingState; seat: SeatRef | null }> {
+): Promise<{ state: BookingState; seats: SeatRef[] | null }> {
   const claim = await claimPayment(deps.db, deps.clock, input);
-  if (claim.settled !== null) return { state: claim.settled, seat: null };
+  if (claim.settled !== null) return { state: claim.settled, seats: null };
   const running = deps.flights.get(input.idempotencyKey);
-  if (running !== undefined) return { state: (await running).state, seat: null };
+  if (running !== undefined) return { state: (await running).state, seats: null };
   const flight = chargeAndApply(deps, input, claim).finally(() => {
     deps.flights.delete(input.idempotencyKey);
   });
@@ -64,10 +64,11 @@ async function claimPayment(
   clock: Clock,
   input: PayInput
 ): Promise<
-  { settled: BookingState } | { settled: null; amountCents: number; seat: SeatRef; claimedAt: Date }
+  | { settled: BookingState }
+  | { settled: null; amountCents: number; seats: SeatRef[]; eventId: string; claimedAt: Date }
 > {
   return db.transaction(async (tx) => {
-    const { booking, paymentIdempotencyKey, paymentClaimedAt, priceCents, seat } =
+    const { booking, paymentIdempotencyKey, paymentClaimedAt, priceCents, seats } =
       await lockOwnBooking(tx, input.bookingId, input.userId);
     const sameKey = paymentIdempotencyKey === input.idempotencyKey;
     if (sameKey && booking.status !== BOOKING_STATUS.HELD) {
@@ -90,7 +91,8 @@ async function claimPayment(
         claimedAt,
       });
     }
-    return { settled: null, amountCents: priceCents, seat, claimedAt };
+    const eventId = seats[0]?.eventId ?? '';
+    return { settled: null, amountCents: priceCents, seats, eventId, claimedAt };
   });
 }
 
@@ -98,8 +100,8 @@ async function claimPayment(
 async function chargeAndApply(
   deps: Omit<PayBookingDeps, 'flights'>,
   input: PayInput,
-  claim: { amountCents: number; seat: SeatRef; claimedAt: Date }
-): Promise<{ state: BookingState; seat: SeatRef | null }> {
+  claim: { amountCents: number; seats: SeatRef[]; eventId: string; claimedAt: Date }
+): Promise<{ state: BookingState; seats: SeatRef[] | null }> {
   const succeeded = await chargeOrRelease(
     deps.db,
     deps.ports.payments,
@@ -132,9 +134,9 @@ async function chargeAndApply(
 async function applyChargedOutcome(
   deps: Omit<PayBookingDeps, 'flights'>,
   input: PayInput,
-  claim: { amountCents: number; seat: SeatRef; claimedAt: Date },
+  claim: { amountCents: number; seats: SeatRef[]; eventId: string; claimedAt: Date },
   succeeded: boolean
-): Promise<{ state: BookingState; seat: SeatRef | null } | { late: BookingState['status'] }> {
+): Promise<{ state: BookingState; seats: SeatRef[] | null } | { late: BookingState['status'] }> {
   const now = deps.clock.now();
   return deps.db.transaction(async (tx) => {
     const { booking } = await lockOwnBooking(tx, input.bookingId, input.userId);
@@ -158,17 +160,17 @@ async function applyChargedOutcome(
         to: PAYMENT_ATTEMPT_STATUS.APPLIED,
         at: now,
       });
-      return { state: await storeOwnTransition(tx, input.userId, failed), seat: claim.seat };
+      return { state: await storeOwnTransition(tx, input.userId, failed), seats: claim.seats };
     }
     const state = await confirmPaidBooking(tx, deps.ports, {
       booking,
       userId: input.userId,
       idempotencyKey: input.idempotencyKey,
       requestId: input.requestId,
-      eventId: claim.seat.eventId,
+      eventId: claim.eventId,
       at: claim.claimedAt,
     });
-    return { state, seat: claim.seat };
+    return { state, seats: claim.seats };
   });
 }
 
@@ -176,7 +178,7 @@ async function applyNonHeldOutcome(
   tx: Parameters<Parameters<Database['transaction']>[0]>[0],
   logger: Logger,
   input: { booking: BookingState; idempotencyKey: string; succeeded: boolean; now: Date }
-): Promise<{ state: BookingState; seat: null } | { late: BookingState['status'] }> {
+): Promise<{ state: BookingState; seats: null } | { late: BookingState['status'] }> {
   const { booking, idempotencyKey, succeeded, now } = input;
   if (await paymentApplied(tx, booking.id)) {
     await setPaymentAttemptStatus(tx, idempotencyKey, {
@@ -184,7 +186,7 @@ async function applyNonHeldOutcome(
       to: PAYMENT_ATTEMPT_STATUS.APPLIED,
       at: now,
     });
-    return { state: booking, seat: null };
+    return { state: booking, seats: null };
   }
   logger.warn(
     `payment of booking ${booking.id} finished while the booking was ${booking.status}; not applied`

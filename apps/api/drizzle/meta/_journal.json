@@ -127,6 +127,27 @@
       "when": 1794956380506,
       "tag": "0017_list_pagination_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794957232116,
+      "tag": "0018_add_booking_seats",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1794957232466,
+      "tag": "0019_backfill_booking_seats_and_rls",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1794957247506,
+      "tag": "0020_drop_bookings_seat_id",
+      "breakpoints": true
     }
   ]
 }

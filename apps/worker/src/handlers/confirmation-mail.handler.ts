@@ -45,7 +45,9 @@ export class ConfirmationMailHandler implements BookingConfirmedEffect {
     const pdf = await this.store.get(message.bookingId);
     // The PDF effect runs first: an absent ticket is a failure to retry, not a mail without it.
     if (pdf === null) throw new Error(`ticket of booking ${message.bookingId} is not stored`);
-    const { seat } = ticket;
+    const seatLines = ticket.seats.map(
+      (seat) => `Section ${seat.section}, row ${seat.row}, seat ${seat.number}`
+    );
     await this.mailer.send({
       to,
       subject: `Your ticket for ${ticket.eventTitle}`,
@@ -55,7 +57,7 @@ export class ConfirmationMailHandler implements BookingConfirmedEffect {
         ticket.eventTitle,
         ticket.venueName,
         ticket.startsAt.toUTCString(),
-        `Section ${seat.section}, row ${seat.row}, seat ${seat.number}`,
+        ...seatLines,
         '',
         'Your ticket is attached.',
       ].join('\n'),

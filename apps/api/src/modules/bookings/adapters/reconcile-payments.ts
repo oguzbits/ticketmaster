@@ -9,7 +9,11 @@ import type { Logger } from '@nestjs/common';
 import { and, eq, inArray, lte, or } from 'drizzle-orm';
 
 import type { Database } from '../../../infrastructure/database/database.module.js';
-import { bookings, paymentAttempts } from '../../../infrastructure/database/schema.js';
+import {
+  bookings,
+  bookingSeats,
+  paymentAttempts,
+} from '../../../infrastructure/database/schema.js';
 import { RECONCILE_STALE_SECONDS, refundKey } from '../domain/payment-provider.js';
 import { confirmPaidBooking } from './apply-payment.js';
 import type { BookingPorts } from './booking-ports.js';
@@ -35,7 +39,7 @@ export interface ReconcileResult {
     bookingId: string;
     status: typeof BOOKING_STATUS.CONFIRMED;
     eventId: string;
-    seatId: string;
+    seatIds: string[];
   }[];
   refunded: number;
   released: number;
@@ -208,7 +212,6 @@ async function applyChargedRow(
       .select({
         id: bookings.id,
         eventId: bookings.eventId,
-        seatId: bookings.seatId,
         status: bookings.status,
         holdExpiresAt: bookings.holdExpiresAt,
       })
@@ -219,6 +222,10 @@ async function applyChargedRow(
     if (booking.status !== BOOKING_STATUS.HELD) {
       return resolveNonHeldChargedRow(tx, row, booking.id, now);
     }
+    const seatRows = await tx
+      .select({ seatId: bookingSeats.seatId })
+      .from(bookingSeats)
+      .where(eq(bookingSeats.bookingId, booking.id));
     await confirmPaidBooking(tx, deps.ports, {
       booking,
       userId: row.userId,
@@ -232,7 +239,7 @@ async function applyChargedRow(
         bookingId: booking.id,
         status: BOOKING_STATUS.CONFIRMED,
         eventId: booking.eventId,
-        seatId: booking.seatId,
+        seatIds: seatRows.map(({ seatId }) => seatId),
       },
       needsRefund: false,
     };

@@ -24,7 +24,14 @@ describe('insertHold', () => {
     db.transaction((tx) =>
       insertHold(
         tx,
-        { eventId, seatId, userId: randomUUID(), requestId, now: NOW, ttlSeconds: TTL_SECONDS },
+        {
+          eventId,
+          seatIds: [seatId],
+          userId: randomUUID(),
+          requestId,
+          now: NOW,
+          ttlSeconds: TTL_SECONDS,
+        },
         audit
       )
     );

@@ -75,7 +75,7 @@ export function setup() {
 export default function ({ tokens, events }) {
   const strategy = __ENV.STRATEGY;
   const { id: eventId, seatIds } = events[strategy];
-  const body = JSON.stringify({ eventId, seatId: seatIds[exec.scenario.iterationInTest] });
+  const body = JSON.stringify({ eventId, seatIds: [seatIds[exec.scenario.iterationInTest]] });
   const responses = http.batch(
     tokens.map((token) => ['POST', `${BASE_URL}/api/bookings`, body, auth(token, 'hold')])
   );

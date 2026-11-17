@@ -17,7 +17,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AppModule } from '../../app.module.js';
 import { configureApp } from '../../app.setup.js';
 import { CLOCK } from '../../core/clock.js';
-import { bookings } from '../../infrastructure/database/schema.js';
+import { bookings, bookingSeats } from '../../infrastructure/database/schema.js';
 import type { Redis } from '../../infrastructure/redis/redis.module.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { fakeTokenVerifier, randomClientAddress } from '../../testing/http.js';
@@ -98,14 +98,18 @@ describe('GET /api/events/:id/seats/stream', () => {
         'Content-Type': 'application/json',
         'X-Forwarded-For': randomClientAddress(),
       },
-      body: JSON.stringify({ eventId, seatId: seatIds[0] }),
+      body: JSON.stringify({ eventId, seatIds: [seatIds[0]] }),
     });
     expect(hold.status).toBe(201);
     // The expiry spec expires every hold of the table that is due on its day.
+    const [heldSeat] = await db
+      .select({ bookingId: bookingSeats.bookingId })
+      .from(bookingSeats)
+      .where(eq(bookingSeats.seatId, seatIds[0] ?? ''));
     const [held] = await db
       .select()
       .from(bookings)
-      .where(eq(bookings.seatId, seatIds[0] ?? ''));
+      .where(eq(bookings.id, heldSeat?.bookingId ?? ''));
     expect(held?.holdExpiresAt.getTime()).toBeGreaterThan(EXPIRY_SPEC_END.getTime());
 
     await vi.waitFor(() => expect(stream.events).toHaveLength(2));

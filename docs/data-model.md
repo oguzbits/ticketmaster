@@ -14,7 +14,8 @@ erDiagram
     events ||--o{ seats : "has (copied from the template)"
     events ||--o{ bookings : "has"
     events ||--o{ simulation_runs : "is the sandbox of"
-    seats ||--o{ bookings : "is held by"
+    bookings ||--|{ booking_seats : "reserves"
+    seats ||--o{ booking_seats : "is held in"
     bookings ||--o{ booking_transitions : "records"
     bookings ||--o{ payment_attempts : "attempts"
     demo_users ||--o{ events : "owns as sandbox (by sandbox_user_id)"
@@ -49,7 +50,6 @@ erDiagram
     bookings {
         uuid id PK
         uuid event_id FK
-        uuid seat_id FK
         uuid user_id
         booking_strategy strategy "copied from the event"
         booking_status status
@@ -59,6 +59,13 @@ erDiagram
         timestamptz ticket_ready_at "set when the worker stored the ticket PDF, null until then"
         timestamptz created_at
         timestamptz updated_at
+    }
+    booking_seats {
+        uuid booking_id PK, FK
+        uuid event_id FK
+        uuid seat_id PK, FK
+        booking_strategy strategy "synced with booking"
+        booking_status status "synced with booking"
     }
     demo_users {
         uuid user_id PK "the sub of the user's tokens"
@@ -211,7 +218,7 @@ runtime role with the password of `DATABASE_URL` and applies the migrations.
 
 ## Row-level security
 
-`bookings` and `booking_transitions` have row-level security enabled and forced
+`bookings`, `booking_seats` and `booking_transitions` have row-level security enabled and forced
 ([ADR 0009](adr/0009-row-level-security.md)). Their policies restrict rows only while the
 transaction set `app.scope = 'user'`: then a row is visible and writable only if its booking has
 `user_id = app.user_id`, and a missing `app.user_id` sees nothing. Any other scope restricts
@@ -223,8 +230,9 @@ the queries stays.
 
 ## Booking state machine
 
-Every change of `bookings.status` goes through the state machine in the bookings domain and writes
-a row to `booking_transitions` in the same transaction.
+Every change of `bookings.status` goes through the state machine in the bookings domain,
+synchronizes `booking_seats.status` and writes a row to `booking_transitions` in the same
+transaction.
 
 ```mermaid
 stateDiagram-v2
@@ -236,18 +244,21 @@ stateDiagram-v2
     CONFIRMED --> CANCELLED: user
 ```
 
-## Why `strategy` sits on the booking
+## Why `strategy` sits on the booking and `booking_seats`
 
-`bookings_active_seat_uidx` is a partial unique index on `bookings(seat_id)` for the active
+`booking_seats_active_seat_uidx` is a partial unique index on `booking_seats(seat_id)` for the active
 statuses (HELD, PAID, CONFIRMED). It is the last line of defense against a double booking:
 whatever the application code does, the database refuses a second active booking of a seat.
 
 The `naive` strategy exists to show what happens without protection, so it must be allowed to
 double book. An index cannot look at another table, so the strategy is copied from the event onto
-the booking and the index excludes `NAIVE`. A booking keeps the strategy it was made under even if
-an admin later switches the event.
+the booking and onto `booking_seats` (alongside `status`, updated on every state transition) so the
+index excludes `NAIVE`. A booking keeps the strategy it was made under even if an admin later
+switches the event. Multi-seat holds sort `seatIds` canonically before taking locks or inserting rows
+so overlapping seat selections never deadlock and rollback atomically on partial conflicts.
 
-`seats` is unique per `(event_id, section, row, number)`, and `bookings(seat_id)` is indexed for the
-seat status lookups. `bookings(status, hold_expires_at)` serves the expiry job, which looks for HELD bookings whose hold
-has passed. `bookings(event_id, status)` serves the per-event counts: the organizer's sold and held
-seats and the double-booking count.
+`seats` is unique per `(event_id, section, row, number)`, and `booking_seats(seat_id)` is indexed
+for the seat status lookups. `bookings(status, hold_expires_at)` serves the expiry job, which looks
+for HELD bookings whose hold has passed. `bookings(event_id, status)` and
+`booking_seats(event_id, status)` serve the per-event counts: the organizer's sold and held seats
+and the double-booking count.

@@ -4,7 +4,7 @@ export { HOLD_OUTCOME };
 
 export interface HoldInput {
   eventId: string;
-  seatId: string;
+  seatIds: readonly string[];
   userId: string;
   /** The request that asked for the hold; null for a hold nobody requested (not audited). */
   requestId: string | null;

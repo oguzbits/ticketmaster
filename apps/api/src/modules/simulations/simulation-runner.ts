@@ -89,7 +89,7 @@ export class SimulationRunner {
       const started = this.deps.clock.now().getTime();
       const result = await this.deps.bookings.hold({
         eventId: input.eventId,
-        seatId,
+        seatIds: [seatId],
         userId: input.buyerId,
         // A simulated buyer has no request; the start of the run is audited instead.
         requestId: null,

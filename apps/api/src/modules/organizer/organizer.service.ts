@@ -29,7 +29,7 @@ import {
 import type { Clock } from '../../core/clock.js';
 import { type Database, DB, type Tx } from '../../infrastructure/database/database.module.js';
 import {
-  bookings,
+  bookingSeats,
   demoUsers,
   events,
   seats,
@@ -207,7 +207,7 @@ export class OrganizerService {
     // A seat counts once per status group, so the NAIVE strategy's double bookings cannot push
     // sold seats past the seat count.
     const seatsWith = (statuses: BookingStatus[]) =>
-      sql<number>`(select count(distinct ${bookings.seatId}) from ${bookings} where ${eq(bookings.eventId, events.id)} and ${inArray(bookings.status, statuses)})::int`;
+      sql<number>`(select count(distinct ${bookingSeats.seatId}) from ${bookingSeats} where ${eq(bookingSeats.eventId, events.id)} and ${inArray(bookingSeats.status, statuses)})::int`;
     const rows = await this.db
       .select({
         id: events.id,

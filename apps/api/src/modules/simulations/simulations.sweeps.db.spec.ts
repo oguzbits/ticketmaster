@@ -17,7 +17,7 @@ import {
   seats,
   simulationRuns,
 } from '../../infrastructure/database/schema.js';
-import { createTestEvent, openTestDatabase } from '../../testing/database.js';
+import { createTestEvent, insertTestBooking, openTestDatabase } from '../../testing/database.js';
 import { AuditService } from '../audit/index.js';
 import { EMPTY_METRICS } from './simulation-progress.js';
 import {
@@ -158,20 +158,15 @@ describe('SimulationsService sweeps', () => {
 
     it('removes the event of a run that finished before the retention, with everything under it', async () => {
       const { eventId, seatIds } = await createTestEvent(db, { strategy: STRATEGY, seats: 2 });
-      const [booking] = await db
-        .insert(bookings)
-        .values({
-          eventId,
-          seatId: seatIds[0] ?? '',
-          userId: randomUUID(),
-          strategy: STRATEGY,
-          status: BOOKING_STATUS.HELD,
-          holdExpiresAt: NOW,
-        })
-        .returning({ id: bookings.id });
-      if (booking === undefined) throw new Error('booking insert returned no row');
+      const bookingId = await insertTestBooking(db, {
+        eventId,
+        seatIds: [seatIds[0] ?? ''],
+        strategy: STRATEGY,
+        status: BOOKING_STATUS.HELD,
+        holdExpiresAt: NOW,
+      });
       await db.insert(bookingTransitions).values({
-        bookingId: booking.id,
+        bookingId,
         toStatus: BOOKING_STATUS.HELD,
         reason: TRANSITION_REASON.HOLD,
       });
@@ -186,7 +181,7 @@ describe('SimulationsService sweeps', () => {
         transitions: await db
           .select()
           .from(bookingTransitions)
-          .where(eq(bookingTransitions.bookingId, booking.id)),
+          .where(eq(bookingTransitions.bookingId, bookingId)),
         runs: await db.select().from(simulationRuns).where(eq(simulationRuns.id, runId)),
       };
       expect(left).toEqual({ event: false, seats: [], bookings: [], transitions: [], runs: [] });

@@ -1,7 +1,7 @@
 import { HttpErrorResponse, HttpStatusCode } from '@angular/common/http';
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { type Booking, BOOKING_STATUS } from '@app/shared';
+import { type Booking, BOOKING_LIMITS, BOOKING_STATUS } from '@app/shared';
 import { map, Subject, timer } from 'rxjs';
 
 import { BookingsService } from './bookings.service';
@@ -15,14 +15,17 @@ export interface Notice {
 }
 
 const MESSAGE = {
-  TAKEN: 'That seat was just taken by someone else. The map shows its current status.',
-  EXPIRED: 'Your hold expired and the seat is free again. Pick a seat to start over.',
+  TAKEN:
+    'One or more selected seats were just taken by someone else. The map shows their current status.',
+  CART_LIMIT: `You can select at most ${BOOKING_LIMITS.MAX_SEATS} seats per booking.`,
+  CART_SEAT_TAKEN: 'A seat in your selection was taken and removed from your cart.',
+  EXPIRED: 'Your hold expired and the seats are free again. Pick seats to start over.',
   PAYMENT_UNCONFIRMED:
     'The payment was not confirmed because the connection failed. Try again; you are not charged twice.',
-  PAYMENT_FAILED: 'Payment failed. Nothing was charged and the seat is free again.',
+  PAYMENT_FAILED: 'Payment failed. Nothing was charged and the seats are free again.',
   RESTORE_FAILED: 'Could not check whether you have a running hold. Reload the page to try again.',
-  CANCELLED: 'Hold cancelled. The seat is free again.',
-  NEEDS_ADMISSION: 'You need a place in the waiting room first. Join it, then pick a seat.',
+  CANCELLED: 'Hold cancelled. The seats are free again.',
+  NEEDS_ADMISSION: 'You need a place in the waiting room first. Join it, then pick seats.',
   TOO_MANY: 'Too many requests. Wait a moment and try again.',
   GENERIC: 'That did not work. Try again.',
 } as const;
@@ -30,14 +33,17 @@ const MESSAGE = {
 const TICK_MS = 1000;
 
 /**
- * The booking of one seat map: hold, payment and cancellation of the caller's booking, with the
- * countdown to the hold's expiry. One instance per seat map (provided by the component).
+ * The booking and multi-seat cart of one seat map: cart selection (1..6 seats), atomic hold,
+ * payment, and cancellation of the caller's booking, with the countdown to the hold's expiry.
+ * One instance per seat map (provided by the component).
  */
 @Injectable()
 export class BookingsStore {
   private readonly service = inject(BookingsService);
 
   readonly booking = signal<Booking | null>(null);
+  /** Seats queued in the cart before clicking Hold (at most `BOOKING_LIMITS.MAX_SEATS`). */
+  readonly cartSeatIds = signal<string[]>([]);
   /** The action that is on its way; controls are disabled and a second submit is ignored. */
   readonly pending = signal<BookingAction | null>(null);
   readonly notice = signal<Notice | null>(null);
@@ -73,12 +79,48 @@ export class BookingsStore {
    */
   private paymentKey: string | null = null;
 
-  hold(eventId: string, seatId: string, admissionToken?: string | null): void {
+  toggleSeat(seatId: string): void {
     if (!this.canHold()) return;
+    const current = this.cartSeatIds();
+    if (current.includes(seatId)) {
+      this.cartSeatIds.set(current.filter((id) => id !== seatId));
+      this.notice.set(null);
+      return;
+    }
+    if (current.length >= BOOKING_LIMITS.MAX_SEATS) {
+      this.notice.set({ text: MESSAGE.CART_LIMIT, error: false });
+      return;
+    }
+    this.cartSeatIds.set([...current, seatId]);
+    this.notice.set(null);
+  }
+
+  selectSeats(seatIds: readonly string[]): void {
+    if (!this.canHold()) return;
+    const unique = [...new Set(seatIds)].slice(0, BOOKING_LIMITS.MAX_SEATS);
+    this.cartSeatIds.set(unique);
+    this.notice.set(null);
+  }
+
+  clearSelection(): void {
+    this.cartSeatIds.set([]);
+    this.notice.set(null);
+  }
+
+  dropTakenFromCart(seatId: string): void {
+    const current = this.cartSeatIds();
+    if (!current.includes(seatId)) return;
+    this.cartSeatIds.set(current.filter((id) => id !== seatId));
+    this.notice.set({ text: MESSAGE.CART_SEAT_TAKEN, error: false });
+  }
+
+  hold(eventId: string, seatIds: readonly string[], admissionToken?: string | null): void {
+    if (!this.canHold() || seatIds.length === 0) return;
     this.start(BOOKING_ACTION.HOLD);
-    this.service.hold(eventId, seatId, admissionToken ?? undefined).subscribe({
+    this.service.hold(eventId, seatIds, admissionToken ?? undefined).subscribe({
       next: (booking) => {
         this.paymentKey = null;
+        this.cartSeatIds.set([]);
         this.finish(booking);
       },
       error: (error: Error) => {
@@ -107,7 +149,10 @@ export class BookingsStore {
             booking.status === BOOKING_STATUS.HELD &&
             Date.parse(booking.holdExpiresAt) > Date.now()
         );
-        if (running) this.booking.set(running);
+        if (running) {
+          this.cartSeatIds.set([]);
+          this.booking.set(running);
+        }
       },
       error: () => this.notice.set({ text: MESSAGE.RESTORE_FAILED, error: true }),
     });

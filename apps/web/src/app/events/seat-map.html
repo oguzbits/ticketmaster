@@ -84,6 +84,12 @@
               {{ status.toLowerCase() }}
             </li>
           }
+          @if (isCustomer()) {
+            <li class="flex items-center gap-2">
+              <span class="seat seat-selected" aria-hidden="true"></span>
+              selected
+            </li>
+          }
         </ul>
 
         @for (section of sections(); track section.name) {
@@ -97,7 +103,9 @@
                     <button
                       type="button"
                       class="seat seat-{{ seat.status.toLowerCase() }}"
+                      [class.seat-selected]="isSelected(seat.id)"
                       [attr.aria-label]="label(seat)"
+                      [attr.aria-pressed]="seat.status === available ? isSelected(seat.id) : null"
                       [attr.aria-disabled]="canChoose(seat) ? null : 'true'"
                       (click)="choose(seat)"
                     >
@@ -146,14 +154,28 @@
         @if (booking) {
           <section aria-label="Your booking" class="flex flex-col gap-2">
             <h2 class="text-lg font-medium">
-              Section {{ booking.seat.section }}, row {{ booking.seat.row }}, seat
-              {{ booking.seat.number }}
+              {{
+                booking.seats.length === 1
+                  ? '1 seat reserved'
+                  : booking.seats.length + ' seats reserved'
+              }}
             </h2>
+            <ul class="flex flex-col gap-1 text-sm">
+              @for (seat of booking.seats; track seat.id) {
+                <li>
+                  Section {{ seat.section }}, row {{ seat.row }}, seat {{ seat.number }} ·
+                  {{ seat.priceCents / 100 | currency: 'EUR' }}
+                </li>
+              }
+            </ul>
+            <p class="text-sm font-medium">
+              Total: {{ booking.totalPriceCents / 100 | currency: 'EUR' }}
+            </p>
             @switch (booking.status) {
               @case (held) {
                 @if (bookings.holdRanOut()) {
                   <p role="alert" class="text-danger">
-                    Your hold expired. The seat is free again. Pick a seat to start over.
+                    Your hold expired. The seats are free again. Pick seats to start over.
                   </p>
                   <button type="button" class="btn self-start" (click)="bookings.dismiss()">
                     Close
@@ -193,9 +215,9 @@
                     type="button"
                     class="btn disabled:cursor-not-allowed disabled:opacity-60"
                     [disabled]="bookings.pending() !== null"
-                    (click)="bookings.hold(booking.eventId, booking.seatId)"
+                    (click)="rehold(booking)"
                   >
-                    Hold the seat again
+                    Hold seats again
                   </button>
                   <button type="button" class="btn-secondary" (click)="bookings.dismiss()">
                     Close
@@ -205,9 +227,86 @@
             }
           </section>
         } @else if (bookings.pending() === action.HOLD) {
-          <p role="status">Holding the seat…</p>
+          <p role="status">Holding seats…</p>
         } @else if (isCustomer() && open()) {
-          <p class="text-sm text-text-muted">Pick an available seat on the map.</p>
+          <section class="flex flex-col gap-2">
+            <label for="best-seats-count" class="text-sm font-medium text-text-muted">
+              Best available seats
+            </label>
+            <div class="flex flex-wrap items-center gap-2">
+              <select
+                id="best-seats-count"
+                class="field text-sm"
+                [value]="desiredCount()"
+                (change)="setDesiredCount($any($event.target).value)"
+              >
+                @for (n of seatCounts; track n) {
+                  <option [value]="n" [selected]="desiredCount() === n">
+                    {{ n }} {{ n === 1 ? 'seat' : 'seats' }}
+                  </option>
+                }
+              </select>
+              <button type="button" class="btn-secondary text-sm" (click)="pickBestSeats()">
+                Pick best seats
+              </button>
+            </div>
+            @if (selectionHint(); as hint) {
+              <p role="status" class="text-sm text-text-muted">{{ hint }}</p>
+            }
+          </section>
+
+          @if (selectedSeats().length > 0) {
+            <section
+              aria-label="Selected seats"
+              class="flex flex-col gap-2 border-t border-edge-subtle pt-3"
+            >
+              <h2 class="text-base font-medium">
+                Selected seats ({{ selectedSeats().length }} / {{ maxSeats }})
+              </h2>
+              <ul class="flex flex-col gap-1 text-sm">
+                @for (seat of selectedSeats(); track seat.id) {
+                  <li class="flex items-center justify-between gap-2">
+                    <span>
+                      Section {{ seat.section }}, row {{ seat.row }}, seat {{ seat.number }} ·
+                      {{ seat.priceCents / 100 | currency: 'EUR' }}
+                    </span>
+                    <button
+                      type="button"
+                      class="text-xs underline"
+                      [attr.aria-label]="
+                        'Remove section ' +
+                        seat.section +
+                        ', row ' +
+                        seat.row +
+                        ', seat ' +
+                        seat.number
+                      "
+                      (click)="bookings.toggleSeat(seat.id)"
+                    >
+                      Remove
+                    </button>
+                  </li>
+                }
+              </ul>
+              <p class="text-sm font-medium">
+                Total: {{ selectedTotalCents() / 100 | currency: 'EUR' }}
+              </p>
+              <div class="flex flex-wrap gap-3">
+                <button type="button" class="btn" (click)="holdSelected()">
+                  {{
+                    selectedSeats().length === 1
+                      ? 'Hold 1 seat'
+                      : 'Hold ' + selectedSeats().length + ' seats'
+                  }}
+                </button>
+                <button type="button" class="btn-secondary" (click)="clearCart()">Clear</button>
+              </div>
+            </section>
+          } @else {
+            <p class="text-sm text-text-muted">
+              Pick up to {{ maxSeats }} available seats on the map, or let us find the best ones.
+            </p>
+          }
         }
 
         @if (sections().length > 0) {

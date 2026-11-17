@@ -18,6 +18,7 @@ test('a second customer waits until the first leaves', async ({
     timeout: ADMISSION_MS,
   });
   await first.getByRole('button', { name: seat(1), exact: true }).click();
+  await first.getByRole('button', { name: 'Hold 1 seat' }).click();
   await expect(first.getByRole('timer').filter({ hasText: 'Hold expires in' })).toBeVisible();
 
   // The second customer is a different user, so a second demo login in a context of their own.
@@ -46,6 +47,7 @@ test('a second customer waits until the first leaves', async ({
     const wanted = second.getByRole('button', { name: seat(2), exact: true });
     await expect(wanted).not.toHaveAttribute('aria-disabled', 'true');
     await wanted.click();
+    await second.getByRole('button', { name: 'Hold 1 seat' }).click();
     await expect(second.getByRole('timer').filter({ hasText: 'Hold expires in' })).toBeVisible();
 
     await second.getByRole('button', { name: 'Cancel hold' }).click();

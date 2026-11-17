@@ -1,4 +1,4 @@
-import { DatePipe } from '@angular/common';
+import { CurrencyPipe, DatePipe } from '@angular/common';
 import { Component, inject, signal } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
@@ -10,7 +10,7 @@ const CANCELLABLE: readonly BookingStatus[] = [BOOKING_STATUS.HELD, BOOKING_STAT
 
 @Component({
   selector: 'app-my-bookings',
-  imports: [DatePipe, RouterLink],
+  imports: [CurrencyPipe, DatePipe, RouterLink],
   templateUrl: './my-bookings.html',
   host: { class: 'flex flex-col gap-4' },
 })

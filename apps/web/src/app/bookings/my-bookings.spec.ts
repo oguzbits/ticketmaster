@@ -14,11 +14,26 @@ const LIST_URL = '/api/bookings';
 const BOOKING: Booking = {
   id: '00000000-0000-4000-8000-0000000000b1',
   eventId: '00000000-0000-4000-8000-0000000000a2',
-  seatId: '00000000-0000-4000-8000-000000000101',
   status: BOOKING_STATUS.CONFIRMED,
   holdExpiresAt: '2027-06-01T19:02:00.000Z',
   ticketReady: false,
-  seat: { section: 'A', row: 3, number: 7 },
+  totalPriceCents: 18000,
+  seats: [
+    {
+      id: '00000000-0000-4000-8000-000000000101',
+      section: 'A',
+      row: 3,
+      number: 7,
+      priceCents: 9000,
+    },
+    {
+      id: '00000000-0000-4000-8000-000000000102',
+      section: 'A',
+      row: 3,
+      number: 8,
+      priceCents: 9000,
+    },
+  ],
   transitions: [
     {
       fromStatus: BOOKING_STATUS.HELD,
@@ -69,6 +84,8 @@ describe('MyBookings', () => {
 
     const text = element.textContent ?? '';
     expect(text).toContain('Section A, row 3, seat 7');
+    expect(text).toContain('Section A, row 3, seat 8');
+    expect(text).toContain('Total: €180.00');
     expect(text).toContain('Status: confirmed');
     expect(text).toContain('Status: cancelled');
     expect(text).toContain('held to confirmed (confirmed)');

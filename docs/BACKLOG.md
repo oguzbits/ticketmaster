@@ -409,6 +409,12 @@ Enterprise hardening follow-ups:
   max `100`) backed by composite indexes (`migration 0017`) and SQL filters (`q`, `from`, `to`,
   `maxPriceCents` on events; `q` on venues); `EventCache.list` caches unfiltered anonymous page-1
   reads and `EventList` / `EventForm` page incrementally in Angular.
+- **Multi-seat cart & checkout (`HoldRequestSchema`):** `POST /api/bookings` accepts 1 to 6
+  unique seat IDs (`seatIds`, `BOOKING_LIMITS.MAX_SEATS`) backed by the normalized `booking_seats`
+  join table (`migrations 0018–0020`, RLS, partial unique index excluding `NAIVE`), deadlock-free
+  sorted locking across all four strategies (`PESSIMISTIC`, `OPTIMISTIC`, `REDIS_LOCK`, `NAIVE`),
+  aggregated `totalPriceCents` and ordered `seats[]` in `BookingSchema`, multi-seat ticket PDFs and
+  confirmation emails, and an Angular seat cart with a pure `pickBestSeats` contiguous selector.
 
 ## Deviations from the plan
 

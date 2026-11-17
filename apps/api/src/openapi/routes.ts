@@ -149,14 +149,14 @@ export const ROUTES: Record<string, RouteDoc> = {
   'BookingsController.hold': {
     method: 'post',
     path: '/api/bookings',
-    summary: 'Hold a seat',
+    summary: 'Hold 1 to 6 seats',
     access: [ROLE.CUSTOMER],
     body: 'HoldRequest',
     success: { status: 201, description: 'The new booking, HELD.', schema: 'Booking' },
     errors: {
-      400: `A malformed body, or the event uses \`${BOOKING_STRATEGY.NAIVE}\` while \`UNSAFE_STRATEGIES_ENABLED\` is false.`,
-      404: 'The seat is not in the event, or the event is another user’s sandbox event.',
-      409: 'The seat is not available.',
+      400: `Malformed body, duplicate seats, or \`${BOOKING_STRATEGY.NAIVE}\` while \`UNSAFE_STRATEGIES_ENABLED\` is false.`,
+      404: 'A seat is not in the event, or the event is another user’s sandbox event.',
+      409: 'One or more seats are not available.',
     },
   },
   'BookingsController.pay': {

@@ -34,6 +34,7 @@ test('a paid booking sends one mail with the ticket and the ticket can be downlo
     .getByRole('button', { name: /, available$/ })
     .first()
     .click();
+  await page.getByRole('button', { name: 'Hold 1 seat' }).click();
   await page.getByRole('button', { name: 'Pay now' }).click();
   await expect(page.getByText('Booking confirmed.')).toBeVisible();
 

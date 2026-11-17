@@ -63,7 +63,7 @@ describe('two API instances', () => {
         'Content-Type': 'application/json',
         'X-Forwarded-For': randomClientAddress(),
       },
-      body: JSON.stringify({ eventId, seatId: seatIds[0] }),
+      body: JSON.stringify({ eventId, seatIds: [seatIds[0]] }),
     });
 
     expect(hold.status).toBe(201);

@@ -50,7 +50,7 @@ export class BookingsController {
   ): Promise<Booking> {
     const result = await this.bookings.hold({ ...body, userId: user.id, requestId });
     if (result.outcome !== HOLD_OUTCOME.PLACED)
-      throw new ConflictException('Seat is not available');
+      throw new ConflictException('One or more seats are not available');
     return this.bookings.getOwn(result.bookingId, user.id);
   }
 

@@ -49,7 +49,12 @@ describe('hold strategy span', () => {
       trace();
       const seat = await seatOf(strategy);
 
-      await service.hold({ ...seat, userId: randomUUID(), requestId: null });
+      await service.hold({
+        eventId: seat.eventId,
+        seatIds: [seat.seatId],
+        userId: randomUUID(),
+        requestId: null,
+      });
 
       const spans = holdSpans();
       expect(spans).toHaveLength(1);
@@ -61,9 +66,19 @@ describe('hold strategy span', () => {
   it('ends the span without an error when the seat is taken', async () => {
     trace();
     const seat = await seatOf(BOOKING_STRATEGY.OPTIMISTIC);
-    await service.hold({ ...seat, userId: randomUUID(), requestId: null });
+    await service.hold({
+      eventId: seat.eventId,
+      seatIds: [seat.seatId],
+      userId: randomUUID(),
+      requestId: null,
+    });
 
-    const second = await service.hold({ ...seat, userId: randomUUID(), requestId: null });
+    const second = await service.hold({
+      eventId: seat.eventId,
+      seatIds: [seat.seatId],
+      userId: randomUUID(),
+      requestId: null,
+    });
 
     expect(second).toEqual({ outcome: HOLD_OUTCOME.SEAT_TAKEN });
     const spans = holdSpans();
@@ -79,7 +94,12 @@ describe('hold strategy span', () => {
     const seat = await seatOf(BOOKING_STRATEGY.REDIS_LOCK);
 
     await expect(
-      failing.hold({ ...seat, userId: randomUUID(), requestId: null })
+      failing.hold({
+        eventId: seat.eventId,
+        seatIds: [seat.seatId],
+        userId: randomUUID(),
+        requestId: null,
+      })
     ).rejects.toThrow();
 
     const [span] = holdSpans();

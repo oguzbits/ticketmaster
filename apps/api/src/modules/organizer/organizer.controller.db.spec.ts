@@ -25,7 +25,6 @@ import { configureApp } from '../../app.setup.js';
 import { APP_CONFIG, loadEnv } from '../../config/config.module.js';
 import { CLOCK } from '../../core/clock.js';
 import {
-  bookings,
   demoUsers,
   events,
   seats,
@@ -33,7 +32,7 @@ import {
   venueSeats,
 } from '../../infrastructure/database/schema.js';
 import { RATE_LIMIT } from '../../infrastructure/rate-limit/rate-limit.decorator.js';
-import { createTestEvent, openTestDatabase } from '../../testing/database.js';
+import { createTestEvent, insertTestBooking, openTestDatabase } from '../../testing/database.js';
 import { fakeTokenVerifier, randomClientAddress } from '../../testing/http.js';
 import { SPEC_NOW } from '../../testing/time.js';
 import { auditRows, auditRowsOfSubject } from '../audit/testing/index.js';
@@ -455,23 +454,29 @@ describe('organizer endpoints', () => {
         seats: 6,
         ownerId: ORGANIZER_A.id,
       });
-      const statuses: BookingStatus[] = [
-        BOOKING_STATUS.HELD,
-        BOOKING_STATUS.HELD,
+      await insertTestBooking(db, {
+        eventId,
+        seatIds: [seatIds[0] ?? '', seatIds[1] ?? ''],
+        userId: CUSTOMER.id,
+        strategy: BOOKING_STRATEGY.PESSIMISTIC,
+        status: BOOKING_STATUS.HELD,
+        holdExpiresAt: SPEC_NOW,
+      });
+      const singleStatuses: BookingStatus[] = [
         BOOKING_STATUS.CONFIRMED,
         BOOKING_STATUS.EXPIRED,
         BOOKING_STATUS.CANCELLED,
       ];
-      await db.insert(bookings).values(
-        statuses.map((status, index) => ({
+      for (const [index, status] of singleStatuses.entries()) {
+        await insertTestBooking(db, {
           eventId,
-          seatId: seatIds[index] ?? '',
+          seatIds: [seatIds[index + 2] ?? ''],
           userId: CUSTOMER.id,
           strategy: BOOKING_STRATEGY.PESSIMISTIC,
           status,
           holdExpiresAt: SPEC_NOW,
-        }))
-      );
+        });
+      }
 
       const event = (await ownEvents('a')).find(({ id }) => id === eventId);
 

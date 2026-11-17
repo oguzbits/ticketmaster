@@ -3,12 +3,21 @@ import { HttpErrorResponse, HttpStatusCode } from '@angular/common/http';
 import { Component, computed, inject, input, linkedSignal, signal } from '@angular/core';
 import { rxResource, takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
-import { BOOKING_STATUS, ROLE, type Seat, SEAT_STATUS, SEAT_STREAM_EVENT } from '@app/shared';
+import {
+  type Booking,
+  BOOKING_LIMITS,
+  BOOKING_STATUS,
+  ROLE,
+  type Seat,
+  SEAT_STATUS,
+  SEAT_STREAM_EVENT,
+} from '@app/shared';
 import { EMPTY, filter, switchMap } from 'rxjs';
 
 import { StrategySwitch } from '../admin/strategy-switch';
 import { SessionStore } from '../auth/session.store';
 import { BOOKING_ACTION, BookingsStore } from '../bookings/bookings.store';
+import { pickBestAvailableSeats } from './best-seats';
 import { EventArtBlock } from './event-art-block';
 import { EventsService } from './events.service';
 import {
@@ -81,8 +90,22 @@ export class SeatMap {
   protected readonly held = BOOKING_STATUS.HELD;
   protected readonly confirmed = BOOKING_STATUS.CONFIRMED;
   protected readonly cancelled = BOOKING_STATUS.CANCELLED;
+  protected readonly maxSeats = BOOKING_LIMITS.MAX_SEATS;
+  protected readonly seatCounts = [1, 2, 3, 4, 5, 6] as const;
 
-  /** The event has a waiting room: a customer needs an admission before holding a seat. */
+  protected readonly desiredCount = signal(2);
+  protected readonly selectionHint = signal<string | null>(null);
+
+  protected readonly selectedSeatSet = computed(() => new Set(this.bookings.cartSeatIds()));
+  protected readonly selectedSeats = computed(() => {
+    const ids = this.selectedSeatSet();
+    return this.seats().filter((seat) => ids.has(seat.id));
+  });
+  protected readonly selectedTotalCents = computed(() =>
+    this.selectedSeats().reduce((sum, seat) => sum + seat.priceCents, 0)
+  );
+
+  /** The event has a waiting room: a customer needs an admission before holding seats. */
   protected readonly gated = computed(() => this.waitingRoomCapacity() !== null);
 
   protected readonly notFound = computed(() => {
@@ -90,9 +113,12 @@ export class SeatMap {
     return error instanceof HttpErrorResponse && error.status === HttpStatusCode.NotFound;
   });
 
-  /** A booking is in progress: below `lg` the panel sticks to the bottom edge of the screen. */
+  /** A booking or cart selection is active: below `lg` the panel sticks to the bottom edge. */
   protected readonly pinned = computed(
-    () => this.bookings.booking() !== null || this.bookings.pending() !== null
+    () =>
+      this.bookings.booking() !== null ||
+      this.bookings.pending() !== null ||
+      this.bookings.cartSeatIds().length > 0
   );
 
   protected readonly legend = Object.values(SEAT_STATUS);
@@ -151,6 +177,10 @@ export class SeatMap {
   /** Seats can be held: the event has no waiting room, or the customer is admitted. */
   protected readonly open = computed(() => !this.gated() || this.waitingRoom.admitted());
 
+  protected isSelected(seatId: string): boolean {
+    return this.selectedSeatSet().has(seatId);
+  }
+
   protected canChoose(seat: Seat): boolean {
     return (
       this.isCustomer() && seat.status === this.available && this.bookings.canHold() && this.open()
@@ -159,16 +189,71 @@ export class SeatMap {
 
   protected choose(seat: Seat): void {
     if (this.canChoose(seat)) {
-      this.bookings.hold(this.id(), seat.id, this.waitingRoom.admissionToken());
+      this.selectionHint.set(null);
+      this.bookings.toggleSeat(seat.id);
     }
+  }
+
+  protected setDesiredCount(raw: string): void {
+    const parsed = Number(raw);
+    if (
+      Number.isInteger(parsed) &&
+      parsed >= BOOKING_LIMITS.MIN_SEATS &&
+      parsed <= BOOKING_LIMITS.MAX_SEATS
+    ) {
+      this.desiredCount.set(parsed);
+    }
+  }
+
+  protected pickBestSeats(): void {
+    if (!this.bookings.canHold() || !this.open()) return;
+    const count = this.desiredCount();
+    const result = pickBestAvailableSeats(this.seats(), count);
+    if (result === null) {
+      this.selectionHint.set(`Fewer than ${count} available seats remain.`);
+      return;
+    }
+    this.bookings.selectSeats(result.seats.map((seat) => seat.id));
+    this.selectionHint.set(
+      result.contiguous
+        ? null
+        : `No ${count} seats side by side available; selected the lowest-priced ${count} seats instead.`
+    );
+  }
+
+  protected holdSelected(): void {
+    this.selectionHint.set(null);
+    this.bookings.hold(this.id(), this.bookings.cartSeatIds(), this.waitingRoom.admissionToken());
+  }
+
+  protected rehold(booking: Booking): void {
+    this.bookings.hold(
+      booking.eventId,
+      booking.seats.map((seat) => seat.id),
+      this.waitingRoom.admissionToken()
+    );
+  }
+
+  protected clearCart(): void {
+    this.selectionHint.set(null);
+    this.bookings.clearSelection();
   }
 
   private apply(message: SeatStreamMessage): void {
     switch (message.type) {
-      case SEAT_STREAM_EVENT.SNAPSHOT:
+      case SEAT_STREAM_EVENT.SNAPSHOT: {
         this.live.set('live');
         this.seats.set(message.snapshot.seats);
+        const availableIds = new Set(
+          message.snapshot.seats
+            .filter((seat) => seat.status === this.available)
+            .map((seat) => seat.id)
+        );
+        for (const id of this.bookings.cartSeatIds()) {
+          if (!availableIds.has(id)) this.bookings.dropTakenFromCart(id);
+        }
         break;
+      }
       case SEAT_STREAM_EVENT.CHANGE: {
         const { seatId, status } = message.change;
         const seat = this.seats().find((candidate) => candidate.id === seatId);
@@ -176,6 +261,9 @@ export class SeatMap {
         this.seats.update((seats) =>
           seats.map((candidate) => (candidate === seat ? { ...candidate, status } : candidate))
         );
+        if (status !== this.available) {
+          this.bookings.dropTakenFromCart(seatId);
+        }
         this.announcement.set(
           `Section ${seat.section}, row ${seat.row}, seat ${seat.number} is now ${status.toLowerCase()}`
         );

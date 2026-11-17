@@ -124,11 +124,11 @@ describe('payment and cancel', () => {
     await database.close();
   });
 
-  async function heldBooking(): Promise<{
+  async function heldBooking(seats = 1): Promise<{
     bookingId: string;
     userId: string;
     eventId: string;
-    seatId: string;
+    seatIds: string[];
   }> {
     now = NOW;
     provider.calls.length = 0;
@@ -142,14 +142,12 @@ describe('payment and cancel', () => {
     provider.duringCharge = async () => {};
     const { eventId, seatIds } = await createTestEvent(db, {
       strategy: BOOKING_STRATEGY.PESSIMISTIC,
-      seats: 1,
+      seats,
     });
-    const [seatId] = seatIds;
-    if (seatId === undefined) throw new Error('test event has no seat');
     const userId = randomUUID();
-    const result = await service.hold({ eventId, seatId, userId, requestId: null });
+    const result = await service.hold({ eventId, seatIds, userId, requestId: null });
     if (result.outcome !== HOLD_OUTCOME.PLACED) throw new Error('hold was not placed');
-    return { bookingId: result.bookingId, userId, eventId, seatId };
+    return { bookingId: result.bookingId, userId, eventId, seatIds };
   }
 
   /** The actions audited for the booking, in order. */
@@ -165,7 +163,7 @@ describe('payment and cancel', () => {
   }
 
   it('pays a held booking and confirms it with HELD→PAID→CONFIRMED transitions', async () => {
-    const { bookingId, userId } = await heldBooking();
+    const { bookingId, userId } = await heldBooking(2);
 
     const view = await service.pay({
       bookingId,
@@ -176,7 +174,7 @@ describe('payment and cancel', () => {
 
     expect(view.status).toBe(BOOKING_STATUS.CONFIRMED);
     expect(provider.calls).toEqual([
-      { bookingId, amountCents: SEAT_PRICE_CENTS, idempotencyKey: key('1') },
+      { bookingId, amountCents: 2 * SEAT_PRICE_CENTS, idempotencyKey: key('1') },
     ]);
     expect(await transitionsOf(bookingId)).toEqual(
       [
@@ -725,12 +723,12 @@ describe('payment and cancel', () => {
     expect(row?.status).toBe(BOOKING_STATUS.HELD);
   });
 
-  it('cancel of a confirmed booking frees the seat', async () => {
-    const { bookingId, userId, eventId, seatId } = await heldBooking();
+  it('cancel of a confirmed booking frees all of its seats', async () => {
+    const { bookingId, userId, eventId, seatIds } = await heldBooking(2);
     await service.pay({ bookingId, userId, idempotencyKey: key('10'), requestId: 'spec' });
 
     const view = await service.cancel({ bookingId, userId, requestId: 'spec' });
-    const next = await service.hold({ eventId, seatId, userId: randomUUID(), requestId: null });
+    const next = await service.hold({ eventId, seatIds, userId: randomUUID(), requestId: null });
 
     expect(view.status).toBe(BOOKING_STATUS.CANCELLED);
     expect(next.outcome).toBe(HOLD_OUTCOME.PLACED);

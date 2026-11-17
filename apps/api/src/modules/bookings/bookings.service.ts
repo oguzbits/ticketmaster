@@ -2,16 +2,23 @@ import {
   AUDIT_ACTION,
   AUDIT_SUBJECT,
   type Booking,
+  BOOKING_LIMITS,
   BOOKING_STATUS,
-  type BookingStatus,
   TRANSITION_REASON,
 } from '@app/shared';
-import { ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { and, count, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 
 import { CLOCK, type Clock } from '../../core/clock.js';
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
-import { bookings, events, seats } from '../../infrastructure/database/schema.js';
+import { bookings, bookingSeats, events, seats } from '../../infrastructure/database/schema.js';
 import { SPAN_ATTR, SPAN_NAME, withSpan } from '../../infrastructure/tracing/index.js';
 import { BOOKING_PORTS, type BookingPorts } from './adapters/booking-ports.js';
 import {
@@ -21,7 +28,12 @@ import {
 } from './adapters/booking-transitions.js';
 import { loadOwnBookings } from './adapters/load-own-bookings.js';
 import { lockOwnBooking } from './adapters/lock-own-booking.js';
-import { payBooking, type PayInput, type PaymentFlight } from './adapters/pay-booking.js';
+import {
+  payBooking,
+  type PayInput,
+  type PaymentFlight,
+  type SeatRef,
+} from './adapters/pay-booking.js';
 import { publishSeatChange } from './adapters/publish-seat-change.js';
 import { reconcilePaymentAttempts } from './adapters/reconcile-payments.js';
 import { SeatReservations } from './adapters/seat-reservations.js';
@@ -47,22 +59,38 @@ export class BookingsService {
   ) {}
 
   /**
-   * Holds the seat under the strategy of its event; NotFound when the seat is not in the event or
-   * the event is the sandbox of another user, Forbidden when the event has a waiting room and the
-   * user holds no live admission.
+   * Holds 1..6 seats atomically under the strategy of the event; BadRequest when seatIds are
+   * empty, exceed `BOOKING_LIMITS.MAX_SEATS`, or contain duplicates; NotFound when any seat is
+   * not in the event or the event is another user's sandbox; Forbidden when the event has a
+   * waiting room and the user holds no live admission.
    */
   async hold(input: HoldInput): Promise<HoldResult> {
-    const [event] = await this.db
+    if (
+      input.seatIds.length < BOOKING_LIMITS.MIN_SEATS ||
+      input.seatIds.length > BOOKING_LIMITS.MAX_SEATS
+    ) {
+      throw new BadRequestException(
+        `A booking requires between ${BOOKING_LIMITS.MIN_SEATS} and ${BOOKING_LIMITS.MAX_SEATS} seats`
+      );
+    }
+    const orderedSeatIds = [...new Set(input.seatIds)].sort();
+    if (orderedSeatIds.length !== input.seatIds.length) {
+      throw new BadRequestException('Duplicate seats are not allowed');
+    }
+    const rows = await this.db
       .select({
+        seatId: seats.id,
         strategy: events.strategy,
         sandboxUserId: events.sandboxUserId,
         waitingRoomCapacity: events.waitingRoomCapacity,
       })
       .from(seats)
       .innerJoin(events, eq(events.id, seats.eventId))
-      .where(and(eq(seats.id, input.seatId), eq(seats.eventId, input.eventId)));
+      .where(and(eq(seats.eventId, input.eventId), inArray(seats.id, orderedSeatIds)));
+    const event = rows[0];
     if (
       event === undefined ||
+      rows.length !== orderedSeatIds.length ||
       (event.sandboxUserId !== null && event.sandboxUserId !== input.userId)
     ) {
       throw new NotFoundException('Seat not found in this event');
@@ -76,17 +104,20 @@ export class BookingsService {
     }
     const result = await withSpan(
       SPAN_NAME.HOLD_STRATEGY,
-      () => this.reservations.hold(event.strategy, input),
+      () => this.reservations.hold(event.strategy, { ...input, seatIds: orderedSeatIds }),
       { attributes: { [SPAN_ATTR.STRATEGY]: event.strategy } }
     );
     this.ports.metrics.holdAttempted(event.strategy, result.outcome);
     if (result.outcome === HOLD_OUTCOME.PLACED) {
-      await this.announce(result.bookingId, input);
+      await this.announce(
+        result.bookingId,
+        orderedSeatIds.map((seatId) => ({ eventId: input.eventId, seatId }))
+      );
     }
     return result;
   }
 
-  /** The caller's bookings with their stored transitions, newest booking first. */
+  /** The caller's bookings with their seats and stored transitions, newest booking first. */
   listOwn(userId: string): Promise<Booking[]> {
     return loadOwnBookings(this.db, userId);
   }
@@ -102,11 +133,14 @@ export class BookingsService {
   async countDoubleBookings(eventId: string): Promise<number> {
     const perSeat = this.db
       .select({ n: count().as('n') })
-      .from(bookings)
+      .from(bookingSeats)
       .where(
-        and(eq(bookings.eventId, eventId), inArray(bookings.status, [...ACTIVE_BOOKING_STATUSES]))
+        and(
+          eq(bookingSeats.eventId, eventId),
+          inArray(bookingSeats.status, [...ACTIVE_BOOKING_STATUSES])
+        )
       )
-      .groupBy(bookings.seatId)
+      .groupBy(bookingSeats.seatId)
       .as('per_seat');
     const [row] = await this.db
       .select({ doubles: sql<number>`coalesce(sum(${perSeat.n} - 1), 0)::int` })
@@ -120,7 +154,7 @@ export class BookingsService {
    * result (CONFIRMED or CANCELLED) without a second charge.
    */
   async pay(input: PayInput): Promise<BookingState> {
-    const { state, seat } = await payBooking(
+    const { state, seats: changed } = await payBooking(
       {
         db: this.db,
         clock: this.clock,
@@ -130,10 +164,10 @@ export class BookingsService {
       },
       input
     );
-    if (seat !== null) {
-      // Only the request that applied the result counts it (`seat` is null for a parallel one).
+    if (changed !== null) {
+      // Only the request that applied the result counts it (`changed` is null for a parallel one).
       this.ports.metrics.bookingSettled(state.status);
-      await this.announce(state.id, seat);
+      await this.announce(state.id, changed);
     }
     return state;
   }
@@ -143,12 +177,12 @@ export class BookingsService {
     userId: string;
     requestId: string;
   }): Promise<BookingState> {
-    const { state, seat } = await this.db.transaction(async (tx) => {
-      const { booking, paymentIdempotencyKey, seat } = await lockOwnBooking(
-        tx,
-        input.bookingId,
-        input.userId
-      );
+    const { state, seats: changed } = await this.db.transaction(async (tx) => {
+      const {
+        booking,
+        paymentIdempotencyKey,
+        seats: bookedSeats,
+      } = await lockOwnBooking(tx, input.bookingId, input.userId);
       // A claimed key on a HELD booking means a charge may be in flight: the payment decides.
       if (booking.status === BOOKING_STATUS.HELD && paymentIdempotencyKey !== null) {
         throw new ConflictException('A payment of this booking is in progress');
@@ -167,10 +201,10 @@ export class BookingsService {
         subjectId: stored.id,
         requestId: input.requestId,
       });
-      return { state: stored, seat };
+      return { state: stored, seats: bookedSeats };
     });
     this.ports.metrics.bookingSettled(state.status);
-    await this.announce(state.id, seat);
+    await this.announce(state.id, changed);
     return state;
   }
 
@@ -187,7 +221,6 @@ export class BookingsService {
             status: bookings.status,
             holdExpiresAt: bookings.holdExpiresAt,
             eventId: bookings.eventId,
-            seatId: bookings.seatId,
           })
           .from(bookings)
           .where(
@@ -200,8 +233,21 @@ export class BookingsService {
           )
           .limit(EXPIRY_BATCH_SIZE)
           .for('update', { skipLocked: true });
-        const released: { id: string; status: BookingStatus; eventId: string; seatId: string }[] =
-          [];
+        if (due.length === 0) return [];
+        const seatRows = await tx
+          .select({
+            bookingId: bookingSeats.bookingId,
+            eventId: bookingSeats.eventId,
+            seatId: bookingSeats.seatId,
+          })
+          .from(bookingSeats)
+          .where(
+            inArray(
+              bookingSeats.bookingId,
+              due.map(({ id }) => id)
+            )
+          );
+        const released: { id: string; seats: SeatRef[] }[] = [];
         for (const booking of due) {
           const result = planTransition(
             booking,
@@ -210,12 +256,17 @@ export class BookingsService {
             now
           );
           await storeTransition(tx, result);
-          released.push({ ...booking, status: result.booking.status });
+          released.push({
+            id: booking.id,
+            seats: seatRows
+              .filter(({ bookingId }) => bookingId === booking.id)
+              .map(({ eventId, seatId }) => ({ eventId, seatId })),
+          });
         }
         return released;
       });
       if (batch.length > 0) this.ports.metrics.bookingSettled(BOOKING_STATUS.EXPIRED, batch.length);
-      await Promise.all(batch.map((b) => this.announce(b.id, b)));
+      await Promise.all(batch.map((b) => this.announce(b.id, b.seats)));
       expired += batch.length;
       if (batch.length < EXPIRY_BATCH_SIZE) return expired;
     }
@@ -231,17 +282,29 @@ export class BookingsService {
     );
     if (settled.length > 0) {
       this.ports.metrics.bookingSettled(BOOKING_STATUS.CONFIRMED, settled.length);
-      await Promise.all(settled.map((b) => this.announce(b.bookingId, b)));
+      await Promise.all(
+        settled.map((b) =>
+          this.announce(
+            b.bookingId,
+            b.seatIds.map((seatId) => ({ eventId: b.eventId, seatId }))
+          )
+        )
+      );
     }
     return { settled: settled.length, refunded, released };
   }
 
-  /** Called after the commit: tells the viewers of the event which status the seat has now. */
-  private announce(bookingId: string, seat: { eventId: string; seatId: string }): Promise<void> {
-    return publishSeatChange(
-      { db: this.db, publisher: this.ports.seatChanges, logger: this.logger },
-      { eventId: seat.eventId, seatId: seat.seatId, at: this.clock.now().toISOString() },
-      `booking ${bookingId}`
+  /** Called after the commit: tells the viewers of the event which status each affected seat has now. */
+  private async announce(bookingId: string, changed: readonly SeatRef[]): Promise<void> {
+    const at = this.clock.now().toISOString();
+    await Promise.all(
+      changed.map((seat) =>
+        publishSeatChange(
+          { db: this.db, publisher: this.ports.seatChanges, logger: this.logger },
+          { eventId: seat.eventId, seatId: seat.seatId, at },
+          `booking ${bookingId}`
+        )
+      )
     );
   }
 }

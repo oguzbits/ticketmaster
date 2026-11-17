@@ -24,6 +24,7 @@ test('a hold in one tab shows in another tab within a second, and so does its re
     viewer.getByRole('button', { name: `${label}${status}`, exact: true });
 
   await seat.click();
+  await buyer.getByRole('button', { name: 'Hold 1 seat' }).click();
   await expect(buyer.getByRole('timer').filter({ hasText: 'Hold expires in' })).toBeVisible();
   await expect(seatInViewer('held')).toBeVisible({ timeout: LIVE_MS });
 

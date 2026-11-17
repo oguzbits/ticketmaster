@@ -40,9 +40,11 @@ export async function renderTicketPdf(ticket: TicketData): Promise<Uint8Array> {
     .fontSize(BODY_SIZE)
     .text(ticket.venueName)
     .text(ticket.startsAt.toUTCString())
-    .moveDown(0.5)
-    .text(`Section ${ticket.seat.section}, row ${ticket.seat.row}, seat ${ticket.seat.number}`)
-    .moveDown();
+    .moveDown(0.5);
+  for (const seat of ticket.seats) {
+    doc.text(`Section ${seat.section}, row ${seat.row}, seat ${seat.number}`);
+  }
+  doc.moveDown();
   doc.image(qr, { width: QR_SIZE });
   doc.fontSize(SMALL_SIZE).text(`Booking ${ticket.bookingId}`);
   doc.end();

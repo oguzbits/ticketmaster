@@ -55,11 +55,11 @@ const DETAIL: EventDetail = {
 const BOOKING: Booking = {
   id: '00000000-0000-4000-8000-0000000000b1',
   eventId: EVENT_ID,
-  seatId: SEAT_ID(3),
   status: BOOKING_STATUS.HELD,
   holdExpiresAt: '2027-01-01T00:02:00.000Z',
   ticketReady: false,
-  seat: { section: 'B', row: 1, number: 1 },
+  totalPriceCents: 7000,
+  seats: [{ id: SEAT_ID(3), section: 'B', row: 1, number: 1, priceCents: 7000 }],
   transitions: [],
 };
 const HOLD_SECONDS = 120;
@@ -163,7 +163,7 @@ describe('SeatMap', () => {
 
     await loaded();
 
-    const buttons = [...element.querySelectorAll('button')];
+    const buttons = [...element.querySelectorAll<HTMLButtonElement>('button.seat')];
     expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
       'Section A, row 3, seat 7, held',
       'Section A, row 3, seat 8, sold',
@@ -201,7 +201,7 @@ describe('SeatMap', () => {
     TestBed.tick();
     await answer(() => http.expectOne(EVENT_URL).flush(DETAIL));
 
-    expect(element.querySelectorAll('button')).toHaveLength(3);
+    expect(element.querySelectorAll('button.seat')).toHaveLength(3);
     expect(element.querySelector('[role=alert]')).toBeNull();
   });
 
@@ -237,10 +237,11 @@ describe('SeatMap', () => {
 
       expect(openSeat(element)?.getAttribute('aria-disabled')).toBeNull();
       press(OPEN_SEAT);
+      press(/Hold 1 seat/);
       const hold = http.expectOne('/api/bookings');
       expect(hold.request.body).toEqual({
         eventId: DETAIL.id,
-        seatId: SEAT_ID(3),
+        seatIds: [SEAT_ID(3)],
         admissionToken: ADMITTED.admissionToken,
       });
       await answer(() => hold.flush(BOOKING));
@@ -254,6 +255,7 @@ describe('SeatMap', () => {
       TestBed.tick();
 
       press(OPEN_SEAT);
+      press(/Hold 1 seat/);
       await answer(() =>
         http
           .expectOne('/api/bookings')
@@ -285,13 +287,14 @@ describe('SeatMap', () => {
     const PAYMENT_URL = `/api/bookings/${BOOKING.id}/payment`;
     const FAILED = { status: 500, statusText: 'Server Error' };
 
-    /** Opens the page as a customer and holds the open seat. */
+    /** Opens the page as a customer, selects the open seat and holds it. */
     async function held() {
       const page = render();
       await page.loaded();
       page.press(OPEN_SEAT);
+      page.press(/Hold 1 seat/);
       const hold = page.http.expectOne('/api/bookings');
-      expect(hold.request.body).toEqual({ eventId: EVENT_ID, seatId: SEAT_ID(3) });
+      expect(hold.request.body).toEqual({ eventId: EVENT_ID, seatIds: [SEAT_ID(3)] });
       await page.answer(() => hold.flush(BOOKING));
       await page.refreshed(SEAT_STATUS.HELD);
       return page;
@@ -319,6 +322,82 @@ describe('SeatMap', () => {
       expect(element.textContent).toContain('Booking confirmed');
       expect(element.querySelector('a[href="/bookings"]')).not.toBeNull();
       expect(element.textContent).not.toContain('Hold expires');
+    });
+
+    it('lets a customer pick best available seats and hold multiple seats together', async () => {
+      const multiDetail: EventDetail = {
+        ...DETAIL,
+        seats: [
+          {
+            id: SEAT_ID(1),
+            section: 'A',
+            row: 1,
+            number: 1,
+            priceCents: 9000,
+            status: SEAT_STATUS.AVAILABLE,
+          },
+          {
+            id: SEAT_ID(2),
+            section: 'B',
+            row: 1,
+            number: 1,
+            priceCents: 5000,
+            status: SEAT_STATUS.AVAILABLE,
+          },
+          {
+            id: SEAT_ID(3),
+            section: 'B',
+            row: 1,
+            number: 2,
+            priceCents: 5000,
+            status: SEAT_STATUS.AVAILABLE,
+          },
+        ],
+      };
+      const multiBooking: Booking = {
+        ...BOOKING,
+        totalPriceCents: 10000,
+        seats: [
+          { id: SEAT_ID(2), section: 'B', row: 1, number: 1, priceCents: 5000 },
+          { id: SEAT_ID(3), section: 'B', row: 1, number: 2, priceCents: 5000 },
+        ],
+      };
+      const { element, http, answer, press, loaded } = render();
+      await loaded(multiDetail);
+
+      press(/Pick best seats/);
+      expect(element.textContent).toContain('Selected seats (2 / 6)');
+      expect(element.textContent).toContain('Total: €100.00');
+
+      press(/Hold 2 seats/);
+      const req = http.expectOne('/api/bookings');
+      expect(req.request.body).toEqual({ eventId: EVENT_ID, seatIds: [SEAT_ID(2), SEAT_ID(3)] });
+      await answer(() => req.flush(multiBooking));
+      await answer(() => http.expectOne(EVENT_URL).flush(multiDetail));
+      expect(element.textContent).toContain('2 seats reserved');
+    });
+
+    it('caps the cart at 6 seats and notifies the customer on a 7th click', async () => {
+      const sevenSeats: EventDetail = {
+        ...DETAIL,
+        seats: Array.from({ length: 7 }, (_, i) => ({
+          id: SEAT_ID(i + 1),
+          section: 'A',
+          row: 1,
+          number: i + 1,
+          priceCents: 5000,
+          status: SEAT_STATUS.AVAILABLE,
+        })),
+      };
+      const { element, loaded, press } = render();
+      await loaded(sevenSeats);
+
+      for (let i = 1; i <= 7; i += 1) {
+        press(`Section A, row 1, seat ${i}, available`);
+      }
+
+      expect(element.textContent).toContain('Selected seats (6 / 6)');
+      expect(element.textContent).toContain('at most 6 seats per booking');
     });
 
     describe('after a reload', () => {
@@ -350,9 +429,16 @@ describe('SeatMap', () => {
         const page = render(ROLE.CUSTOMER, null);
         await page.loaded();
         page.press(OPEN_SEAT);
+        page.press(/Hold 1 seat/);
         const hold = page.http.expectOne('/api/bookings');
 
-        await page.answer(() => page.bookingList?.flush(running({ seatId: SEAT_ID(1) })));
+        await page.answer(() =>
+          page.bookingList?.flush(
+            running({
+              seats: [{ id: SEAT_ID(1), section: 'A', row: 3, number: 7, priceCents: 9000 }],
+            })
+          )
+        );
         expect(page.element.textContent).not.toContain('Hold expires');
 
         await page.answer(() => hold.flush(BOOKING));
@@ -425,6 +511,7 @@ describe('SeatMap', () => {
       await loaded();
 
       press(OPEN_SEAT);
+      press(/Hold 1 seat/);
       await answer(() =>
         http.expectOne('/api/bookings').flush(null, { status: 409, statusText: 'Conflict' })
       );
@@ -435,16 +522,19 @@ describe('SeatMap', () => {
       expect(element.textContent).not.toContain('Hold expires');
     });
 
-    it('sends one hold request for a double click on a seat', async () => {
-      const { element, http, loaded } = render();
+    it('disables seat selection and removes the Hold CTA while a hold request is in flight', async () => {
+      const { element, http, loaded, press } = render();
       await loaded();
       const seat = element.querySelector<HTMLButtonElement>(`[aria-label="${OPEN_SEAT}"]`);
 
-      seat?.click();
-      seat?.click();
-      TestBed.tick();
+      press(OPEN_SEAT);
+      press(/Hold 1 seat/);
 
       expect(seat?.getAttribute('aria-disabled')).toBe('true');
+      expect(element.textContent).toContain('Holding seats…');
+      expect(
+        [...element.querySelectorAll('button')].some((b) => /Hold 1 seat/.test(b.textContent ?? ''))
+      ).toBe(false);
       http.expectOne('/api/bookings').flush(null, FAILED);
       http.expectOne(EVENT_URL).flush(DETAIL);
     });
@@ -490,12 +580,12 @@ describe('SeatMap', () => {
       expect(element.querySelector('[role=alert]')?.textContent).toContain('Payment failed');
 
       const again = [...element.querySelectorAll('button')].find((b) =>
-        /Hold the seat again/.test(b.textContent ?? '')
+        /Hold seats again/.test(b.textContent ?? '')
       );
       again?.click();
       again?.click();
       const hold = http.expectOne('/api/bookings');
-      expect(hold.request.body).toEqual({ eventId: EVENT_ID, seatId: SEAT_ID(3) });
+      expect(hold.request.body).toEqual({ eventId: EVENT_ID, seatIds: [SEAT_ID(3)] });
       await answer(() => hold.flush(BOOKING));
       await answer(() => http.expectOne(EVENT_URL).flush(DETAIL));
       press(/Pay now/);
@@ -574,12 +664,14 @@ describe('SeatMap', () => {
       expect(element.textContent).not.toContain('Price categories');
     });
 
-    it('tells a customer without a booking to pick a seat', async () => {
+    it('tells a customer without a booking to pick seats or use best available', async () => {
       const { element, loaded } = render();
       await loaded();
 
-      expect(panel(element)?.textContent).toContain('Pick an available seat on the map.');
-      expect(panel(element)?.querySelector('button')).toBeNull();
+      expect(panel(element)?.textContent).toContain(
+        'Pick up to 6 available seats on the map, or let us find the best ones.'
+      );
+      expect(panel(element)?.querySelector('button')?.textContent).toContain('Pick best seats');
     });
 
     it('does not say to pick a seat while a waiting room still blocks holding', async () => {
@@ -587,11 +679,11 @@ describe('SeatMap', () => {
       await loaded(WITH_WAITING_ROOM);
       waitingRoom.statusCalls[0]?.next(NOT_JOINED);
       TestBed.tick();
-      expect(panel(element)?.textContent).not.toContain('Pick an available seat');
+      expect(panel(element)?.textContent).not.toContain('Pick up to 6 available seats');
 
       waitingRoom.statusCalls[0]?.next(ADMITTED);
       TestBed.tick();
-      expect(panel(element)?.textContent).toContain('Pick an available seat on the map.');
+      expect(panel(element)?.textContent).toContain('Pick up to 6 available seats');
     });
 
     it('puts the panel before the map below lg only while a waiting room blocks the customer', async () => {
@@ -625,7 +717,7 @@ describe('SeatMap', () => {
       await loaded();
 
       expect(panel(element)?.textContent).toContain('read-only for the organizer role');
-      expect(panel(element)?.textContent).not.toContain('Pick an available seat');
+      expect(panel(element)?.textContent).not.toContain('Pick up to 6 available seats');
     });
   });
 
@@ -722,14 +814,18 @@ describe('SeatMap', () => {
       expect(stream.messages.observed).toBe(false);
     });
 
-    it('marks a seat taken without a reload and announces it politely', async () => {
-      const { element, stream, loaded } = render();
+    it('marks a seat taken without a reload, drops it from cart if selected, and announces it politely', async () => {
+      const { element, stream, loaded, press } = render();
       await loaded();
+      press(OPEN_SEAT);
+      expect(element.textContent).toContain('Selected seats (1 / 6)');
 
       stream.messages.next(change(SEAT_STATUS.HELD));
       TestBed.tick();
 
       expect(element.querySelector(`[aria-label="${HELD_SEAT}"]`)).not.toBeNull();
+      expect(element.textContent).not.toContain('Selected seats');
+      expect(element.textContent).toContain('removed from your cart');
       expect(element.querySelector('[aria-live=polite]')?.textContent).toContain(
         'Section B, row 1, seat 1 is now held'
       );
@@ -749,7 +845,7 @@ describe('SeatMap', () => {
       });
       TestBed.tick();
 
-      const names = [...element.querySelectorAll('button')].map((b) =>
+      const names = [...element.querySelectorAll('button.seat')].map((b) =>
         b.getAttribute('aria-label')
       );
       expect(names.every((name) => name?.endsWith('sold'))).toBe(true);

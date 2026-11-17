@@ -7,7 +7,7 @@ export interface TicketData {
   eventTitle: string;
   venueName: string;
   startsAt: Date;
-  seat: { section: string; row: number; number: number };
+  seats: { section: string; row: number; number: number }[];
 }
 
 /** Presigned ticket URLs expire quickly so forwarded links cannot be shared long-term. */

@@ -12,7 +12,7 @@ import type { Database } from './database.module.js';
 import { RLS_SCOPE, RLS_SETTING, withOwner } from './rls.js';
 import * as schema from './schema.js';
 
-const { bookings, bookingTransitions } = schema;
+const { bookings, bookingSeats, bookingTransitions } = schema;
 const HOLD_MS = 600_000;
 const SEATS = 3;
 
@@ -37,11 +37,17 @@ async function insertBooking(
   await database.insert(bookings).values({
     id,
     eventId,
-    seatId,
     userId,
     strategy: BOOKING_STRATEGY.PESSIMISTIC,
     status: BOOKING_STATUS.HELD,
     holdExpiresAt: new Date(Date.now() + HOLD_MS),
+  });
+  await database.insert(bookingSeats).values({
+    bookingId: id,
+    eventId,
+    seatId,
+    strategy: BOOKING_STRATEGY.PESSIMISTIC,
+    status: BOOKING_STATUS.HELD,
   });
   return id;
 }
@@ -121,8 +127,8 @@ describe('row-level security on bookings', () => {
     expect(await visibleBookings(db)).toEqual([bookingA, bookingB].sort());
   });
 
-  it('hides the transitions of another user in the user scope', async () => {
-    const seen = await db.transaction((tx) =>
+  it('hides the transitions and seats of another user in the user scope', async () => {
+    const seenTransitions = await db.transaction((tx) =>
       withOwner(tx, userA, () =>
         tx
           .select({ id: bookingTransitions.id })
@@ -130,8 +136,17 @@ describe('row-level security on bookings', () => {
           .where(eq(bookingTransitions.bookingId, bookingB))
       )
     );
+    const seenSeats = await db.transaction((tx) =>
+      withOwner(tx, userA, () =>
+        tx
+          .select({ seatId: bookingSeats.seatId })
+          .from(bookingSeats)
+          .where(eq(bookingSeats.bookingId, bookingB))
+      )
+    );
 
-    expect(seen).toEqual([]);
+    expect(seenTransitions).toEqual([]);
+    expect(seenSeats).toEqual([]);
   });
 
   describe('withOwner', () => {

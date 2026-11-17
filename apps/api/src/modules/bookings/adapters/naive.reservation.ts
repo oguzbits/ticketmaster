@@ -6,7 +6,7 @@ import {
   type HoldResult,
   type SeatReservation,
 } from '../domain/seat-reservation.js';
-import { insertHold, isSeatTaken } from './insert-hold.js';
+import { anySeatTaken, insertHold } from './insert-hold.js';
 
 /** Comparison baseline: check, then insert, with nothing between the two. It double-books. */
 export class NaiveReservation implements SeatReservation {
@@ -16,10 +16,11 @@ export class NaiveReservation implements SeatReservation {
   ) {}
 
   hold(input: HoldInput & { now: Date; ttlSeconds: number }): Promise<HoldResult> {
+    const ordered = [...input.seatIds].sort();
     return this.db.transaction(async (tx) =>
-      (await isSeatTaken(tx, input.seatId))
+      (await anySeatTaken(tx, ordered))
         ? { outcome: HOLD_OUTCOME.SEAT_TAKEN }
-        : insertHold(tx, input, this.audit)
+        : insertHold(tx, { ...input, seatIds: ordered }, this.audit)
     );
   }
 }

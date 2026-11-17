@@ -56,8 +56,11 @@ export {
 } from './booking.js';
 export {
   type Booking,
+  BOOKING_LIMITS,
   BookingListResponseSchema,
   BookingSchema,
+  type BookingSeat,
+  BookingSeatSchema,
   type BookingTransition,
   BookingTransitionSchema,
   type HoldRequest,

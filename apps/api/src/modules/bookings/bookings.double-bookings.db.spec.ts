@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto';
-
 import {
   BOOKING_STATUS,
   BOOKING_STRATEGY,
@@ -8,9 +6,8 @@ import {
 } from '@app/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { bookings } from '../../infrastructure/database/schema.js';
 import type { Redis } from '../../infrastructure/redis/redis.module.js';
-import { createTestEvent, openTestDatabase } from '../../testing/database.js';
+import { createTestEvent, insertTestBooking, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
 import { SPEC_NOW } from '../../testing/time.js';
 import type { BookingsService } from './bookings.service.js';
@@ -40,16 +37,15 @@ describe('countDoubleBookings', () => {
     const { eventId, seatIds } = await createTestEvent(db, { strategy, seats: 1 });
     const [seatId] = seatIds;
     if (seatId === undefined) throw new Error('test event has no seat');
-    await db.insert(bookings).values(
-      statuses.map((status) => ({
+    for (const status of statuses) {
+      await insertTestBooking(db, {
         eventId,
-        seatId,
-        userId: randomUUID(),
+        seatIds: [seatId],
         strategy,
         status,
         holdExpiresAt: new Date(SPEC_NOW.getTime() + HOLD_MS),
-      }))
-    );
+      });
+    }
     return service.countDoubleBookings(eventId);
   }
 

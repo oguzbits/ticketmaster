@@ -11,9 +11,9 @@ import { ConflictException, Logger } from '@nestjs/common';
 import { and, eq, inArray } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { bookings } from '../../infrastructure/database/schema.js';
+import { bookings, bookingSeats } from '../../infrastructure/database/schema.js';
 import type { Redis } from '../../infrastructure/redis/redis.module.js';
-import { createTestEvent, openTestDatabase } from '../../testing/database.js';
+import { createTestEvent, insertTestBooking, openTestDatabase } from '../../testing/database.js';
 import { openTestRedis } from '../../testing/redis.js';
 import { watchSeatChanges } from '../../testing/seat-changes.js';
 import { SPEC_NOW } from '../../testing/time.js';
@@ -49,15 +49,15 @@ describe('seat changes published after the booking commits', () => {
     const publisher: SeatChangePublisher = {
       publish: async (change) => {
         const active = await db
-          .select({ status: bookings.status })
-          .from(bookings)
+          .select({ status: bookingSeats.status })
+          .from(bookingSeats)
           .where(
             and(
-              eq(bookings.seatId, change.seatId),
-              inArray(bookings.status, [...ACTIVE_BOOKING_STATUSES])
+              eq(bookingSeats.seatId, change.seatId),
+              inArray(bookingSeats.status, [...ACTIVE_BOOKING_STATUSES])
             )
           )
-          .orderBy(bookings.status);
+          .orderBy(bookingSeats.status);
         visibleWhenPublished.push({ change, visible: seatStatusOf(active.at(-1)?.status ?? null) });
         await publish(change);
       },
@@ -85,7 +85,12 @@ describe('seat changes published after the booking commits', () => {
   }
 
   async function held(seat: { eventId: string; seatId: string; userId: string }) {
-    const result = await service.hold({ ...seat, requestId: null });
+    const result = await service.hold({
+      eventId: seat.eventId,
+      seatIds: [seat.seatId],
+      userId: seat.userId,
+      requestId: null,
+    });
     if (result.outcome !== HOLD_OUTCOME.PLACED) throw new Error('hold was not placed');
     return result.bookingId;
   }
@@ -108,13 +113,46 @@ describe('seat changes published after the booking commits', () => {
     await seat.watch.stop();
   });
 
+  it('multi-seat hold and cancel publish changes for every seat in the booking', async () => {
+    const { eventId, seatIds } = await createTestEvent(db, {
+      strategy: BOOKING_STRATEGY.PESSIMISTIC,
+      seats: 2,
+    });
+    const userId = randomUUID();
+    const watch = await watchSeatChanges(redis, eventId);
+
+    const result = await service.hold({ eventId, seatIds, userId, requestId: null });
+    if (result.outcome !== HOLD_OUTCOME.PLACED) throw new Error('hold was not placed');
+    await service.cancel({ bookingId: result.bookingId, userId, requestId: 'spec' });
+    await watch.settle();
+
+    expect(
+      watch.changes
+        .filter((c) => c.status === SEAT_STATUS.HELD)
+        .map((c) => c.seatId)
+        .toSorted()
+    ).toEqual(seatIds.toSorted());
+    expect(
+      watch.changes
+        .filter((c) => c.status === SEAT_STATUS.AVAILABLE)
+        .map((c) => c.seatId)
+        .toSorted()
+    ).toEqual(seatIds.toSorted());
+    await watch.stop();
+  });
+
   it('a hold that finds the seat taken publishes nothing', async () => {
     const seat = await watchedSeat();
     await held(seat);
     await seat.watch.settle();
     const before = seat.watch.changes.length;
 
-    const second = await service.hold({ ...seat, userId: randomUUID(), requestId: null });
+    const second = await service.hold({
+      eventId: seat.eventId,
+      seatIds: [seat.seatId],
+      userId: randomUUID(),
+      requestId: null,
+    });
     await seat.watch.settle();
 
     expect(second.outcome).not.toBe(HOLD_OUTCOME.PLACED);
@@ -226,17 +264,14 @@ describe('seat changes published after the booking commits', () => {
       const bookingA = await held({ ...seat, userId: a });
       // NAIVE refuses a second hold only after it read the first; a race leaves two active
       // bookings, which this row stands for.
-      const [second] = await db
-        .insert(bookings)
-        .values({
-          ...seat,
-          userId: b,
-          strategy: BOOKING_STRATEGY.NAIVE,
-          status: BOOKING_STATUS.HELD,
-          holdExpiresAt: new Date(SPEC_NOW.getTime() + 60_000),
-        })
-        .returning({ id: bookings.id });
-      const bookingB = second?.id ?? '';
+      const bookingB = await insertTestBooking(db, {
+        eventId: seat.eventId,
+        seatIds: [seat.seatId],
+        userId: b,
+        strategy: BOOKING_STRATEGY.NAIVE,
+        status: BOOKING_STATUS.HELD,
+        holdExpiresAt: new Date(SPEC_NOW.getTime() + 60_000),
+      });
       return { watch, a, b, bookingA, bookingB };
     }
 

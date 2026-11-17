@@ -474,7 +474,7 @@ describe('QueueConsumer against the local emulator', () => {
       });
       const [seatId] = seatIds;
       if (seatId === undefined) throw new Error('test event has no seat');
-      const held = await bookings.hold({ eventId, seatId, userId, requestId: null });
+      const held = await bookings.hold({ eventId, seatIds: [seatId], userId, requestId: null });
       if (held.outcome !== HOLD_OUTCOME.PLACED) throw new Error('hold was not placed');
       const view = await bookings.pay({
         bookingId: held.bookingId,
@@ -511,11 +511,11 @@ describe('QueueConsumer against the local emulator', () => {
       directory.addresses.set(userId, ADDRESS);
       const { eventId, seatIds } = await createTestEvent(db, {
         strategy: BOOKING_STRATEGY.PESSIMISTIC,
-        seats: 1,
+        seats: 2,
       });
       const held = await bookings.hold({
         eventId,
-        seatId: seatIds[0] ?? '',
+        seatIds,
         userId,
         requestId: null,
       });

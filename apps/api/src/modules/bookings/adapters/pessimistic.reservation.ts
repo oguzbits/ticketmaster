@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { asc, inArray } from 'drizzle-orm';
 
 import type { Database } from '../../../infrastructure/database/database.module.js';
 import { seats } from '../../../infrastructure/database/schema.js';
@@ -9,9 +9,9 @@ import {
   type HoldResult,
   type SeatReservation,
 } from '../domain/seat-reservation.js';
-import { insertHold, isSeatTaken } from './insert-hold.js';
+import { anySeatTaken, insertHold } from './insert-hold.js';
 
-/** Locks the seat row for the length of the transaction; competing holds queue behind it. */
+/** Locks all requested seat rows in canonical ID order; competing holds queue behind them without deadlocking. */
 export class PessimisticReservation implements SeatReservation {
   constructor(
     private readonly db: Database,
@@ -19,11 +19,17 @@ export class PessimisticReservation implements SeatReservation {
   ) {}
 
   hold(input: HoldInput & { now: Date; ttlSeconds: number }): Promise<HoldResult> {
+    const ordered = [...input.seatIds].sort();
     return this.db.transaction(async (tx) => {
-      await tx.select({ id: seats.id }).from(seats).where(eq(seats.id, input.seatId)).for('update');
-      return (await isSeatTaken(tx, input.seatId))
+      await tx
+        .select({ id: seats.id })
+        .from(seats)
+        .where(inArray(seats.id, ordered))
+        .orderBy(asc(seats.id))
+        .for('update');
+      return (await anySeatTaken(tx, ordered))
         ? { outcome: HOLD_OUTCOME.SEAT_TAKEN }
-        : insertHold(tx, input, this.audit);
+        : insertHold(tx, { ...input, seatIds: ordered }, this.audit);
     });
   }
 }

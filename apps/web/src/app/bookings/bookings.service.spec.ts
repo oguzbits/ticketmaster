@@ -14,13 +14,22 @@ import { BookingsService } from './bookings.service';
 const BOOKING: Booking = {
   id: '00000000-0000-4000-8000-0000000000b1',
   eventId: '00000000-0000-4000-8000-0000000000a2',
-  seatId: '00000000-0000-4000-8000-000000000101',
   status: BOOKING_STATUS.HELD,
   holdExpiresAt: '2027-06-01T19:02:00.000Z',
   ticketReady: false,
-  seat: { section: 'A', row: 3, number: 7 },
+  totalPriceCents: 9000,
+  seats: [
+    {
+      id: '00000000-0000-4000-8000-000000000101',
+      section: 'A',
+      row: 3,
+      number: 7,
+      priceCents: 9000,
+    },
+  ],
   transitions: [],
 };
+const SEAT_IDS = [BOOKING.seats[0]!.id];
 const KEY = '00000000-0000-4000-8000-0000000000c1';
 
 describe('BookingsService', () => {
@@ -31,26 +40,26 @@ describe('BookingsService', () => {
   );
   afterEach(() => TestBed.inject(HttpTestingController).verify());
 
-  it('hold posts the event and the seat only, or with admissionToken when given', () => {
+  it('hold posts the event and the seatIds only, or with admissionToken when given', () => {
     const http = TestBed.inject(HttpTestingController);
     let result: Booking | null = null;
     TestBed.inject(BookingsService)
-      .hold(BOOKING.eventId, BOOKING.seatId)
+      .hold(BOOKING.eventId, SEAT_IDS)
       .subscribe((booking) => (result = booking));
 
     const request = http.expectOne('/api/bookings');
     expect(request.request.method).toBe('POST');
-    expect(request.request.body).toEqual({ eventId: BOOKING.eventId, seatId: BOOKING.seatId });
+    expect(request.request.body).toEqual({ eventId: BOOKING.eventId, seatIds: SEAT_IDS });
     request.flush(BOOKING);
     expect(result).toEqual(BOOKING);
 
     TestBed.inject(BookingsService)
-      .hold(BOOKING.eventId, BOOKING.seatId, 'signed-admission-jwt')
+      .hold(BOOKING.eventId, SEAT_IDS, 'signed-admission-jwt')
       .subscribe();
     const gatedRequest = http.expectOne('/api/bookings');
     expect(gatedRequest.request.body).toEqual({
       eventId: BOOKING.eventId,
-      seatId: BOOKING.seatId,
+      seatIds: SEAT_IDS,
       admissionToken: 'signed-admission-jwt',
     });
     gatedRequest.flush(BOOKING);

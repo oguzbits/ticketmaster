@@ -19,7 +19,7 @@ import {
 } from '../../core/booking-strategy-policy.js';
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
 import {
-  bookings,
+  bookingSeats,
   demoUsers,
   events,
   seats,
@@ -216,12 +216,17 @@ export class EventsService {
     // the furthest one wins (enum order: HELD < PAID < CONFIRMED).
     const active = await this.db
       .select({
-        seatId: bookings.seatId,
-        status: sql<(typeof ACTIVE_BOOKING_STATUSES)[number]>`max(${bookings.status})`,
+        seatId: bookingSeats.seatId,
+        status: sql<(typeof ACTIVE_BOOKING_STATUSES)[number]>`max(${bookingSeats.status})`,
       })
-      .from(bookings)
-      .where(and(eq(bookings.eventId, id), inArray(bookings.status, [...ACTIVE_BOOKING_STATUSES])))
-      .groupBy(bookings.seatId);
+      .from(bookingSeats)
+      .where(
+        and(
+          eq(bookingSeats.eventId, id),
+          inArray(bookingSeats.status, [...ACTIVE_BOOKING_STATUSES])
+        )
+      )
+      .groupBy(bookingSeats.seatId);
     const statusOf = new Map(active.map(({ seatId, status }) => [seatId, status]));
     return {
       ...layout,

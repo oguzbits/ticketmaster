@@ -12,7 +12,7 @@ const TICKET: TicketData = {
   eventTitle: 'Şarkı Ğ İstanbul Müller',
   venueName: 'Çarşı Hall',
   startsAt: new Date('2031-05-04T18:30:00Z'),
-  seat: { section: 'A', row: 3, number: 12 },
+  seats: [{ section: 'A', row: 3, number: 12 }],
 };
 
 /**
@@ -37,5 +37,21 @@ describe('renderTicketPdf', () => {
     expect(withTurkish).toMatch(/\/FontName \/[A-Z]{6}\+DejaVuSans/);
     // More distinct glyphs in the subset: the stream is longer, so the text was not replaced.
     expect(withTurkish.length).toBeGreaterThan(withAscii.length);
+  });
+
+  it('renders every seat in a multi-seat booking', async () => {
+    const single = asLatin1(await renderTicketPdf(TICKET));
+    const multi = asLatin1(
+      await renderTicketPdf({
+        ...TICKET,
+        seats: [
+          { section: 'A', row: 3, number: 12 },
+          { section: 'A', row: 3, number: 13 },
+          { section: 'B', row: 1, number: 1 },
+        ],
+      })
+    );
+
+    expect(multi.length).toBeGreaterThan(single.length);
   });
 });

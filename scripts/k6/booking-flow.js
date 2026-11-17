@@ -55,7 +55,7 @@ function hold(token, eventId) {
     const seatId = free[Math.floor(Math.random() * free.length)].id;
     const res = http.post(
       `${BASE_URL}/api/bookings`,
-      JSON.stringify({ eventId, seatId }),
+      JSON.stringify({ eventId, seatIds: [seatId] }),
       auth(token, 'hold')
     );
     if (ok(res, 201, 409) && res.status === 201) return res.json('id');

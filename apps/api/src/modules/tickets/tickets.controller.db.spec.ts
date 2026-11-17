@@ -80,7 +80,7 @@ describe('GET /bookings/:id/ticket', () => {
       seats: 1,
     });
     const held = await call('post', '/bookings', 'alice')
-      .send({ eventId, seatId: seatIds[0] })
+      .send({ eventId, seatIds: [seatIds[0]] })
       .expect(201);
     const { id } = BookingSchema.parse(held.body);
     await call('post', `/bookings/${id}/payment`, 'alice')

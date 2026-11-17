@@ -54,7 +54,7 @@ describe('releaseLock', () => {
         new AuditService(database.db, { now: () => SPEC_NOW })
       ).hold({
         eventId,
-        seatId,
+        seatIds: [seatId],
         userId: randomUUID(),
         now: SPEC_NOW,
         ttlSeconds: 600,

@@ -121,11 +121,8 @@ export const bookings = pgTable(
     eventId: uuid('event_id')
       .notNull()
       .references(() => events.id, { onDelete: 'cascade' }),
-    seatId: uuid('seat_id')
-      .notNull()
-      .references(() => seats.id, { onDelete: 'cascade' }),
     userId: uuid('user_id').notNull(),
-    // Copied from the event so the partial index below can exclude the comparison mode.
+    // Copied from the event; per-seat active uniqueness is enforced on `booking_seats`.
     strategy: bookingStrategyEnum('strategy').notNull(),
     status: bookingStatusEnum('status').notNull(),
     holdExpiresAt: timestamp('hold_expires_at', { withTimezone: true }).notNull(),
@@ -139,17 +136,40 @@ export const bookings = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    index('bookings_seat_idx').on(t.seatId),
+    // Serves the expiry job: HELD bookings whose hold has passed.
+    index('bookings_status_hold_expires_idx').on(t.status, t.holdExpiresAt),
+    // Serves booking lookups per event and status.
+    index('bookings_event_status_idx').on(t.eventId, t.status),
+  ]
+);
+
+export const bookingSeats = pgTable(
+  'booking_seats',
+  {
+    bookingId: uuid('booking_id')
+      .notNull()
+      .references(() => bookings.id, { onDelete: 'cascade' }),
+    eventId: uuid('event_id')
+      .notNull()
+      .references(() => events.id, { onDelete: 'cascade' }),
+    seatId: uuid('seat_id')
+      .notNull()
+      .references(() => seats.id, { onDelete: 'cascade' }),
+    // Copied from the booking so the partial unique index below can exclude NAIVE.
+    strategy: bookingStrategyEnum('strategy').notNull(),
+    // Kept synchronized with `bookings.status` on every hold and transition.
+    status: bookingStatusEnum('status').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.bookingId, t.seatId] }),
+    index('booking_seats_seat_idx').on(t.seatId),
+    index('booking_seats_event_status_idx').on(t.eventId, t.status),
     // Defense in depth: the database refuses a second active booking of a seat, except in NAIVE.
-    uniqueIndex('bookings_active_seat_uidx')
+    uniqueIndex('booking_seats_active_seat_uidx')
       .on(t.seatId)
       .where(
         sql`${t.status} in (${ACTIVE_STATUSES}) and ${t.strategy} <> ${literal(BOOKING_STRATEGY.NAIVE)}`
       ),
-    // Serves the expiry job: HELD bookings whose hold has passed.
-    index('bookings_status_hold_expires_idx').on(t.status, t.holdExpiresAt),
-    // Serves the sold and held counts per event and the double-booking count.
-    index('bookings_event_status_idx').on(t.eventId, t.status),
   ]
 );
 
