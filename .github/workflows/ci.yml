@@ -206,12 +206,12 @@ jobs:
           persist-credentials: false
       - name: Format and validate OpenTofu configurations
         run: |
-          docker run --rm -v "$PWD":/w -w /w ghcr.io/opentofu/opentofu:1.13.9-minimal@sha256:84af0049634b7a7c455ab79c485818a8ef7f775cad3b2d42ce1c98ade720b5d1 \
+          docker run --rm -v "$PWD":/w -w /w ghcr.io/opentofu/opentofu:1.13.9@sha256:f5aef7f2632b490e3c289a239d7974497d0583f3df6bfa35e8eb31a367ee5ec0 \
             fmt -check -recursive infra/
           for dir in infra/local infra/aws; do
-            docker run --rm -v "$PWD":/w -w "/w/$dir" ghcr.io/opentofu/opentofu:1.13.9-minimal@sha256:84af0049634b7a7c455ab79c485818a8ef7f775cad3b2d42ce1c98ade720b5d1 \
+            docker run --rm -v "$PWD":/w -w "/w/$dir" ghcr.io/opentofu/opentofu:1.13.9@sha256:f5aef7f2632b490e3c289a239d7974497d0583f3df6bfa35e8eb31a367ee5ec0 \
               init -backend=false -input=false
-            docker run --rm -v "$PWD":/w -w "/w/$dir" ghcr.io/opentofu/opentofu:1.13.9-minimal@sha256:84af0049634b7a7c455ab79c485818a8ef7f775cad3b2d42ce1c98ade720b5d1 \
+            docker run --rm -v "$PWD":/w -w "/w/$dir" ghcr.io/opentofu/opentofu:1.13.9@sha256:f5aef7f2632b490e3c289a239d7974497d0583f3df6bfa35e8eb31a367ee5ec0 \
               validate
           done
 
