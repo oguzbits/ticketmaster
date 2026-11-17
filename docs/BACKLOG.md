@@ -582,8 +582,11 @@ open points below.
   test runs). Reset it with
   `docker compose down -v`; the next `docker compose up` or `pnpm db:migrate` recreates it with the
   seed (this also resets the Keycloak realm, which lives in the same Postgres).
-- **The worker has no healthcheck.** It has a restart policy, but a hung process (alive, not
-  working) is not restarted; `GaugeSourceMissing` and `OutboxStuck` show it.
+- **The worker restarts a blocked event loop only.** A watchdog thread (`watchdog.ts`) kills the
+  process with SIGKILL when the main loop has not beaten for 30 s, so the restart policy brings it
+  back. A worker whose loop runs but whose work is stuck (a hung consumer, a lost connection) is not
+  restarted; `GaugeSourceMissing` and `OutboxStuck` show it. Compose has no healthcheck, because a
+  restart policy does not react to an unhealthy container.
 - **Stream slots of a vanished process expire only after the stream lifetime plus 60 s.** A slot
   is released when its stream ends; if the process dies, the address stays counted for up to eleven
   minutes. The caps are now shared (500 seat streams, 10 per address, 50 simulation streams for all
