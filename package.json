@@ -33,6 +33,8 @@
     "db:down": "docker compose down",
     "aws:init": "pnpm --filter @app/shared build && node scripts/aws-init.mjs",
     "aws:smoke": "pnpm --filter @app/shared build && node scripts/aws-smoke.mjs",
+    "dlq:replay": "pnpm --filter @app/shared build && node scripts/dlq-replay.mjs",
+    "dlq:status": "pnpm --filter @app/shared build && node scripts/dlq-replay.mjs --status",
     "e2e": "node scripts/e2e.mjs",
     "load": "node scripts/k6/run.mjs",
     "demo:gif": "node scripts/demo-gif.mjs",

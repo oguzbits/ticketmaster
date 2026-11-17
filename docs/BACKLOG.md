@@ -529,22 +529,17 @@ open points below.
   raise `PROCESSED_RETENTION_SECONDS` with it. A spec does not check the pair.
 - **The queue consumer takes one message at a time** (`receive(1)`, one loop per worker), so its
   throughput is one message per round trip and handler. Batching and parallel loops wait for a
-  handler that is slow enough to need them. A message that does not parse or whose
-  handler keeps failing is received `MAX_RECEIVE_COUNT` times (visibility timeout 120 s each)
-  before it reaches the dead-letter queue; the queue has no replay tool yet.
-- **A poison message stalls its consumer loop.** An unparsable message pauses the loop for one
-  second per receive, so it costs about `MAX_RECEIVE_COUNT` x (visibility timeout + 1 s) of
-  throughput before it reaches the dead-letter queue. A handler that runs longer than the 120 s
-  visibility timeout still sees its message delivered again while it works (the dedupe record
-  serializes the two); the timeouts of the external calls keep a run well below that.
+  handler that is slow enough to need them. A message whose handler keeps failing is received
+  `MAX_RECEIVE_COUNT` times (visibility timeout 120 s each) before it reaches the dead-letter
+  queue.
+- **A handler that runs longer than the 120 s visibility timeout** still sees its message delivered
+  again while it works (the dedupe record serializes the two); the timeouts of the external calls
+  keep a run well below that.
 - **A cancel between the status check and the send still gets a mail.** Both ticket effects read
   the booking status outside their transaction and without a lock, so a customer who cancels in
   that window receives a ticket mail (and the PDF flag may be set on the cancelled booking). The
   download route answers 404 for it. Reading the status in the effect's transaction with a share
   lock would close the window.
-- **The dead-letter queue has no replay tool.** A message that reached it (a mail server that was
-  down for five deliveries) stays there until someone moves it back by hand, as the
-  [runbook](runbooks/dead-letter-queue.md) describes (a move task against the emulator).
 - **The PDF stays after a cancel and is never deleted.** The download answers 404 for a booking
   that is no longer `CONFIRMED`, but the object remains in the bucket; a retention job would
   remove it.

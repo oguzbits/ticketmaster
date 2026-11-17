@@ -26,6 +26,20 @@ successful handler (`MAX_RECEIVE_COUNT`) and moved to `booking-events-dlq`.
 Replay only after the dependency works again, otherwise the message returns here after five more
 receives.
 
+Run the DLQ replay script:
+
+```bash
+pnpm dlq:replay
+```
+
+To check the status of existing or past move tasks:
+
+```bash
+pnpm dlq:status
+```
+
+Alternatively via curl against the local emulator:
+
 ```bash
 curl -s localhost:45660/ -d 'Action=StartMessageMoveTask&SourceArn=arn:aws:sqs:us-east-1:000000000000:booking-events-dlq&DestinationArn=arn:aws:sqs:us-east-1:000000000000:booking-events'
 curl -s localhost:45660/ -d 'Action=ListMessageMoveTasks&SourceArn=arn:aws:sqs:us-east-1:000000000000:booking-events-dlq'

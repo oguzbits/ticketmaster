@@ -25,7 +25,17 @@ export {
   type TokenResponse,
   TokenResponseSchema,
 } from './auth.js';
-export { BUCKET_NAME, INFRASTRUCTURE, QUEUE_NAME, QUEUE_POLICY, type QueueName } from './aws.js';
+export {
+  BUCKET_NAME,
+  INFRASTRUCTURE,
+  MOVE_TASK_STATUS,
+  type MoveTaskStatus,
+  QUEUE_NAME,
+  QUEUE_POLICY,
+  type QueueName,
+  REPLAY_STATUS,
+  type ReplayStatus,
+} from './aws.js';
 export {
   BOOKING_STATUS,
   BOOKING_STRATEGY,

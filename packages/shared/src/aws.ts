@@ -1,3 +1,5 @@
+import { SIMULATION_STATUS } from './simulations.js';
+
 /** Resource names of the AWS-compatible services (queues, bucket). Local and deployed alike. */
 export const QUEUE_NAME = {
   BOOKING_EVENTS: 'booking-events',
@@ -16,6 +18,25 @@ export const QUEUE_POLICY = {
 export const BUCKET_NAME = {
   TICKETS: 'tickets',
 } as const;
+
+/** Status of an SQS message move task. */
+export const MOVE_TASK_STATUS = {
+  COMPLETED: 'COMPLETED',
+  FAILED: SIMULATION_STATUS.FAILED,
+  CANCELED: 'CANCELED',
+  CANCELING: 'CANCELING',
+  RUNNING: SIMULATION_STATUS.RUNNING,
+} as const;
+
+export type MoveTaskStatus = (typeof MOVE_TASK_STATUS)[keyof typeof MOVE_TASK_STATUS];
+
+export const REPLAY_STATUS = {
+  ...MOVE_TASK_STATUS,
+  EMPTY: 'EMPTY',
+  TIMEOUT: 'TIMEOUT',
+} as const;
+
+export type ReplayStatus = (typeof REPLAY_STATUS)[keyof typeof REPLAY_STATUS];
 
 /**
  * The AWS-compatible resources of the system, declared once. `scripts/infrastructure.mjs` applies
