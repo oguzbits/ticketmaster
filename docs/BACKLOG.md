@@ -173,7 +173,8 @@ Phase 3, slice C (audit log) is complete
 - Table `audit_log` (append-only by code: `AuditService.record` is the only writer) and
   `GET /api/audit-log` (admin only, filter by action and actor, keyset pagination, newest first).
 - Seven actions, each written in the transaction of the change: booking held, paid, cancelled, event
-  created, strategy switched, waiting-room settings changed, simulation started. Rows hold IDs only.
+  created, strategy switched, waiting-room settings changed, simulation started (an eighth,
+  `PAYMENT_REFUNDED`, was added with the refund of a late charge). Rows hold IDs only.
 - `@RequestId()` hands the request ID to the services; a client `x-request-id` counts only if it is a
   plain token, otherwise the API generates a UUID.
 - Admin page `/admin/audit-log` with the four UI states; the end-to-end spec of the strategy switch
@@ -505,10 +506,13 @@ open points below.
   finish it. A provider that answers it did not charge throws `PaymentNotChargedError`: the claim is
   released and the API answers 502. Only a real provider adapter can throw it; the fake provider
   never does, and a timeout must not (the charge may have gone through).
-- **No refund when a charge succeeds after the booking left `HELD`.** The payment runs outside
-  the transaction, so a cancel or an expiry can land while the provider answers. The apply step
-  then answers 409, stores nothing and logs the booking ID; the money is not returned. Needs a
-  refund call on the provider port and a stored reason.
+- **A failed refund of a late charge is not repeated.** When a charge succeeds after the booking
+  left `HELD` (the expiry job took it while the provider answered), the API refunds it under the key
+  `refund:<charge key>` and writes a `PAYMENT_REFUNDED` audit row, then answers 409. A refund that
+  throws is not audited and answers 500; a retry with the same key gets 409 without a call, because
+  the claim refuses a booking that left `HELD`, so that money needs a manual refund until a
+  reconciliation job exists. A crash between the charge and the apply step, followed by an expiry,
+  is not refunded either: nothing records that the charge went through.
 - **The outbox relay holds a transaction while it sends.** The rows stay locked (`SKIP LOCKED`
   keeps other relays away) until the batch is sent and marked. A run ends within its deadline
   (30 s): a send that has not answered by then counts as failed and ends the batch; each statement

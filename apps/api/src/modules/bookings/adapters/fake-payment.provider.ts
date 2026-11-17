@@ -16,4 +16,7 @@ export class FakePaymentProvider implements PaymentProvider {
     const hash = createHash('sha256').update(input.idempotencyKey).digest();
     return { succeeded: hash.readUInt32BE(0) / UINT32_RANGE >= this.failureRate };
   }
+
+  /** Nothing was charged for real, so there is nothing to return. */
+  async refund(): Promise<void> {}
 }

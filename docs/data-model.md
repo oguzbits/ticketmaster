@@ -101,7 +101,7 @@ erDiagram
         bigint id PK "identity, the cursor of the admin route"
         timestamptz at "from the injected clock"
         uuid actor_id "the verified user"
-        audit_action action "seven state changes"
+        audit_action action "eight state changes"
         audit_subject subject_type "BOOKING, EVENT, SIMULATION_RUN"
         uuid subject_id
         text request_id "ID of the request that did it"
@@ -148,8 +148,8 @@ message can arrive after its record is gone. The deletes use no index on their t
 each tick scans the table. Neither table has a foreign key: the payload holds IDs of rows that may
 be deleted later (a demo user's cleanup), and a message must survive that.
 
-`audit_log` holds one row per audited state change (hold, payment, cancellation, event creation,
-strategy switch, waiting-room change, simulation start): who (`actor_id`), what (`action`,
+`audit_log` holds one row per audited state change (hold, payment, refund of a late charge, cancellation, event
+creation, strategy switch, waiting-room change, simulation start): who (`actor_id`), what (`action`,
 `subject_type`, `subject_id`) and the request that did it (`request_id`), IDs only. `request_id` is the caller's `x-request-id` only
 when it matches `^[A-Za-z0-9._-]{1,128}$`, otherwise a generated UUID, so no free text (an email
 address) reaches the table or the logs. It is

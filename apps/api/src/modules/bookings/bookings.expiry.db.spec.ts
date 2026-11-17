@@ -242,6 +242,7 @@ describe('expireHolds', () => {
         { now: () => now },
         {
           charge: () => Promise.reject(new Error('provider down')),
+          refund: () => Promise.resolve(),
         }
       );
       await expect(
@@ -296,6 +297,7 @@ describe('expireHolds', () => {
           await service.expireHolds(new Date(START.getTime() + ttlMs + graceMs));
           return { succeeded: true };
         },
+        refund: () => Promise.resolve(),
       };
       const paying = createBookingsService(db, redis, { now: () => now }, slow);
       const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);

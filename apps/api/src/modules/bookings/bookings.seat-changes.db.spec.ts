@@ -34,6 +34,7 @@ describe('seat changes published after the booking commits', () => {
   let paymentSucceeds = true;
   const payments: PaymentProvider = {
     charge: () => Promise.resolve({ succeeded: paymentSucceeds }),
+    refund: () => Promise.resolve(),
   };
   /** What a viewer who reads the database at the moment of the message would see for that seat. */
   const visibleWhenPublished: { change: SeatChange; visible: SeatStatus }[] = [];

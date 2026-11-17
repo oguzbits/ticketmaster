@@ -1,11 +1,19 @@
-/** Charges a booking, or throws `PaymentNotChargedError`. The idempotency key is the one the client sent with the payment request. */
+/**
+ * Charges a booking, or throws `PaymentNotChargedError`. The idempotency key is the one the client
+ * sent with the payment request. `refund` returns a charge that succeeded after its booking left
+ * HELD, under its own key (`refundKey`); it throws when the money was not returned.
+ */
 export interface PaymentProvider {
   charge(input: {
     bookingId: string;
     amountCents: number;
     idempotencyKey: string;
   }): Promise<{ succeeded: boolean }>;
+  refund(input: { bookingId: string; amountCents: number; idempotencyKey: string }): Promise<void>;
 }
+
+/** The idempotency key of the refund of the charge made under `chargeKey`. */
+export const refundKey = (chargeKey: string): string => `refund:${chargeKey}`;
 
 /**
  * Thrown by a provider that answered that it did not charge (a response, not a timeout or a lost

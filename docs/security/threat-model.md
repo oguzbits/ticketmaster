@@ -17,7 +17,7 @@ a compromised customer account, and an operator of the host.
 | ------ | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | S      | A forged or stolen token is presented                  | Signature, issuer, client (`azp`), algorithm and expiry verified against the JWKS; default-deny guard | [token verifier spec](../../apps/api/src/modules/auth/adapters/jwks-token-verifier.spec.ts), [guard spec](../../apps/api/src/modules/auth/auth.guards.spec.ts)            |
 | T      | Script injection (XSS) reads or changes the page       | Content-Security-Policy without inline script, `nosniff`, no referrer, helmet headers                 | [Caddyfile](../../apps/web/Caddyfile), [app setup spec](../../apps/api/src/app.setup.spec.ts)                                                                             |
-| R      | A user denies a state change                           | Audit row in the transaction of each of seven actions, IDs only                                       | [audit service spec](../../apps/api/src/modules/audit/audit.service.db.spec.ts)                                                                                           |
+| R      | A user denies a state change                           | Audit row in the transaction of each of eight actions, IDs only                                       | [audit service spec](../../apps/api/src/modules/audit/audit.service.db.spec.ts)                                                                                           |
 | I      | Personal data leaks through logs or headers            | Logs hold IDs and no headers or addresses; `Referrer-Policy: no-referrer`                             | [log spec](../../apps/api/src/infrastructure/logging/http-log.spec.ts)                                                                                                    |
 | D      | A flood of requests or held-open streams stalls others | Rate limits per route and client, stream caps, demo login capped                                      | [guard spec](../../apps/api/src/infrastructure/rate-limit/rate-limit.guard.spec.ts), [limiter spec](../../apps/api/src/infrastructure/rate-limit/rate-limiter.db.spec.ts) |
 | E      | A customer calls an organizer or admin route           | Roles guard, each protected route tests wrong role and foreign resource                               | [bookings controller spec](../../apps/api/src/modules/bookings/bookings.controller.db.spec.ts), [role screens (e2e)](../../apps/web/e2e/roles.e2e.ts)                     |
@@ -96,9 +96,10 @@ Accepted for now; each is tracked in the [backlog](../BACKLOG.md#open-points).
   `aud` only through an audience mapper. A second client of the realm needs its own decision.
 - Row-level security is opt-in per path: the ticket download and `claimPaymentKey` have no database
   layer, and the user scope does not stop SQL injection (ADR 0009).
-- No refund when a charge succeeds after a booking left `HELD`; a charge that throws after the claim
-  leaves the booking stuck until the hold and the grace pass.
-- No circuit breaker for a Redis outage; no retention of audit and outbox rows; the audit table is
+- A refund of a charge that succeeded after the booking left `HELD` that fails is not repeated (it
+  needs a manual refund); a charge that throws after the claim leaves the booking stuck until the
+  hold and the grace pass.
+- The cache breaker for a Redis outage has no single probe call; no retention of audit and outbox rows; the audit table is
   append-only by convention only.
 - The local stack uses fixed credentials, publishes Redis on a host port without a password and runs
   Keycloak in `start-dev`. They

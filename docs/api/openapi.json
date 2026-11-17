@@ -3235,6 +3235,7 @@
                     "BOOKING_HELD",
                     "BOOKING_PAID",
                     "BOOKING_CANCELLED",
+                    "PAYMENT_REFUNDED",
                     "EVENT_CREATED",
                     "EVENT_STRATEGY_SWITCHED",
                     "WAITING_ROOM_SETTINGS_CHANGED",

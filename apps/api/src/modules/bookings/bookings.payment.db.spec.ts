@@ -36,7 +36,11 @@ import { OutboxService } from '../outbox/index.js';
 import { FakeMessageQueue } from '../outbox/testing/index.js';
 import type { BookingsService } from './bookings.service.js';
 import type { BookingState } from './domain/booking-state-machine.js';
-import { PaymentNotChargedError, type PaymentProvider } from './domain/payment-provider.js';
+import {
+  PAYMENT_GRACE_SECONDS,
+  PaymentNotChargedError,
+  type PaymentProvider,
+} from './domain/payment-provider.js';
 import { HOLD_OUTCOME } from './domain/seat-reservation.js';
 import { createBookingsService } from './testing/create-bookings-service.js';
 import { RecordingMetrics } from './testing/recording-metrics.js';
@@ -50,6 +54,9 @@ const key = (name: string): string => `${RUN_ID}-${name}`;
 
 class RecordingProvider implements PaymentProvider {
   readonly calls: Parameters<PaymentProvider['charge']>[0][] = [];
+  readonly refunds: Parameters<PaymentProvider['refund']>[0][] = [];
+  /** The next refund throws instead of returning money. */
+  failRefundNext = false;
   succeed = true;
   chargeDelayMs = 0;
   /** Runs inside the charge, while the provider is "talking to the network". */
@@ -71,6 +78,14 @@ class RecordingProvider implements PaymentProvider {
       throw new PaymentNotChargedError('provider refused the request');
     }
     return { succeeded: this.succeed };
+  }
+
+  async refund(input: Parameters<PaymentProvider['refund']>[0]): Promise<void> {
+    if (this.failRefundNext) {
+      this.failRefundNext = false;
+      throw new Error('refund failed');
+    }
+    this.refunds.push(input);
   }
 }
 
@@ -120,6 +135,8 @@ describe('payment and cancel', () => {
     provider.chargeDelayMs = 0;
     provider.failNext = false;
     provider.declineNext = false;
+    provider.failRefundNext = false;
+    provider.refunds.length = 0;
     outbox.crashNext = false;
     provider.duringCharge = async () => {};
     const { eventId, seatIds } = await createTestEvent(db, {
@@ -605,6 +622,67 @@ describe('payment and cancel', () => {
       service.pay({ bookingId, userId, idempotencyKey: key('6'), requestId: 'spec' })
     ).rejects.toBeInstanceOf(ConflictException);
     expect(provider.calls).toHaveLength(1);
+  });
+
+  /** The hold ran out and the expiry job took the booking while the provider was charging. */
+  const expireDuringCharge = (): void => {
+    provider.duringCharge = async () => {
+      now = new Date(NOW.getTime() + (env.HOLD_TTL_SECONDS + PAYMENT_GRACE_SECONDS + 1) * 1000);
+      expect(await service.expireHolds(now)).toBeGreaterThan(0);
+    };
+  };
+
+  it('a charge that succeeds after the booking expired is refunded once under a derived key and audited', async () => {
+    const { bookingId, userId } = await heldBooking();
+    const idempotencyKey = key('late-charge');
+    expireDuringCharge();
+
+    await expect(
+      service.pay({ bookingId, userId, idempotencyKey, requestId: 'req-late' })
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(provider.refunds).toEqual([
+      { bookingId, amountCents: SEAT_PRICE_CENTS, idempotencyKey: `refund:${idempotencyKey}` },
+    ]);
+    expect((await rowOf(bookingId)).status).toBe(BOOKING_STATUS.EXPIRED);
+    expect(await auditRowsOfSubject(db, bookingId)).toMatchObject([
+      {
+        actorId: userId,
+        action: AUDIT_ACTION.PAYMENT_REFUNDED,
+        subjectId: bookingId,
+        requestId: 'req-late',
+      },
+    ]);
+  });
+
+  it('a charge that did not succeed after the booking expired is not refunded', async () => {
+    const { bookingId, userId } = await heldBooking();
+    provider.succeed = false;
+    expireDuringCharge();
+
+    await expect(
+      service.pay({ bookingId, userId, idempotencyKey: key('late-declined'), requestId: 'spec' })
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(provider.refunds).toEqual([]);
+    expect(await auditedActions(bookingId)).toEqual([]);
+  });
+
+  it('a refund that fails is not audited and the error reaches the caller', async () => {
+    const { bookingId, userId } = await heldBooking();
+    provider.failRefundNext = true;
+    expireDuringCharge();
+
+    await expect(
+      service.pay({
+        bookingId,
+        userId,
+        idempotencyKey: key('late-refund-fails'),
+        requestId: 'spec',
+      })
+    ).rejects.toThrow('refund failed');
+
+    expect(await auditedActions(bookingId)).toEqual([]);
   });
 
   it('a hold past its expiry is a conflict and is not charged', async () => {

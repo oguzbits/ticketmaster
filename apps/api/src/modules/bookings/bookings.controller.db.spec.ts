@@ -83,6 +83,7 @@ describe('booking endpoints', () => {
       charges.push(input);
       return Promise.resolve({ succeeded: paymentSucceeds });
     },
+    refund: () => Promise.resolve(),
   };
   let now = SPEC_NOW;
   let verifyDelayMs = 0;

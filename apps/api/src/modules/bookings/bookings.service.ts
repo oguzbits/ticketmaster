@@ -29,6 +29,7 @@ import { chargeOrRelease } from './adapters/charge-or-release.js';
 import { loadOwnBookings } from './adapters/load-own-bookings.js';
 import { lockOwnBooking } from './adapters/lock-own-booking.js';
 import { publishSeatChange } from './adapters/publish-seat-change.js';
+import { refundLateCharge } from './adapters/refund-late-charge.js';
 import { SeatReservations } from './adapters/seat-reservations.js';
 import { type BookingState, SYSTEM_ACTOR_ID } from './domain/booking-state-machine.js';
 import { PAYMENT_GRACE_SECONDS } from './domain/payment-provider.js';
@@ -199,16 +200,17 @@ export class BookingsService {
       amountCents: claim.amountCents,
       idempotencyKey: input.idempotencyKey,
     });
-    return this.db.transaction(async (tx) => {
+    const result = await this.db.transaction(async (tx) => {
       // Locked and read again: the booking may have changed while the provider was working.
       const { booking } = await lockOwnBooking(tx, input.bookingId, input.userId);
       if (booking.status !== BOOKING_STATUS.HELD) {
         // A parallel request of this key applied the result first: its answer stands.
         if (await paymentApplied(tx, booking.id)) return { state: booking, seat: null };
-        // No refund in this phase (backlog): the charge went through, the booking did not.
         this.logger.warn(
           `payment of booking ${booking.id} finished while the booking was ${booking.status}; not applied`
         );
+        // The money was taken, the booking is gone: refunded below, outside this transaction.
+        if (succeeded) return { late: booking.status };
         throw new ConflictException(`Booking is ${booking.status}, the payment was not applied`);
       }
       // Planned at the claim time (stored, so also for a late retry): the hold was valid then.
@@ -246,6 +248,10 @@ export class BookingsService {
       });
       return { state: confirmed, seat: claim.seat };
     });
+    if ('late' in result) {
+      return refundLateCharge(this.db, this.ports, { ...input, ...claim }, result.late);
+    }
+    return result;
   }
 
   async cancel(input: {
