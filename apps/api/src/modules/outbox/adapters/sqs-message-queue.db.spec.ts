@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadEnv } from '../../../config/config.module.js';
 import { currentTraceparent, withSpan } from '../../../infrastructure/tracing/index.js';
 import { startTestTracing } from '../../../infrastructure/tracing/testing/index.js';
-import { createScratchQueue } from '../testing/scratch-queue.js';
+import { createScratchQueue, createScratchQueueWithDlq } from '../testing/scratch-queue.js';
 import { createSqsClient, SqsMessageQueue } from './sqs-message-queue.js';
 
 // A queue of its own for this file, so no other spec file sees or takes its messages. Messages
@@ -164,6 +164,35 @@ describe('SqsMessageQueue against the local emulator', () => {
     // Take only the messages of this test off the queue again.
     for (const received of await dlq.receive(10)) {
       if (sent.includes(received.messageId)) await dlq.delete(received.receiptHandle);
+    }
+  });
+
+  it('moves a received message to the dead-letter queue and deletes it from the main queue', async () => {
+    const scratch = await createScratchQueueWithDlq(client, VISIBILITY_SECONDS, 5);
+    try {
+      const main = await SqsMessageQueue.connect(client, scratch.queueName, POLL_SECONDS);
+      const dlq = await SqsMessageQueue.connect(client, scratch.dlqName, POLL_SECONDS);
+      const messageId = randomUUID();
+      await main.send({ body: 'poison', messageId, traceparent: TRACEPARENT });
+
+      const [received] = await main.receive(1);
+      if (received === undefined) throw new Error('nothing received');
+
+      await main.deadLetter(received);
+
+      // Gone from main queue
+      expect(await main.receive(1)).toEqual([]);
+
+      // Present in DLQ with matching attributes
+      const [inDlq] = await dlq.receive(1);
+      expect(inDlq).toMatchObject({
+        body: 'poison',
+        messageId,
+        traceparent: TRACEPARENT,
+      });
+      if (inDlq !== undefined) await dlq.delete(inDlq.receiptHandle);
+    } finally {
+      await scratch.destroy();
     }
   });
 });

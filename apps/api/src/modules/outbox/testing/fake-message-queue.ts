@@ -32,6 +32,12 @@ export class FakeMessageQueue implements MessageQueue {
     throw new Error('FakeMessageQueue only records sends');
   }
 
+  readonly deadLettered: ReceivedMessage[] = [];
+
+  async deadLetter(message: ReceivedMessage): Promise<void> {
+    this.deadLettered.push(message);
+  }
+
   /** How often the message was accepted. */
   sentCount(messageId: string): number {
     return this.sent.filter((input) => input.messageId === messageId).length;

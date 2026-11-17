@@ -23,16 +23,12 @@ export const BOOKING_CONFIRMED_EFFECTS = Symbol('BOOKING_CONFIRMED_EFFECTS');
 /** The pause after a failing iteration, so a queue or database that is down is not hammered. */
 const ERROR_PAUSE_MS = 1000;
 
-/** A body that is no known queue message. Carries no text of the body: it may hold data. */
-class UnparsableMessageError extends Error {
-  override name = 'UnparsableMessageError';
-}
-
 /**
  * Receives one message at a time from the queue (long poll) and hands it to the handler of its
  * type, once per message ID. The message is deleted only after the handler succeeded (or the
  * message was handled before); every failure leaves it in the queue, which delivers it again after
  * the visibility timeout and moves it to the dead-letter queue after the receive limit.
+ * An unparsable message is moved directly to the dead-letter queue without stalling the loop.
  */
 @Injectable()
 export class QueueConsumer implements OnModuleInit, OnModuleDestroy {
@@ -87,9 +83,12 @@ export class QueueConsumer implements OnModuleInit, OnModuleDestroy {
     if (received === undefined) return;
     const message = this.parse(received.body);
     if (message === null) {
-      // The ID only, never the body. Not deleted: it reaches the dead-letter queue.
-      this.logger.warn(`message ${received.messageId} is not a known queue message`);
-      throw new UnparsableMessageError();
+      // The ID only, never the body. Moved directly to the dead-letter queue so it does not stall the loop.
+      this.logger.warn(
+        `message ${received.messageId} is not a known queue message, moving to dead-letter queue`
+      );
+      await this.queue.deadLetter(received);
+      return;
     }
     // The span ends on every path: withSpan ends it after the handlers, whether they return or throw.
     // Only the message ID is an attribute, never a body or a field of the message.

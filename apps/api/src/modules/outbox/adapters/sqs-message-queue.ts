@@ -1,4 +1,4 @@
-import { QUEUE_POLICY, type QueueName } from '@app/shared';
+import { QUEUE_NAME, QUEUE_POLICY, type QueueName } from '@app/shared';
 import {
   DeleteMessageCommand,
   GetQueueAttributesCommand,
@@ -72,6 +72,10 @@ const ReceivedSchema = z.object({
     })
     .partial()
     .optional(),
+});
+
+const RedrivePolicySchema = z.object({
+  deadLetterTargetArn: z.string().optional(),
 });
 
 const DepthSchema = z.object({ [DEPTH_ATTRIBUTE]: z.coerce.number().int().nonnegative() });
@@ -165,5 +169,53 @@ export class SqsMessageQueue implements MessageQueue {
       new GetQueueAttributesCommand({ QueueUrl: url, AttributeNames: [DEPTH_ATTRIBUTE] })
     );
     return DepthSchema.parse(Attributes)[DEPTH_ATTRIBUTE];
+  }
+
+  private dlqUrlPromise: Promise<string> | undefined;
+
+  private async resolveDlqUrl(): Promise<string> {
+    if (this.dlqUrlPromise === undefined) {
+      this.dlqUrlPromise = this.lookupDlqUrl();
+    }
+    return this.dlqUrlPromise;
+  }
+
+  private async lookupDlqUrl(): Promise<string> {
+    try {
+      const { Attributes } = await this.client.send(
+        new GetQueueAttributesCommand({
+          QueueUrl: this.queueUrl,
+          AttributeNames: ['RedrivePolicy'],
+        })
+      );
+      const raw = Attributes?.RedrivePolicy;
+      if (raw !== undefined) {
+        const policy = RedrivePolicySchema.safeParse(JSON.parse(raw));
+        const dlqName = policy.data?.deadLetterTargetArn?.split(':').pop();
+        if (dlqName) return await queueUrl(this.client, dlqName);
+      }
+    } catch (_error) {
+      // Fall back to default DLQ name when the queue has no RedrivePolicy or lookup fails.
+    }
+    return queueUrl(this.client, QUEUE_NAME.BOOKING_EVENTS_DLQ);
+  }
+
+  async deadLetter(message: ReceivedMessage): Promise<void> {
+    const dlq = await this.resolveDlqUrl();
+    await this.client.send(
+      new SendMessageCommand({
+        QueueUrl: dlq,
+        MessageBody: message.body,
+        MessageAttributes: {
+          [MESSAGE_ID_ATTRIBUTE]: { DataType: 'String', StringValue: message.messageId },
+          ...(message.traceparent === null
+            ? {}
+            : {
+                [TRACEPARENT_ATTRIBUTE]: { DataType: 'String', StringValue: message.traceparent },
+              }),
+        },
+      })
+    );
+    await this.delete(message.receiptHandle);
   }
 }

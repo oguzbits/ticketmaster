@@ -31,6 +31,8 @@ export interface MessageQueue {
   delete(receiptHandle: string): Promise<void>;
   /** The messages waiting in the named queue (approximate: in flight and delayed ones do not count). */
   depth(queue: QueueName): Promise<number>;
+  /** Moves a received message to the dead-letter queue and deletes it from this queue. */
+  deadLetter(message: ReceivedMessage): Promise<void>;
 }
 
 export const MESSAGE_QUEUE = Symbol('MESSAGE_QUEUE');
