@@ -14,8 +14,9 @@ test('an organizer reaches the organizer screen with the events they own', async
   await expect(page.getByRole('heading', { name: 'Create an event' })).toBeVisible();
 });
 
-test('an admin switches the booking strategy of an event', async ({ page }) => {
-  await loginAs(page, 'admin');
+test('an admin switches the booking strategy of an event', async ({ adminContext }) => {
+  const page = await adminContext.newPage();
+  await page.goto('/events');
   // A demo admin may switch only their sandbox events, and the list order of events that start
   // at the same time is not defined.
   await page

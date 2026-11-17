@@ -1,17 +1,16 @@
 import { BOOKING_STRATEGY } from '@app/shared';
 
 import { strategyLabel } from '../src/app/events/strategy-label';
-import { expect, loginAs, test } from './fixtures';
+import { expect, test } from './fixtures';
 
 /** The worker finishes a run this small within seconds; the margin covers a cold stack. */
 const RUN_MS = 60_000;
 
-test('an admin runs a pessimistic simulation and sees no seat sold twice', async ({ page }) => {
-  await loginAs(page, 'admin');
-  await page
-    .getByRole('navigation', { name: 'Main' })
-    .getByRole('link', { name: 'Simulator' })
-    .click();
+test('an admin runs a pessimistic simulation and sees no seat sold twice', async ({
+  adminContext,
+}) => {
+  const page = await adminContext.newPage();
+  await page.goto('/admin/simulator');
   await expect(page.getByRole('heading', { level: 1, name: 'Rush simulator' })).toBeVisible();
   await expect(page.getByText('No finished runs yet')).toBeVisible();
 
