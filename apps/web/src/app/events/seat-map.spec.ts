@@ -63,6 +63,8 @@ const BOOKING: Booking = {
   transitions: [],
 };
 const HOLD_SECONDS = 120;
+const isBookingList = (request: { method: string; url: string }) =>
+  request.method === 'GET' && request.url === '/api/bookings';
 const OPEN_SEAT = 'Section B, row 1, seat 1, available';
 
 /** The seat stream as the view sees it: messages are pushed by the test, nothing goes to the network. */
@@ -73,7 +75,11 @@ class FakeSeatStream {
   }
 }
 
-function render(role: Role | null = ROLE.CUSTOMER) {
+/**
+ * `bookings`: what `GET /api/bookings` answers when the page checks for a running hold; `null`
+ * leaves the request open and returns it as `bookingList`.
+ */
+function render(role: Role | null = ROLE.CUSTOMER, bookings: Booking[] | null = []) {
   const stream = new FakeSeatStream();
   const waitingRoom = new FakeWaitingRoom();
   TestBed.configureTestingModule({
@@ -96,6 +102,8 @@ function render(role: Role | null = ROLE.CUSTOMER) {
     await fixture.whenStable();
   };
   TestBed.tick();
+  const bookingList = role === ROLE.CUSTOMER ? http.expectOne(isBookingList) : null;
+  if (bookings) bookingList?.flush(bookings);
   const press = (name: string | RegExp) => {
     const button = [...element.querySelectorAll('button')].find((candidate) =>
       typeof name === 'string'
@@ -116,7 +124,18 @@ function render(role: Role | null = ROLE.CUSTOMER) {
         seats: DETAIL.seats.map((seat) => (seat.id === SEAT_ID(3) ? { ...seat, status } : seat)),
       })
     );
-  return { element, http, answer, press, loaded, refreshed, stream, fixture, waitingRoom };
+  return {
+    element,
+    http,
+    answer,
+    press,
+    loaded,
+    refreshed,
+    stream,
+    fixture,
+    waitingRoom,
+    bookingList,
+  };
 }
 const WITH_WAITING_ROOM: EventDetail = { ...DETAIL, waitingRoomCapacity: 10 };
 const ADMITTED = {
@@ -293,6 +312,57 @@ describe('SeatMap', () => {
       expect(element.textContent).toContain('Booking confirmed');
       expect(element.querySelector('a[href="/bookings"]')).not.toBeNull();
       expect(element.textContent).not.toContain('Hold expires');
+    });
+
+    describe('after a reload', () => {
+      const running = (overrides: Partial<Booking> = {}) => [{ ...BOOKING, ...overrides }];
+
+      it('shows the running hold of this event and offers payment', async () => {
+        const { element, loaded } = render(ROLE.CUSTOMER, running());
+        await loaded();
+
+        expect(element.textContent).toContain('Hold expires in');
+        expect(element.textContent).toContain('Section B, row 1, seat 1');
+        expect(
+          [...element.querySelectorAll('button')].some((b) => /Pay now/.test(b.textContent ?? ''))
+        ).toBe(true);
+      });
+
+      it.each([
+        ['belongs to another event', { eventId: SEAT_ID(9) }],
+        ['has run out', { holdExpiresAt: '2020-01-01T00:00:00.000Z' }],
+        ['is not held any more', { status: BOOKING_STATUS.CONFIRMED }],
+      ])('ignores a booking that %s', async (_name, overrides) => {
+        const { element, loaded } = render(ROLE.CUSTOMER, running(overrides));
+        await loaded();
+
+        expect(element.textContent).not.toMatch(/hold expire|Booking confirmed/i);
+      });
+
+      it('does not replace a hold request that is on its way when the list answers late', async () => {
+        const page = render(ROLE.CUSTOMER, null);
+        await page.loaded();
+        page.press(OPEN_SEAT);
+        const hold = page.http.expectOne('/api/bookings');
+
+        await page.answer(() => page.bookingList?.flush(running({ seatId: SEAT_ID(1) })));
+        expect(page.element.textContent).not.toContain('Hold expires');
+
+        await page.answer(() => hold.flush(BOOKING));
+        await page.refreshed(SEAT_STATUS.HELD);
+        expect(page.element.textContent).toContain('Section B, row 1, seat 1');
+      });
+
+      it('says so when the list cannot be read', async () => {
+        const page = render(ROLE.CUSTOMER, null);
+        await page.loaded();
+
+        await page.answer(() =>
+          page.bookingList?.flush(null, { status: 500, statusText: 'Server Error' })
+        );
+
+        expect(page.element.querySelector('[role=alert]')?.textContent).toContain('running hold');
+      });
     });
 
     it('shows the booking inside the booking panel', async () => {

@@ -20,6 +20,7 @@ const MESSAGE = {
   PAYMENT_UNCONFIRMED:
     'The payment was not confirmed because the connection failed. Try again; you are not charged twice.',
   PAYMENT_FAILED: 'Payment failed. Nothing was charged and the seat is free again.',
+  RESTORE_FAILED: 'Could not check whether you have a running hold. Reload the page to try again.',
   CANCELLED: 'Hold cancelled. The seat is free again.',
   NEEDS_ADMISSION: 'You need a place in the waiting room first. Join it, then pick a seat.',
   TOO_MANY: 'Too many requests. Wait a moment and try again.',
@@ -89,6 +90,26 @@ export class BookingsStore {
         } else if (status === HttpStatusCode.TooManyRequests) this.fail(MESSAGE.TOO_MANY);
         else this.fail(MESSAGE.GENERIC);
       },
+    });
+  }
+
+  /**
+   * Picks up the customer's running hold of this event after a reload. A hold the customer made
+   * while the list was on its way wins.
+   */
+  restore(eventId: string): void {
+    this.service.list().subscribe({
+      next: (bookings) => {
+        if (!this.canHold()) return;
+        const running = bookings.find(
+          (booking) =>
+            booking.eventId === eventId &&
+            booking.status === BOOKING_STATUS.HELD &&
+            Date.parse(booking.holdExpiresAt) > Date.now()
+        );
+        if (running) this.booking.set(running);
+      },
+      error: () => this.notice.set({ text: MESSAGE.RESTORE_FAILED, error: true }),
     });
   }
 

@@ -4,7 +4,7 @@ import { Component, computed, inject, input, linkedSignal, signal } from '@angul
 import { rxResource, takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { BOOKING_STATUS, ROLE, type Seat, SEAT_STATUS, SEAT_STREAM_EVENT } from '@app/shared';
-import { EMPTY, switchMap } from 'rxjs';
+import { EMPTY, filter, switchMap } from 'rxjs';
 
 import { StrategySwitch } from '../admin/strategy-switch';
 import { SessionStore } from '../auth/session.store';
@@ -122,6 +122,13 @@ export class SeatMap {
         next: (message) => this.apply(message),
         error: () => this.live.set('stopped'),
       });
+    // A customer who reloads gets a running hold of this event back.
+    toObservable(computed(() => (this.isCustomer() ? this.id() : null)))
+      .pipe(
+        filter((id) => id !== null),
+        takeUntilDestroyed()
+      )
+      .subscribe((id) => this.bookings.restore(id));
     this.bookings.settled.pipe(takeUntilDestroyed()).subscribe(() => this.refreshSeats());
     this.bookings.admissionRequired
       .pipe(takeUntilDestroyed())

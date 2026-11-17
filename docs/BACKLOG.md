@@ -263,8 +263,7 @@ Stage look, slices 1 to 3 complete
   the panel card; the venue name uses `wrap-anywhere` so an unbreakable name cannot widen a flex
   row.
 - Open: on a phone the waiting room panel sits below the seat map, so a customer who must join
-  finds the join button only after the map; the page does not keep a held booking across a reload
-  (the booking state lives in memory); a focused seat can sit behind the pinned panel when
+  finds the join button only after the map; a focused seat can sit behind the pinned panel when
   tabbing.
 
 Stage look, slice 4 complete
@@ -456,6 +455,11 @@ Phase 3, slice C:
 - **The cursor is the identity ID.** A row with a lower ID that commits after a reader passed it is
   missed by that reader.
 
+A running hold survives a reload: the seat map reads `GET /api/bookings` for a customer and shows
+the held, unexpired booking of its event in the payment panel (`BookingsStore.restore`). A payment
+that was on its way before the reload starts a new attempt with a new key; the server answers 409
+while the first is still running. No API or contract change.
+
 ## Next
 
 Phases 0 to 4 are done; phase 5 (live demo) is dropped. The [runbooks](runbooks/README.md) cover
@@ -557,9 +561,6 @@ open points below.
   it in the `db` setup only.
 - **Initial web bundle is about 790 kB**, over the 500 kB warning budget. Zod makes up a large part of it.
   Measure, then decide (lazy routes, `zod/mini`).
-- **A running hold is not restored after a reload.** The seat map keeps the customer's hold in the
-  page only; after a reload the seat shows as held and the customer can cancel it under "My
-  bookings" but not pay it. Reading `GET /api/bookings` on load would restore the payment panel.
 - **The venue list and the event list have no pagination.** `GET /api/venues` and
   `GET /api/events` return every row.
 - **The busy notices (429, 503 on the seat stream) and the failed-payment and 5xx-retry paths are
