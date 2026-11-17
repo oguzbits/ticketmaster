@@ -1,31 +1,31 @@
-import { z } from 'zod';
+import { array, boolean, type infer as ZodInfer, iso, object, string, union, url, uuid } from 'zod';
 
 import { BookingStatusSchema, SeatStatusSchema, TransitionReasonSchema } from './booking.js';
 import { SeatSchema } from './events.js';
 
-export const HoldRequestSchema = z.object({
-  eventId: z.uuid(),
-  seatId: z.uuid(),
-  admissionToken: z.string().min(1).optional(),
+export const HoldRequestSchema = object({
+  eventId: uuid(),
+  seatId: uuid(),
+  admissionToken: string().min(1).optional(),
 });
 
-export const BookingTransitionSchema = z.object({
+export const BookingTransitionSchema = object({
   fromStatus: BookingStatusSchema.nullable(),
   toStatus: BookingStatusSchema,
   reason: TransitionReasonSchema,
-  at: z.iso.datetime(),
+  at: iso.datetime(),
 });
 
-export const BookingSchema = z.object({
-  id: z.uuid(),
-  eventId: z.uuid(),
-  seatId: z.uuid(),
+export const BookingSchema = object({
+  id: uuid(),
+  eventId: uuid(),
+  seatId: uuid(),
   status: BookingStatusSchema,
-  holdExpiresAt: z.iso.datetime(),
+  holdExpiresAt: iso.datetime(),
   // The ticket PDF is stored and can be downloaded.
-  ticketReady: z.boolean(),
+  ticketReady: boolean(),
   seat: SeatSchema.pick({ section: true, row: true, number: true }),
-  transitions: z.array(BookingTransitionSchema),
+  transitions: array(BookingTransitionSchema),
 });
 
 /**
@@ -34,34 +34,34 @@ export const BookingSchema = z.object({
  * block another user and reveal that the key exists.
  */
 export const IDEMPOTENCY_KEY_HEADER = 'idempotency-key';
-export const IdempotencyKeySchema = z.uuid();
+export const IdempotencyKeySchema = uuid();
 
-export const BookingListResponseSchema = z.array(BookingSchema);
+export const BookingListResponseSchema = array(BookingSchema);
 
 /** One seat changed its derived status; published after the booking transaction commits. */
-export const SeatChangeSchema = z.object({
-  eventId: z.uuid(),
-  seatId: z.uuid(),
+export const SeatChangeSchema = object({
+  eventId: uuid(),
+  seatId: uuid(),
   status: SeatStatusSchema,
-  at: z.iso.datetime(),
+  at: iso.datetime(),
 });
 
 /** First event of the seat stream: every seat of the event with its status right now. */
-export const SeatSnapshotSchema = z.object({ seats: z.array(SeatSchema) });
+export const SeatSnapshotSchema = object({ seats: array(SeatSchema) });
 
 export const SEAT_STREAM_EVENT = {
   SNAPSHOT: 'snapshot',
   CHANGE: 'change',
 } as const;
 
-export const TicketDownloadSchema = z.object({
-  url: z.union([z.url(), z.string().startsWith('/')]),
-  expiresAt: z.iso.datetime(),
+export const TicketDownloadSchema = object({
+  url: union([url(), string().startsWith('/')]),
+  expiresAt: iso.datetime(),
 });
 
-export type HoldRequest = z.infer<typeof HoldRequestSchema>;
-export type BookingTransition = z.infer<typeof BookingTransitionSchema>;
-export type Booking = z.infer<typeof BookingSchema>;
-export type SeatChange = z.infer<typeof SeatChangeSchema>;
-export type SeatSnapshot = z.infer<typeof SeatSnapshotSchema>;
-export type TicketDownload = z.infer<typeof TicketDownloadSchema>;
+export type HoldRequest = ZodInfer<typeof HoldRequestSchema>;
+export type BookingTransition = ZodInfer<typeof BookingTransitionSchema>;
+export type Booking = ZodInfer<typeof BookingSchema>;
+export type SeatChange = ZodInfer<typeof SeatChangeSchema>;
+export type SeatSnapshot = ZodInfer<typeof SeatSnapshotSchema>;
+export type TicketDownload = ZodInfer<typeof TicketDownloadSchema>;

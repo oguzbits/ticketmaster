@@ -386,7 +386,8 @@ services:
       retries: 30
 
   # Scrapes the API replicas and the worker (see docker/observability/prometheus.yml), evaluates
-  # docker/observability/alerts.yml; keeps two days. Needs METRICS_ENABLED=true on api and worker, else every target is down.
+  # docker/observability/alerts.yml; keeps 30 days for SLO burn-rate windows. Needs METRICS_ENABLED=true
+  # on api and worker, else every target is down.
   prometheus:
     <<: *hardening
     mem_limit: 256m
@@ -397,7 +398,7 @@ services:
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
-      - --storage.tsdb.retention.time=2d
+      - --storage.tsdb.retention.time=30d
     ports:
       - '127.0.0.1:9090:9090'
     volumes:
@@ -406,6 +407,28 @@ services:
       - prometheus-data:/prometheus
     healthcheck:
       test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1:9090/-/ready']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  # Receives firing alerts from Prometheus, applies grouping/inhibition rules and exposes its UI locally.
+  alertmanager:
+    <<: *hardening
+    mem_limit: 128m
+    cpus: 0.25
+    tmpfs: [/tmp]
+    image: prom/alertmanager:v0.35.0@sha256:e638797febd034838eca8b98cdbd46f951e9bf7f178777aa8669167406a9946c
+    profiles: [observability]
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    ports:
+      - '127.0.0.1:9093:9093'
+    volumes:
+      - ./docker/observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1:9093/-/ready']
       interval: 5s
       timeout: 3s
       retries: 30
@@ -446,5 +469,6 @@ volumes:
   tempo-data:
   loki-data:
   prometheus-data:
+  alertmanager-data:
   alloy-data:
   grafana-data:

@@ -1,4 +1,13 @@
-import { z } from 'zod';
+import {
+  array,
+  coerce,
+  enum as zEnum,
+  type infer as ZodInfer,
+  iso,
+  object,
+  string,
+  uuid,
+} from 'zod';
 
 /** The state changes the audit log records, one row each. Reads, hold expiry and failed payments are not audited. */
 export const AUDIT_ACTION = {
@@ -21,32 +30,32 @@ export const AUDIT_SUBJECT = {
 
 export const AUDIT_LOG_LIMITS = { PAGE_DEFAULT: 50, PAGE_MAX: 100, REQUEST_ID_MAX: 128 } as const;
 
-export const AuditActionSchema = z.enum(AUDIT_ACTION);
-export const AuditSubjectSchema = z.enum(AUDIT_SUBJECT);
+export const AuditActionSchema = zEnum(AUDIT_ACTION);
+export const AuditSubjectSchema = zEnum(AUDIT_SUBJECT);
 
-export type AuditAction = z.infer<typeof AuditActionSchema>;
-export type AuditSubject = z.infer<typeof AuditSubjectSchema>;
+export type AuditAction = ZodInfer<typeof AuditActionSchema>;
+export type AuditSubject = ZodInfer<typeof AuditSubjectSchema>;
 
 /** A row ID is a database identity (a safe integer); 15 digits stay inside bigint and JS numbers. */
-const AuditIdSchema = z.string().regex(/^\d{1,15}$/);
+const AuditIdSchema = string().regex(/^\d{1,15}$/);
 
 /** IDs only: who (`actorId`), what (`subjectType`, `subjectId`), and the request that did it. */
-export const AuditEntrySchema = z.object({
+export const AuditEntrySchema = object({
   id: AuditIdSchema,
-  at: z.iso.datetime(),
-  actorId: z.uuid(),
+  at: iso.datetime(),
+  actorId: uuid(),
   action: AuditActionSchema,
   subjectType: AuditSubjectSchema,
-  subjectId: z.uuid(),
-  requestId: z.string().min(1).max(AUDIT_LOG_LIMITS.REQUEST_ID_MAX),
+  subjectId: uuid(),
+  requestId: string().min(1).max(AUDIT_LOG_LIMITS.REQUEST_ID_MAX),
 });
 
 /** Newest first; `cursor` is the `id` of the last row of the previous page. */
-export const AuditLogQuerySchema = z.object({
+export const AuditLogQuerySchema = object({
   action: AuditActionSchema.optional(),
-  actorId: z.uuid().optional(),
+  actorId: uuid().optional(),
   cursor: AuditIdSchema.optional(),
-  limit: z.coerce
+  limit: coerce
     .number()
     .int()
     .min(1)
@@ -54,11 +63,11 @@ export const AuditLogQuerySchema = z.object({
     .default(AUDIT_LOG_LIMITS.PAGE_DEFAULT),
 });
 
-export const AuditLogPageSchema = z.object({
-  items: z.array(AuditEntrySchema),
+export const AuditLogPageSchema = object({
+  items: array(AuditEntrySchema),
   nextCursor: AuditIdSchema.nullable(),
 });
 
-export type AuditEntry = z.infer<typeof AuditEntrySchema>;
-export type AuditLogQuery = z.infer<typeof AuditLogQuerySchema>;
-export type AuditLogPage = z.infer<typeof AuditLogPageSchema>;
+export type AuditEntry = ZodInfer<typeof AuditEntrySchema>;
+export type AuditLogQuery = ZodInfer<typeof AuditLogQuerySchema>;
+export type AuditLogPage = ZodInfer<typeof AuditLogPageSchema>;

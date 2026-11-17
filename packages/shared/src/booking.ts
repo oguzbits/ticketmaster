@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { enum as zEnum, type infer as ZodInfer } from 'zod';
 
 /** How a hold on a seat is protected against a second hold. `NAIVE` is the comparison baseline. */
 export const BOOKING_STRATEGY = {
@@ -41,14 +41,14 @@ export const PAYMENT_ATTEMPT_STATUS = {
   RELEASED: 'RELEASED',
 } as const;
 
-export const BookingStrategySchema = z.enum(BOOKING_STRATEGY);
-export const BookingStatusSchema = z.enum(BOOKING_STATUS);
-export const SeatStatusSchema = z.enum(SEAT_STATUS);
-export const TransitionReasonSchema = z.enum(TRANSITION_REASON);
-export const PaymentAttemptStatusSchema = z.enum(PAYMENT_ATTEMPT_STATUS);
+export const BookingStrategySchema = zEnum(BOOKING_STRATEGY);
+export const BookingStatusSchema = zEnum(BOOKING_STATUS);
+export const SeatStatusSchema = zEnum(SEAT_STATUS);
+export const TransitionReasonSchema = zEnum(TRANSITION_REASON);
+export const PaymentAttemptStatusSchema = zEnum(PAYMENT_ATTEMPT_STATUS);
 
-export type BookingStrategy = z.infer<typeof BookingStrategySchema>;
-export type BookingStatus = z.infer<typeof BookingStatusSchema>;
-export type SeatStatus = z.infer<typeof SeatStatusSchema>;
-export type TransitionReason = z.infer<typeof TransitionReasonSchema>;
-export type PaymentAttemptStatus = z.infer<typeof PaymentAttemptStatusSchema>;
+export type BookingStrategy = ZodInfer<typeof BookingStrategySchema>;
+export type BookingStatus = ZodInfer<typeof BookingStatusSchema>;
+export type SeatStatus = ZodInfer<typeof SeatStatusSchema>;
+export type TransitionReason = ZodInfer<typeof TransitionReasonSchema>;
+export type PaymentAttemptStatus = ZodInfer<typeof PaymentAttemptStatusSchema>;

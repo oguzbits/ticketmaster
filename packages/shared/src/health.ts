@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { boolean, enum as zEnum, type infer as ZodInfer, object } from 'zod';
 
 export const HEALTH_STATUS = {
   UP: 'UP',
@@ -16,9 +16,10 @@ export const OUTBOX_SIGNAL = {
  * and Redis answer; the status is 503 with `DOWN` otherwise). The ready route adds `signals`: they
  * report trouble that must not take an instance out of rotation, so they never change the status.
  */
-export const HealthResponseSchema = z.object({
-  status: z.enum(HEALTH_STATUS),
-  signals: z.object({ outbox: z.enum(OUTBOX_SIGNAL) }).optional(),
+export const HealthResponseSchema = object({
+  status: zEnum(HEALTH_STATUS),
+  signals: object({ outbox: zEnum(OUTBOX_SIGNAL) }).optional(),
+  tracing: boolean().optional(),
 });
 
-export type HealthResponse = z.infer<typeof HealthResponseSchema>;
+export type HealthResponse = ZodInfer<typeof HealthResponseSchema>;

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { discriminatedUnion, type infer as ZodInfer, iso, literal, object, uuid } from 'zod';
 
 /** Types of the messages that go through the outbox and the queue. */
 export const OUTBOX_MESSAGE_TYPE = {
@@ -10,16 +10,16 @@ export const OUTBOX_MESSAGE_TYPE = {
  * every consumer (`processed_messages`): delivery is at least once, so the same message can arrive
  * more than once and must take effect once. IDs only; no name, email or other personal data.
  */
-const BookingConfirmedMessageSchema = z.object({
-  messageId: z.uuid(),
-  type: z.literal(OUTBOX_MESSAGE_TYPE.BOOKING_CONFIRMED),
-  bookingId: z.uuid(),
-  eventId: z.uuid(),
-  userId: z.uuid(),
-  occurredAt: z.iso.datetime(),
+const BookingConfirmedMessageSchema = object({
+  messageId: uuid(),
+  type: literal(OUTBOX_MESSAGE_TYPE.BOOKING_CONFIRMED),
+  bookingId: uuid(),
+  eventId: uuid(),
+  userId: uuid(),
+  occurredAt: iso.datetime(),
 });
 
 /** Every message the queue carries, told apart by `type`. */
-export const QueueMessageSchema = z.discriminatedUnion('type', [BookingConfirmedMessageSchema]);
+export const QueueMessageSchema = discriminatedUnion('type', [BookingConfirmedMessageSchema]);
 
-export type QueueMessage = z.infer<typeof QueueMessageSchema>;
+export type QueueMessage = ZodInfer<typeof QueueMessageSchema>;

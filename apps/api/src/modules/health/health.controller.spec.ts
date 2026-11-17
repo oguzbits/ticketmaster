@@ -5,7 +5,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { ConfigModule } from '../../config/config.module.js';
+import { APP_CONFIG, ConfigModule, loadEnv } from '../../config/config.module.js';
 import { DatabaseModule, DB } from '../../infrastructure/database/database.module.js';
 import { RateLimitGuard } from '../../infrastructure/rate-limit/rate-limit.guard.js';
 import { RateLimiter } from '../../infrastructure/rate-limit/rate-limiter.js';
@@ -143,5 +143,33 @@ describe('health endpoints', () => {
     const response = await request(app.getHttpServer()).get('/health/ready').expect(503);
 
     expect(HealthResponseSchema.parse(response.body)).toEqual({ status: HEALTH_STATUS.DOWN });
+  });
+
+  it('GET /health/live signals tracing: true when TRACING_ENABLED is enabled', async () => {
+    const tracedModule = await Test.createTestingModule({
+      imports: [ConfigModule, DatabaseModule, RedisModule, HealthModule],
+    })
+      .overrideProvider(APP_CONFIG)
+      .useValue({ ...loadEnv(), TRACING_ENABLED: true })
+      .overrideProvider(DB)
+      .useValue(db)
+      .overrideProvider(REDIS)
+      .useValue(redis)
+      .overrideProvider(MESSAGE_QUEUE)
+      .useValue(new FakeMessageQueue())
+      .overrideProvider(OutboxService)
+      .useValue(outboxService)
+      .compile();
+    const tracedApp = tracedModule.createNestApplication();
+    await tracedApp.init();
+    try {
+      const response = await request(tracedApp.getHttpServer()).get('/health/live').expect(200);
+      expect(HealthResponseSchema.parse(response.body)).toEqual({
+        status: HEALTH_STATUS.UP,
+        tracing: true,
+      });
+    } finally {
+      await tracedApp.close();
+    }
   });
 });

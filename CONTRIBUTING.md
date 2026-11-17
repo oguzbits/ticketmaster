@@ -11,7 +11,7 @@ Requirements: Node 26 (see `.nvmrc`), pnpm 12 (pinned in `package.json`) and Doc
 pnpm install                # also installs the Git hooks
 pnpm db:up                  # Postgres, Redis and the AWS emulator (with its queues and bucket) for tests
 pnpm db:migrate             # apply the migrations and the seed to the local database
-pnpm dev                    # API on port 3000, web on port 4200 (proxies /health and /api to the API)
+pnpm dev                    # API on port 3000, web on port 4200 (proxies /health, /api and /v1/traces)
 docker compose up --build   # or the whole stack in containers
 ```
 
@@ -19,7 +19,7 @@ Ports of the local stack (`docker-compose.yml`):
 
 | Service  | Host port | Notes                                             |
 | -------- | --------- | ------------------------------------------------- |
-| web      | 8080      | Caddy: static web app, proxies `/health/*`, `/api/*` and `/storage/*` (presigned tickets) |
+| web      | 8080      | Caddy: static web app, proxies `/health/*`, `/api/*`, `/storage/*` (presigned tickets) and `/v1/traces` (browser OTLP when observability is up) |
 | keycloak | 8081      | bound to 127.0.0.1; admin console, local admin user `admin` / `admin` |
 | postgres | 54330     | databases `app` and `keycloak`; owner `app`, runtime login `app_runtime` (see below) |
 | pgbouncer | 64320    | connection pooler (transaction mode) in front of postgres; api and worker connect through it, see [ADR 0005](docs/adr/0005-pgbouncer-transaction-mode.md) |
@@ -41,7 +41,7 @@ with throw-away resources; it takes about 15 seconds and can run at any time whi
 is up. The choice of emulator is in [ADR 0004](docs/adr/0004-local-aws-emulator.md).
 
 Tracing, log correlation and metrics run in the Compose profile `observability` (Tempo, Loki, Alloy,
-Prometheus, Grafana on 127.0.0.1:3000, 3100, 3200, 9090). `docker compose up` and `pnpm e2e` do not start it:
+Prometheus, Alertmanager, Grafana on 127.0.0.1:3000, 3100, 3200, 9090, 9093). `docker compose up` and `pnpm e2e` do not start it:
 `TRACING_ENABLED=true METRICS_ENABLED=true docker compose --profile observability up --build -d` does, and
 `GRAFANA_ADMIN_PASSWORD` (default `admin`) sets the Grafana login. How to read a trace, what it
 contains and the Docker socket risk of Alloy: [docs/observability.md](docs/observability.md).

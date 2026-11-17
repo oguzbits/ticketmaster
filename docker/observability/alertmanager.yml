@@ -1,0 +1,23 @@
+# Local Alertmanager configuration for the Compose observability profile (see docs/observability.md).
+# Alerts are grouped, deduplicated and visible in the Alertmanager UI (127.0.0.1:9093);
+# external paging/webhook delivery stays a local no-op receiver so no credentials are needed.
+route:
+  receiver: local-inbox
+  group_by: ['alertname', 'severity']
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 1h
+
+inhibit_rules:
+  - source_matchers:
+      - alertname = ApiAllReplicasGone
+    target_matchers:
+      - severity = warning
+  - source_matchers:
+      - alertname = ScrapeTargetDown
+      - job = worker
+    target_matchers:
+      - alertname =~ "OutboxStuck|DeadLetterQueueNotEmpty|GaugeSourceMissing"
+
+receivers:
+  - name: local-inbox

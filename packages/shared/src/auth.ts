@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { array, enum as zEnum, type infer as ZodInfer, number, object, string } from 'zod';
 
 export const ROLE = {
   CUSTOMER: 'customer',
@@ -6,24 +6,24 @@ export const ROLE = {
   ADMIN: 'admin',
 } as const;
 
-export const RoleSchema = z.enum(ROLE);
+export const RoleSchema = zEnum(ROLE);
 
-export const DemoLoginRequestSchema = z.object({ role: RoleSchema });
+export const DemoLoginRequestSchema = object({ role: RoleSchema });
 
-export const RefreshRequestSchema = z.object({ refreshToken: z.string().min(1) });
+export const RefreshRequestSchema = object({ refreshToken: string().min(1) });
 
-export const TokenResponseSchema = z.object({
-  accessToken: z.string(),
-  refreshToken: z.string(),
-  expiresIn: z.number().int().positive(),
+export const TokenResponseSchema = object({
+  accessToken: string(),
+  refreshToken: string(),
+  expiresIn: number().int().positive(),
 });
 
 /** The part of a Keycloak access token the web app reads to show the role. Display only, never trusted. */
-export const AccessTokenClaimsSchema = z.object({
-  realm_access: z.object({ roles: z.array(z.string()) }),
+export const AccessTokenClaimsSchema = object({
+  realm_access: object({ roles: array(string()) }),
 });
 
-export type Role = z.infer<typeof RoleSchema>;
-export type DemoLoginRequest = z.infer<typeof DemoLoginRequestSchema>;
-export type RefreshRequest = z.infer<typeof RefreshRequestSchema>;
-export type TokenResponse = z.infer<typeof TokenResponseSchema>;
+export type Role = ZodInfer<typeof RoleSchema>;
+export type DemoLoginRequest = ZodInfer<typeof DemoLoginRequestSchema>;
+export type RefreshRequest = ZodInfer<typeof RefreshRequestSchema>;
+export type TokenResponse = ZodInfer<typeof TokenResponseSchema>;

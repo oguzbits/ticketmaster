@@ -1,6 +1,6 @@
-# SLO alert rules, evaluated by Prometheus (local observability profile, see docs/observability.md).
-# Targets: booking routes answer below 500 for 99.5 % of requests over 30 days; p95 of the hold route
-# at most 500 ms, of the payment route at most 1 s. Delivery (Alertmanager, paging) is out of scope.
+# SLO alert rules, evaluated by Prometheus and routed to Alertmanager (local observability profile,
+# see docs/observability.md). Targets: booking routes answer below 500 for 99.5 % of requests
+# over 30 days (error budget 0.5 %); p95 of hold at most 500 ms, payment at most 1 s.
 groups:
   - name: slo
     rules:
@@ -14,6 +14,40 @@ groups:
           severity: page
         annotations:
           summary: More than 5 % of booking requests answer with a 5xx status
+          runbook: docs/observability.md#alerts
+
+      # Multi-window SLO burn-rate rules against the 99.5 % 30-day availability error budget (0.005):
+      # fast burn (14.4x = 7.2 % over 1h & 5m) and slow burn (6x = 3 % over 6h & 30m).
+      - alert: BookingErrorBurnFast
+        expr: |
+          sum(rate(http_server_request_duration_count{http_request_method="POST",http_route=~"/api/bookings|/api/bookings/:id/payment|/api/bookings/:id/cancel",http_response_status_code=~"5.."}[1h]))
+          / sum(rate(http_server_request_duration_count{http_request_method="POST",http_route=~"/api/bookings|/api/bookings/:id/payment|/api/bookings/:id/cancel"}[1h]))
+          > 0.072
+          and
+          sum(rate(http_server_request_duration_count{http_request_method="POST",http_route=~"/api/bookings|/api/bookings/:id/payment|/api/bookings/:id/cancel",http_response_status_code=~"5.."}[5m]))
+          / sum(rate(http_server_request_duration_count{http_request_method="POST",http_route=~"/api/bookings|/api/bookings/:id/payment|/api/bookings/:id/cancel"}[5m]))
+          > 0.072
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: Fast 30-day SLO error budget burn (14.4x over 1h and 5m) on booking routes
+          runbook: docs/observability.md#alerts
+
+      - alert: BookingErrorBurnSlow
+        expr: |
+          sum(rate(http_server_request_duration_count{http_request_method="POST",http_route=~"/api/bookings|/api/bookings/:id/payment|/api/bookings/:id/cancel",http_response_status_code=~"5.."}[6h]))
+          / sum(rate(http_server_request_duration_count{http_request_method="POST",http_route=~"/api/bookings|/api/bookings/:id/payment|/api/bookings/:id/cancel"}[6h]))
+          > 0.03
+          and
+          sum(rate(http_server_request_duration_count{http_request_method="POST",http_route=~"/api/bookings|/api/bookings/:id/payment|/api/bookings/:id/cancel",http_response_status_code=~"5.."}[30m]))
+          / sum(rate(http_server_request_duration_count{http_request_method="POST",http_route=~"/api/bookings|/api/bookings/:id/payment|/api/bookings/:id/cancel"}[30m]))
+          > 0.03
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Sustained 30-day SLO error budget burn (6x over 6h and 30m) on booking routes
           runbook: docs/observability.md#alerts
 
       - alert: HoldLatencyHigh

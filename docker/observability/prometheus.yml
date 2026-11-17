@@ -7,6 +7,11 @@ global:
 rule_files:
   - /etc/prometheus/alerts.yml
 
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
 scrape_configs:
   # Compose DNS returns one A record per replica, so every API replica is its own target.
   - job_name: api

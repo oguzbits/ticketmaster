@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { array, enum as zEnum, type infer as ZodInfer, iso, number, object, url, uuid } from 'zod';
 
 import { BookingStrategySchema } from './booking.js';
 
@@ -20,17 +20,15 @@ export const SIMULATION_LIMITS = {
 export const SIMULATION_STREAM_KEY = 'simulations';
 export const SIMULATION_CONSUMER_GROUP = 'simulation-workers';
 
-export const SimulationStatusSchema = z.enum(SIMULATION_STATUS);
+export const SimulationStatusSchema = zEnum(SIMULATION_STATUS);
 
-export const StartSimulationRequestSchema = z.object({
-  buyers: z
-    .number()
+export const StartSimulationRequestSchema = object({
+  buyers: number()
     .int()
     .min(1)
     .max(SIMULATION_LIMITS.BUYERS_MAX)
     .default(SIMULATION_LIMITS.BUYERS_DEFAULT),
-  seats: z
-    .number()
+  seats: number()
     .int()
     .min(1)
     .max(SIMULATION_LIMITS.SEATS_MAX)
@@ -38,10 +36,10 @@ export const StartSimulationRequestSchema = z.object({
   strategy: BookingStrategySchema,
 });
 
-const count = z.number().nonnegative();
+const count = number().nonnegative();
 
 /** `doubleBookings` is counted in SQL when the run ends, so it is null until then. */
-export const SimulationMetricsSchema = z.object({
+export const SimulationMetricsSchema = object({
   attempts: count,
   holds: count,
   conflicts: count,
@@ -50,36 +48,36 @@ export const SimulationMetricsSchema = z.object({
   buyersDone: count,
   p50Ms: count,
   p95Ms: count,
-  doubleBookings: z.number().int().nonnegative().nullable(),
+  doubleBookings: number().int().nonnegative().nullable(),
 });
 
-export const SimulationProgressSchema = z.object({
+export const SimulationProgressSchema = object({
   status: SimulationStatusSchema,
   metrics: SimulationMetricsSchema,
 });
 
-export const SimulationRunSchema = z.object({
-  id: z.uuid(),
-  eventId: z.uuid(),
+export const SimulationRunSchema = object({
+  id: uuid(),
+  eventId: uuid(),
   strategy: BookingStrategySchema,
-  buyers: z.number().int().positive(),
-  seats: z.number().int().positive(),
+  buyers: number().int().positive(),
+  seats: number().int().positive(),
   status: SimulationStatusSchema,
   metrics: SimulationMetricsSchema.nullable(),
-  startedAt: z.iso.datetime(),
-  finishedAt: z.iso.datetime().nullable(),
+  startedAt: iso.datetime(),
+  finishedAt: iso.datetime().nullable(),
   /** Grafana Explore on the run's trace; null when tracing is off, no Grafana URL is set or the run has no trace. */
-  traceUrl: z.url().nullable(),
+  traceUrl: url().nullable(),
 });
 
-export const SimulationListResponseSchema = z.array(SimulationRunSchema);
+export const SimulationListResponseSchema = array(SimulationRunSchema);
 
 /** The queue message: only the run ID, the worker reads the parameters from the row. */
-export const SimulationCommandSchema = z.object({ runId: z.uuid() });
+export const SimulationCommandSchema = object({ runId: uuid() });
 
-export type SimulationStatus = z.infer<typeof SimulationStatusSchema>;
-export type StartSimulationRequest = z.infer<typeof StartSimulationRequestSchema>;
-export type SimulationMetrics = z.infer<typeof SimulationMetricsSchema>;
-export type SimulationProgress = z.infer<typeof SimulationProgressSchema>;
-export type SimulationRun = z.infer<typeof SimulationRunSchema>;
-export type SimulationCommand = z.infer<typeof SimulationCommandSchema>;
+export type SimulationStatus = ZodInfer<typeof SimulationStatusSchema>;
+export type StartSimulationRequest = ZodInfer<typeof StartSimulationRequestSchema>;
+export type SimulationMetrics = ZodInfer<typeof SimulationMetricsSchema>;
+export type SimulationProgress = ZodInfer<typeof SimulationProgressSchema>;
+export type SimulationRun = ZodInfer<typeof SimulationRunSchema>;
+export type SimulationCommand = ZodInfer<typeof SimulationCommandSchema>;

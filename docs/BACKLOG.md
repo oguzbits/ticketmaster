@@ -371,6 +371,20 @@ Enterprise production alignment, slice 4 (payment reconciliation and signed wait
   `DELETE /api/events/:id/waiting-room` revokes tokens immediately. Angular `WaitingRoomStore` and
   `SeatMap` forward `admissionToken` transparently on seat holds.
 
+Enterprise production alignment, slice 5 (observability hardening, burn-rate alerts, and web bundle + browser tracing):
+
+- `docker-compose.yml` adds hardened `alertmanager` (`127.0.0.1:9093`, `docker/observability/alertmanager.yml`
+  with grouping and inhibition rules), sets Prometheus retention to 30 days, and `alerts.yml` adds
+  multi-window 30-day SLO burn-rate alerts (`BookingErrorBurnFast` at `14.4x`, `BookingErrorBurnSlow`
+  at `6x`).
+- Tree-shaking Zod named exports across `packages/shared` (`"sideEffects": false`) cut the Angular
+  initial bundle from ~756 kB to ~422 kB raw (~116 kB transfer), well within the tightened `450 kB`
+  warning / `500 kB` error budget.
+- Angular `HttpClient` uses `withFetch()`, and `apps/web/src/app/telemetry/telemetry.ts` (~71 kB
+  lazy chunk) loads post-bootstrap only when `GET /health/live` signals `tracing: true`, exporting
+  scrubbed browser spans same-origin via `/v1/traces` (proxied by Caddy to `tempo:4318`) with W3C
+  `traceparent` propagation.
+
 ## Deviations from the plan
 
 - **No SWC for NestJS decorators.** Vitest (Vite 8, Oxc) reads `experimentalDecorators` and
@@ -585,10 +599,6 @@ open points below.
   out; under a full parallel run the queue consumer specs and `double books under naive` also
   failed once each and passed on a rerun. Give the specs their own database and queue names, or
   run them with the stack stopped.
-- **Initial web bundle is about 756 kB** (169 kB transfer), over the 500 kB warning budget after
-  splitting non-root routes into lazy chunks (from ~844 kB). Zod and the shared schemas parsed at
-  bootstrap make up most of the remaining initial chunk; keeping the full Zod API avoids rewriting
-  every schema across `packages/shared`.
 - **The venue list and the event list have no pagination.** `GET /api/venues` and
   `GET /api/events` return every row.
 - **The busy notices (429, 503 on the seat stream) and the failed-payment and 5xx-retry paths are

@@ -8,7 +8,7 @@ project; the stack below is local only and part of no deployment.
 
 ## Start
 
-The five services (Tempo, Loki, Alloy, Prometheus, Grafana) live in the Compose profile `observability`. The
+The six services (Tempo, Loki, Alloy, Prometheus, Alertmanager, Grafana) live in the Compose profile `observability`. The
 default `docker compose up` and `pnpm e2e` start none of them, never trace and serve no metrics.
 
 ```sh
@@ -16,18 +16,22 @@ TRACING_ENABLED=true METRICS_ENABLED=true docker compose --profile observability
 docker compose --profile observability down   # stop it again (add -v to drop the stored traces and logs)
 ```
 
-| Service    | Host port (127.0.0.1) | Role                                                                                            |
-| ---------- | --------------------- | ----------------------------------------------------------------------------------------------- |
-| grafana    | 3000                  | UI; login `admin`, password `GRAFANA_ADMIN_PASSWORD` (default `admin`); anonymous access is off |
-| tempo      | 3200                  | trace store and query API; OTLP/HTTP on 4318 inside the network                                 |
-| loki       | 3100                  | log store and query API                                                                         |
-| prometheus | 9090                  | metric store and query UI; scrapes the API replicas and the worker every 10 s, keeps 2 days     |
-| alloy      | none                  | reads the container logs and ships them to Loki                                                 |
+| Service      | Host port (127.0.0.1) | Role                                                                                                  |
+| ------------ | --------------------- | ----------------------------------------------------------------------------------------------------- |
+| grafana      | 3000                  | UI; login `admin`, password `GRAFANA_ADMIN_PASSWORD` (default `admin`); anonymous access is off       |
+| tempo        | 3200                  | trace store and query API; OTLP/HTTP on 4318 inside the network                                       |
+| loki         | 3100                  | log store and query API                                                                               |
+| prometheus   | 9090                  | metric store and query UI; scrapes the API replicas and the worker every 10 s, keeps 30 days          |
+| alertmanager | 9093                  | alert router (`docker/observability/alertmanager.yml`); groups by alert and inhibits redundant alerts |
+| alloy        | none                  | reads the container logs and ships them to Loki                                                       |
 
 `api` and `worker` send spans to `http://tempo:4318` (`TRACING_OTLP_ENDPOINT` in the Compose file)
 when `TRACING_ENABLED=true`. Their Docker command is
 `node --import ./dist/tracing.preload.js dist/main.js`; the preload registers the ESM hooks before the
-app imports Express and does nothing when tracing is off. Once Nest boots, `TelemetryModule`
+app imports Express and does nothing when tracing is off. When `GET /health/live` answers `tracing: true`,
+the web app lazily loads its OpenTelemetry browser bundle (`ticketmaster-web`) after bootstrap and
+exports fetch spans same-origin to `/v1/traces` (proxied by Caddy to `tempo:4318`, keeping
+`connect-src 'self'` strict). Once Nest boots, `TelemetryModule`
 flushes and closes the telemetry providers during `onApplicationShutdown` after requests and queue
 handlers drain (a `SIGTERM` fallback covers crashes before Nest finishes starting). Without Tempo
 running, tracing on costs a
@@ -46,23 +50,23 @@ The Grafana data sources are provisioned from `docker/observability/grafana/prov
 
 | Service               | Spans                                                                                                                                                           |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ticketmaster-web`    | `FetchInstrumentation` client spans for `/api/*` requests, propagating W3C `traceparent` into the API (loaded lazily when server tracing is enabled)            |
 | `ticketmaster-api`    | the HTTP server span named after the route template (`POST /api/bookings/:id/payment`), `db.query`, `redis.command`, `booking.hold.strategy` on a hold          |
 | `ticketmaster-worker` | `outbox.send` (the relay, a child of the request), `<queue> send`, `queue.process`, one `queue.effect` per effect (mail, ticket), their `db.query` and S3 spans |
 
-The outbox row stores the request's `traceparent`, the relay continues it, and the queue message
-carries the send span's context, so a payment, the relay and both effects share one trace ID. A hold
+The browser propagates `traceparent` on `/api/*` calls, the outbox row stores the request's `traceparent`, the relay continues it, and the queue message
+carries the send span's context, so a browser action, the API request, the relay and both effects share one trace ID. A hold
 and a payment are two requests and so two traces.
 
 What is not in the data, on purpose: SQL parameters, Redis keys and arguments, error messages (a
-failed span carries the error name only), client address, user agent and query string. Not traced:
-the browser (it sends no `traceparent`, the API's server span is the root), the seat stream
-(`text/event-stream` requests), the health routes (`/health/*`, polled by container health checks)
+failed span carries the error name only), client address, user agent and query string (`BrowserAttributeScrubber` also strips query strings from browser `url.full` spans). Not traced:
+the seat and waiting-room SSE streams (`/stream` endpoints / `text/event-stream`), the health routes (`/health/*`, polled by container health checks), browser exports to `/v1/traces`
 and the queue long poll when it receives nothing. Two traces are always present at start and are
 not requests: `SQS.GetQueueUrl` of the API and of the worker (the queue lookup at boot).
 PgBouncer sits between the processes and PostgreSQL, so the `server.address` of a `db.query` span is
 the pooler.
 
-Outgoing client spans keep `url.full`. That is safe only because no outgoing URL carries a query
+Outgoing server client spans keep `url.full`. That is safe only because no outgoing server URL carries a query
 string (checked: Keycloak, SQS and S3 paths). If one ever does, strip `url.full` in the span
 processor in `apps/api/src/infrastructure/tracing/tracing.ts`.
 
@@ -175,19 +179,24 @@ The booking routes are `POST /api/bookings` (hold), `POST /api/bookings/:id/paym
 | Hold latency | p95 of the hold route at most 500 ms                           |
 | Payment      | p95 of the payment route at most 1 s                           |
 
-The rules in `docker/observability/alerts.yml` encode them as short-window checks, not as a 30-day
-budget: the error ratio over 5 minutes above 5 % pages, and each p95 over 5 minutes above its limit
-warns after 10 minutes. `observability-files.spec.ts` keeps the thresholds equal to these numbers.
+The rules in `docker/observability/alerts.yml` encode the 30-day availability budget (`0.005` =
+`1 - 0.995`) with multi-window burn-rate alerts (`BookingErrorBurnFast` at `14.4x` over 1h & 5m,
+`BookingErrorBurnSlow` at `6x` over 6h & 30m) alongside the short-window 5 % check, and warn on
+p95 latency above the hold/payment limits. Prometheus forwards firing alerts to Alertmanager
+(`http://localhost:9093`, configured in `docker/observability/alertmanager.yml` with grouping and
+inhibition rules). `observability-files.spec.ts` keeps the thresholds equal to these numbers.
 
 ## Alerts
 
-Prometheus evaluates `docker/observability/alerts.yml` every evaluation interval and shows the state
-of each rule at `http://localhost:9090/alerts`. Every rule links here from its `runbook` annotation.
-The rules are Prometheus rule files, not Grafana-managed rules. What to do after the first check is
-in the [runbooks](runbooks/README.md).
+Prometheus evaluates `docker/observability/alerts.yml` every evaluation interval, pushes alerts to
+Alertmanager (`127.0.0.1:9093`), and shows the state of each rule at `http://localhost:9090/alerts`.
+Every rule links here from its `runbook` annotation. The rules are Prometheus rule files, not
+Grafana-managed rules. What to do after the first check is in the [runbooks](runbooks/README.md).
 
 | Alert                     | Severity | Condition (for)                                                                           | Check first                                                                                                                                                                                                                       |
 | ------------------------- | -------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BookingErrorBurnFast`    | page     | booking-route 5xx error ratio above `14.4 * 0.005` (`0.072`) over both 1 h and 5 m (2 m)  | Fast 30-day error budget burn (2 % consumed in 1 h). Open the `API` dashboard, Loki logs for `trace_id`, and Tempo traces for the failing span.                                                                                   |
+| `BookingErrorBurnSlow`    | warning  | booking-route 5xx error ratio above `6 * 0.005` (`0.03`) over both 6 h and 30 m (15 m)    | Steady 30-day error budget burn (5 % consumed in 6 h). Inspect the failing route template on the `API` dashboard and correlated dependency errors in Loki/Tempo.                                                                  |
 | `BookingErrorRatioHigh`   | page     | 5xx share of the three booking routes above 5 % over 5 min (5 min)                        | The `API` dashboard: which route template and status. Then the API log lines of that time in Loki and a failing request's trace in Tempo; a failing `db.query` or `redis.command` span names the dependency.                      |
 | `HoldLatencyHigh`         | warning  | p95 of `POST /api/bookings` above 500 ms over 5 min (10 min)                              | The `API` dashboard: queries in flight against the pool size of 20 (saturation), then the `Bookings` dashboard for the strategy in use; open a slow request's trace and read its `booking.hold.strategy` and `db.query` spans.    |
 | `PaymentLatencyHigh`      | warning  | p95 of `POST /api/bookings/:id/payment` above 1 s over 5 min (10 min)                     | The same panels, then the spans of a slow payment trace: the transaction and the outbox write happen in the request, the effects run later in the worker.                                                                         |
@@ -214,14 +223,10 @@ its address, `dns_sd_configs` drops the target, and no `up == 0` series is writt
 
 Known limits:
 
-- **No burn-rate rules.** The 30-day availability budget is not computed; the 5 % short-window rule
-  is its coarse stand-in.
-- **No alert delivery.** There is no Alertmanager, mail or pager; an alert is visible in the
-  Prometheus UI only.
+- **Alertmanager uses a local receiver (`local-inbox`).** Grouping, inhibition, and alert state work
+  end-to-end in Alertmanager (`http://localhost:9093`), without an external SMTP/Slack/PagerDuty webhook.
 - **Gauges without an alert:** `tm_waiting_room_waiting` and `tm_db_queries_active`; they are on
   the dashboards only.
-- **Retention is 2 days** (`--storage.tsdb.retention.time`), so a 30-day window cannot be queried
-  locally.
 - **`tm_db_queries_active` is in-flight queries, not pool usage.** The 20 on the `API` dashboard is
   the pool size of one API process, a hint, not a measured saturation.
 - **`tm_waiting_room_waiting` keeps a queue counted for up to 24 hours** after an event drops its

@@ -166,6 +166,8 @@ interface RuleFile {
 
 const ALERT = {
   ERROR_RATIO: 'BookingErrorRatioHigh',
+  BURN_FAST: 'BookingErrorBurnFast',
+  BURN_SLOW: 'BookingErrorBurnSlow',
   HOLD_LATENCY: 'HoldLatencyHigh',
   PAYMENT_LATENCY: 'PaymentLatencyHigh',
   OUTBOX_STUCK: 'OutboxStuck',
@@ -179,7 +181,14 @@ const ALERT = {
 const SEVERITY = { PAGE: 'page', WARNING: 'warning' } as const;
 
 /** SLO targets (docs/observability.md): the rules mirror them. Latency in seconds. */
-const SLO = { ERROR_RATIO: 0.05, HOLD_P95_SECONDS: 0.5, PAYMENT_P95_SECONDS: 1 } as const;
+const SLO = {
+  ERROR_RATIO: 0.05,
+  AVAILABILITY_ERROR_BUDGET: 0.005,
+  FAST_BURN_MULTIPLIER: 14.4,
+  SLOW_BURN_MULTIPLIER: 6,
+  HOLD_P95_SECONDS: 0.5,
+  PAYMENT_P95_SECONDS: 1,
+} as const;
 
 /** The routes of the availability SLO, as the `http_route` label shows them (global prefix included). */
 const BOOKING_ROUTES = [
@@ -190,6 +199,8 @@ const BOOKING_ROUTES = [
 
 const EXPECTED_RULES: Record<string, { for: string; severity: string }> = {
   [ALERT.ERROR_RATIO]: { for: '5m', severity: SEVERITY.PAGE },
+  [ALERT.BURN_FAST]: { for: '2m', severity: SEVERITY.PAGE },
+  [ALERT.BURN_SLOW]: { for: '15m', severity: SEVERITY.WARNING },
   [ALERT.HOLD_LATENCY]: { for: '10m', severity: SEVERITY.WARNING },
   [ALERT.PAYMENT_LATENCY]: { for: '10m', severity: SEVERITY.WARNING },
   [ALERT.OUTBOX_STUCK]: { for: '1m', severity: SEVERITY.WARNING },
@@ -218,7 +229,11 @@ function threshold(expr: string): number {
 }
 
 interface ComposeFile {
-  services: { api: { deploy: { replicas: number } }; prometheus: { volumes: string[] } };
+  services: {
+    api: { deploy: { replicas: number } };
+    prometheus: { volumes: string[] };
+    alertmanager: { volumes: string[] };
+  };
 }
 // SAFETY: the shape is the Compose file format; the tests below fail on anything else.
 const compose = parse(readFileSync(COMPOSE_FILE, 'utf8')) as ComposeFile;
@@ -277,16 +292,30 @@ describe('alert rules', () => {
     expect(threshold(rule(ALERT.OUTBOX_STUCK).expr)).toBe(OUTBOX_STUCK_SECONDS);
   });
 
-  it('mirrors the SLO targets', () => {
+  it('mirrors the SLO and burn-rate targets', () => {
     expect(threshold(rule(ALERT.ERROR_RATIO).expr)).toBe(SLO.ERROR_RATIO);
+    expect(threshold(rule(ALERT.BURN_FAST).expr)).toBeCloseTo(
+      SLO.AVAILABILITY_ERROR_BUDGET * SLO.FAST_BURN_MULTIPLIER,
+      6
+    );
+    expect(threshold(rule(ALERT.BURN_SLOW).expr)).toBeCloseTo(
+      SLO.AVAILABILITY_ERROR_BUDGET * SLO.SLOW_BURN_MULTIPLIER,
+      6
+    );
     expect(threshold(rule(ALERT.HOLD_LATENCY).expr)).toBe(SLO.HOLD_P95_SECONDS);
     expect(threshold(rule(ALERT.PAYMENT_LATENCY).expr)).toBe(SLO.PAYMENT_P95_SECONDS);
   });
 
-  it('measures the error ratio on the three booking routes, 5xx against all', () => {
-    const { expr } = rule(ALERT.ERROR_RATIO);
-    for (const route of BOOKING_ROUTES) expect(expr).toContain(route);
-    expect(expr).toContain('5..');
+  it('measures the error ratio and burn rates on the three booking routes, 5xx against all', () => {
+    for (const name of [ALERT.ERROR_RATIO, ALERT.BURN_FAST, ALERT.BURN_SLOW]) {
+      const { expr } = rule(name);
+      for (const route of BOOKING_ROUTES) expect(expr, name).toContain(route);
+      expect(expr, name).toContain('5..');
+    }
+    expect(rule(ALERT.BURN_FAST).expr).toContain('[1h]');
+    expect(rule(ALERT.BURN_FAST).expr).toContain('[5m]');
+    expect(rule(ALERT.BURN_SLOW).expr).toContain('[6h]');
+    expect(rule(ALERT.BURN_SLOW).expr).toContain('[30m]');
   });
 
   it('measures each latency on its own route', () => {
@@ -337,16 +366,34 @@ describe('alert rules', () => {
     }
   });
 
-  it('is loaded by Prometheus and mounted into its container', () => {
+  it('is loaded by Prometheus and mounted into its container, with Alertmanager wired', () => {
     // SAFETY: the shape is the Prometheus config format; the assertions fail on anything else.
     const prometheus = parse(readFileSync(join(OBSERVABILITY_DIR, 'prometheus.yml'), 'utf8')) as {
       rule_files: string[];
+      alerting: { alertmanagers: { static_configs: { targets: string[] }[] }[] };
     };
     const mounts = compose.services.prometheus.volumes.map((volume) => volume.split(':'));
     expect(prometheus.rule_files).toHaveLength(1);
     expect(mounts).toContainEqual([
       './docker/observability/alerts.yml',
       prometheus.rule_files[0],
+      'ro',
+    ]);
+    expect(prometheus.alerting.alertmanagers[0]?.static_configs[0]?.targets).toEqual([
+      'alertmanager:9093',
+    ]);
+
+    // SAFETY: the shape is the Alertmanager config format; the assertions below verify it.
+    const alertmanager = parse(
+      readFileSync(join(OBSERVABILITY_DIR, 'alertmanager.yml'), 'utf8')
+    ) as {
+      route: { receiver: string };
+      receivers: { name: string }[];
+    };
+    expect(alertmanager.receivers.map((r) => r.name)).toContain(alertmanager.route.receiver);
+    expect(compose.services.alertmanager.volumes.map((v) => v.split(':'))).toContainEqual([
+      './docker/observability/alertmanager.yml',
+      '/etc/alertmanager/alertmanager.yml',
       'ro',
     ]);
   });

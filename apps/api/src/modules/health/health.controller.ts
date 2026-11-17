@@ -2,6 +2,8 @@ import { HEALTH_STATUS, type HealthResponse, OUTBOX_SIGNAL } from '@app/shared';
 import { Controller, Get, Inject, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 
+import { APP_CONFIG } from '../../config/config.module.js';
+import type { Env } from '../../config/env.js';
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
 import { RateLimit } from '../../infrastructure/rate-limit/rate-limit.decorator.js';
 import { REDIS, type Redis } from '../../infrastructure/redis/redis.module.js';
@@ -16,13 +18,16 @@ export class HealthController {
   constructor(
     @Inject(DB) private readonly db: Database,
     @Inject(REDIS) private readonly redis: Redis,
-    @Inject(OutboxService) private readonly outbox: OutboxService
+    @Inject(OutboxService) private readonly outbox: OutboxService,
+    @Inject(APP_CONFIG) private readonly env: Env
   ) {}
 
   @Public()
   @Get('live')
   live(): HealthResponse {
-    return { status: HEALTH_STATUS.UP };
+    return this.env.TRACING_ENABLED
+      ? { status: HEALTH_STATUS.UP, tracing: true }
+      : { status: HEALTH_STATUS.UP };
   }
 
   /**

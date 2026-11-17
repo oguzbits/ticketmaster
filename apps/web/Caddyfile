@@ -62,6 +62,11 @@
 		}
 	}
 
+	# Browser OTLP/HTTP trace exports share the origin so `connect-src 'self'` stays strict.
+	handle /v1/traces {
+		reverse_proxy tempo:4318
+	}
+
 	handle {
 		root * /srv
 		try_files {path} /index.html
