@@ -20,8 +20,18 @@ import { KEYCLOAK_ADMIN, type KeycloakAdmin } from './domain/demo-user.js';
   providers: [
     {
       provide: KEYCLOAK_ADMIN,
-      useFactory: (env: Env, clock: Clock) =>
-        new KeycloakAdminClient(
+      useFactory: (env: Env, clock: Clock): KeycloakAdmin => {
+        if (env.KEYCLOAK_URL === undefined || env.KEYCLOAK_DEMO_CLIENT_SECRET === undefined) {
+          const unconfigured = () => Promise.reject(new Error('Keycloak admin is not configured'));
+          return {
+            createUser: unconfigured,
+            deleteUser: unconfigured,
+            emailOf: unconfigured,
+            passwordGrant: unconfigured,
+            refresh: unconfigured,
+          };
+        }
+        return new KeycloakAdminClient(
           {
             baseUrl: env.KEYCLOAK_URL,
             realm: env.KEYCLOAK_REALM,
@@ -29,7 +39,8 @@ import { KEYCLOAK_ADMIN, type KeycloakAdmin } from './domain/demo-user.js';
             clientSecret: env.KEYCLOAK_DEMO_CLIENT_SECRET,
           },
           clock
-        ),
+        );
+      },
       inject: [APP_CONFIG, CLOCK],
     },
     {

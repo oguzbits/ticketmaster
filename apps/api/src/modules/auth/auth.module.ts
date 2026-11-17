@@ -2,7 +2,7 @@ import { Module, type Provider } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 
 import { APP_CONFIG } from '../../config/config.module.js';
-import type { Env } from '../../config/env.js';
+import { type Env, resolveOidcSettings } from '../../config/env.js';
 import { JwksTokenVerifier } from './adapters/jwks-token-verifier.js';
 import { TOKEN_VERIFIER } from './domain/token-verifier.js';
 import { JwtAuthGuard } from './jwt-auth.guard.js';
@@ -22,14 +22,8 @@ export const AUTH_GUARD_PROVIDERS: Provider[] = [
     {
       provide: TOKEN_VERIFIER,
       useFactory: (env: Env) => {
-        // The API reaches Keycloak at KEYCLOAK_URL, and Keycloak names itself after the host it was
-        // reached at, so the issuer is derived from the same URL.
-        const issuer = `${env.KEYCLOAK_URL}/realms/${env.KEYCLOAK_REALM}`;
-        return new JwksTokenVerifier(
-          issuer,
-          new URL(`${issuer}/protocol/openid-connect/certs`),
-          env.KEYCLOAK_DEMO_CLIENT_ID
-        );
+        const { provider, issuer, jwksUrl, clientId } = resolveOidcSettings(env);
+        return new JwksTokenVerifier(issuer, jwksUrl, clientId, provider);
       },
       inject: [APP_CONFIG],
     },

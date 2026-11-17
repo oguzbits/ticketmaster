@@ -49,7 +49,8 @@ Chosen: option 3.
   least-privilege Security Groups and ECS IAM roles, RDS PostgreSQL 18 Multi-AZ + RDS Proxy
   (matching [ADR 0005](0005-pgbouncer-transaction-mode.md)), encrypted Multi-AZ ElastiCache Redis,
   Cognito User Pool (`customer`, `organizer`, `admin` groups), ECS Fargate `api` (autoscaled,
-  `readonlyRootFilesystem`, `DEMO_LOGIN_ENABLED=false`, `UNSAFE_STRATEGIES_ENABLED=false`,
+  `readonlyRootFilesystem`, `AUTH_PROVIDER=cognito`, `OIDC_ISSUER`/`OIDC_CLIENT_ID`,
+  `DEMO_LOGIN_ENABLED=false`, `UNSAFE_STRATEGIES_ENABLED=false`,
   `MAIL_PROVIDER=ses`) & `worker`, internal HTTPS ALB, Regional WAFv2 WebACL, and `module "messaging"`.
 - **Local OpenTofu target (`infra/local`):** targets Floci via `endpoints { s3, sqs, sesv2, kms, sts }`
   with `skip_requesting_account_id = false` (required so Floci STS resolves `000000000000` and

@@ -74,10 +74,14 @@ variable with a comment; the table is generated (`pnpm docs:generate`).
 | `HOLD_TTL_SECONDS` | default `600` |
 | `PAYMENT_FAILURE_RATE` | default `0.1` |
 | `CORS_ORIGIN` | optional |
-| `KEYCLOAK_URL` | required |
+| `AUTH_PROVIDER` | default `keycloak` |
+| `OIDC_ISSUER` | optional |
+| `OIDC_JWKS_URL` | optional |
+| `OIDC_CLIENT_ID` | optional |
+| `KEYCLOAK_URL` | optional |
 | `KEYCLOAK_REALM` | default `ticketmaster` |
 | `KEYCLOAK_DEMO_CLIENT_ID` | default `api-demo` |
-| `KEYCLOAK_DEMO_CLIENT_SECRET` | required |
+| `KEYCLOAK_DEMO_CLIENT_SECRET` | optional |
 | `DEMO_USER_TTL_SECONDS` | default `3600` |
 | `DEMO_LOGIN_ENABLED` | default `false` |
 | `UNSAFE_STRATEGIES_ENABLED` | default `false` |

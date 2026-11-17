@@ -6,6 +6,7 @@ import { type CryptoKey, exportJWK, generateKeyPair, importJWK, type JWK, SignJW
 import { http, HttpResponse } from 'msw';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { AUTH_PROVIDER } from '../../../config/env.js';
 import { server } from '../../../testing/mock-server.js';
 import { JwksTokenVerifier } from './jwks-token-verifier.js';
 
@@ -200,6 +201,80 @@ describe('JwksTokenVerifier', () => {
       expect(warn).toHaveBeenCalledOnce();
       expect(warn).toHaveBeenCalledWith(expect.not.stringContaining(token));
       expect(debug).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('cognito', () => {
+    const cognitoIssuer = 'https://cognito-idp.eu-central-1.amazonaws.com/eu-central-1_example';
+    const cognitoJwksUrl = new URL(`${cognitoIssuer}/.well-known/jwks.json`);
+    const cognitoClientId = 'cognito-web-client';
+    let cognitoVerifier: JwksTokenVerifier;
+
+    beforeAll(() => {
+      cognitoVerifier = new JwksTokenVerifier(
+        cognitoIssuer,
+        cognitoJwksUrl,
+        cognitoClientId,
+        AUTH_PROVIDER.COGNITO
+      );
+    });
+
+    beforeEach(() => {
+      server.use(http.get(cognitoJwksUrl.href, () => HttpResponse.json({ keys: [publicJwk] })));
+    });
+
+    const cognitoClaims = (overrides: Record<string, object | string | number> = {}) => ({
+      sub: randomUUID(),
+      token_use: 'access',
+      client_id: cognitoClientId,
+      'cognito:groups': [ROLE.CUSTOMER],
+      ...overrides,
+    });
+
+    it('returns the subject and known Cognito groups of a valid access token', async () => {
+      const payload = cognitoClaims({
+        'cognito:groups': [ROLE.ADMIN, 'aws-cognito-internal'],
+      });
+      const token = await sign(payload, { issuer: cognitoIssuer });
+
+      await expect(cognitoVerifier.verify(token)).resolves.toEqual({
+        id: payload.sub,
+        roles: [ROLE.ADMIN],
+      });
+    });
+
+    it('accepts an access token without cognito:groups as a user without roles', async () => {
+      const payload = {
+        sub: randomUUID(),
+        token_use: 'access',
+        client_id: cognitoClientId,
+      };
+      const token = await sign(payload, { issuer: cognitoIssuer });
+
+      await expect(cognitoVerifier.verify(token)).resolves.toEqual({
+        id: payload.sub,
+        roles: [],
+      });
+    });
+
+    it('rejects a Cognito ID token (token_use: id)', async () => {
+      const token = await sign(cognitoClaims({ token_use: 'id' }), { issuer: cognitoIssuer });
+
+      await expect(cognitoVerifier.verify(token)).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('rejects an access token issued to another Cognito client', async () => {
+      const token = await sign(cognitoClaims({ client_id: 'other-client' }), {
+        issuer: cognitoIssuer,
+      });
+
+      await expect(cognitoVerifier.verify(token)).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('rejects Keycloak azp claims under the Cognito verifier', async () => {
+      const token = await sign(claims({ azp: cognitoClientId }), { issuer: cognitoIssuer });
+
+      await expect(cognitoVerifier.verify(token)).rejects.toBeInstanceOf(UnauthorizedException);
     });
   });
 });

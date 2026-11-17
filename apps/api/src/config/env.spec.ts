@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { migrationDatabaseUrl, parseEnv } from './env.js';
+import { AUTH_PROVIDER, migrationDatabaseUrl, parseEnv, resolveOidcSettings } from './env.js';
 
 const LOCAL_DATABASE_URL = 'postgres://app_runtime:app_runtime@localhost:54330/app';
 const LOCAL_MIGRATION_DATABASE_URL = 'postgres://app:app@localhost:54330/app';
@@ -40,6 +40,7 @@ describe('parseEnv', () => {
       REDIS_URL: LOCAL_REDIS_URL,
       HOLD_TTL_SECONDS: 600,
       PAYMENT_FAILURE_RATE: 0.1,
+      AUTH_PROVIDER: AUTH_PROVIDER.KEYCLOAK,
       KEYCLOAK_URL: LOCAL_KEYCLOAK_URL,
       KEYCLOAK_REALM: 'ticketmaster',
       KEYCLOAK_DEMO_CLIENT_ID: 'api-demo',
@@ -64,6 +65,34 @@ describe('parseEnv', () => {
       EVENT_CACHE_TTL_SECONDS: 30,
       RATE_LIMIT_SCALE: 1,
     });
+  });
+
+  it('supports AUTH_PROVIDER=cognito in production without Keycloak variables', () => {
+    const env = parseEnv({
+      ...PRODUCTION_BASE,
+      AUTH_PROVIDER: AUTH_PROVIDER.COGNITO,
+      OIDC_ISSUER: 'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_Pool123/',
+      OIDC_CLIENT_ID: 'web-client-123',
+    });
+
+    expect(resolveOidcSettings(env)).toEqual({
+      provider: AUTH_PROVIDER.COGNITO,
+      issuer: 'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_Pool123',
+      jwksUrl: new URL(
+        'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_Pool123/.well-known/jwks.json'
+      ),
+      clientId: 'web-client-123',
+    });
+    expect(() =>
+      parseEnv({ ...PRODUCTION_BASE, AUTH_PROVIDER: AUTH_PROVIDER.COGNITO, OIDC_CLIENT_ID: 'c' })
+    ).toThrow(/OIDC_ISSUER/);
+    expect(() =>
+      parseEnv({
+        ...PRODUCTION_BASE,
+        AUTH_PROVIDER: AUTH_PROVIDER.COGNITO,
+        OIDC_ISSUER: 'https://cognito-idp.us-east-1.amazonaws.com/pool',
+      })
+    ).toThrow(/OIDC_CLIENT_ID/);
   });
 
   it('defaults TRACING_SAMPLE_RATIO to 0.05 in production and rejects values outside [0, 1]', () => {

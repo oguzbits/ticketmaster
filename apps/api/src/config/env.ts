@@ -27,6 +27,12 @@ export const MAIL_PROVIDER = {
   SES: 'ses',
 } as const;
 
+export const AUTH_PROVIDER = {
+  KEYCLOAK: 'keycloak',
+  COGNITO: 'cognito',
+} as const;
+export type AuthProvider = (typeof AUTH_PROVIDER)[keyof typeof AUTH_PROVIDER];
+
 /**
  * Ports and credentials of `docker-compose.yml` and `docker/keycloak/ticketmaster-realm.json`:
  * local containers only. Used only outside production.
@@ -37,6 +43,7 @@ const LOCAL_DEFAULTS = {
   // The owner login of the migrations (docker-compose.yml, POSTGRES_USER).
   MIGRATION_DATABASE_URL: 'postgres://app:app@localhost:54330/app',
   REDIS_URL: 'redis://localhost:63790',
+  AUTH_PROVIDER: AUTH_PROVIDER.KEYCLOAK,
   KEYCLOAK_URL: 'http://localhost:8081',
   KEYCLOAK_DEMO_CLIENT_SECRET: 'local-demo-client-secret',
   // The emulator accepts any credentials.
@@ -68,11 +75,23 @@ export const EnvSchema = z
     PAYMENT_FAILURE_RATE: z.coerce.number().min(0).max(1).default(DEFAULT_PAYMENT_FAILURE_RATE),
     // Unset means no CORS headers at all (web and API share an origin behind Caddy).
     CORS_ORIGIN: z.url().optional(),
+    // Token verifier claim/discovery dialect: Keycloak locally, AWS Cognito in cloud production.
+    AUTH_PROVIDER: z.enum(AUTH_PROVIDER).default(AUTH_PROVIDER.KEYCLOAK),
+    // Generic OIDC overrides (required when AUTH_PROVIDER is cognito; optional override for keycloak).
+    OIDC_ISSUER: z
+      .url()
+      .transform((url) => url.replace(/\/+$/, ''))
+      .optional(),
+    OIDC_JWKS_URL: z.url().optional(),
+    OIDC_CLIENT_ID: z.string().min(1).optional(),
     // Built into `${KEYCLOAK_URL}/realms/...`: a trailing slash would give `//realms` and a wrong issuer.
-    KEYCLOAK_URL: z.url().transform((url) => url.replace(/\/+$/, '')),
+    KEYCLOAK_URL: z
+      .url()
+      .transform((url) => url.replace(/\/+$/, ''))
+      .optional(),
     KEYCLOAK_REALM: z.string().min(1).default(DEFAULT_KEYCLOAK_REALM),
     KEYCLOAK_DEMO_CLIENT_ID: z.string().min(1).default(DEFAULT_KEYCLOAK_DEMO_CLIENT_ID),
-    KEYCLOAK_DEMO_CLIENT_SECRET: z.string().min(1),
+    KEYCLOAK_DEMO_CLIENT_SECRET: z.string().min(1).optional(),
     DEMO_USER_TTL_SECONDS: z.coerce
       .number()
       .int()
@@ -129,6 +148,16 @@ export const EnvSchema = z
     GRAFANA_URL: z.url().optional(),
   })
   .superRefine((env, context) => {
+    const requireWhen = (
+      condition: boolean,
+      field: string,
+      value: string | undefined,
+      message: string
+    ) => {
+      if (condition && value === undefined) {
+        context.addIssue({ code: 'custom', path: [field], message });
+      }
+    };
     // A scaled limit is for local load runs; production keeps the real one.
     if (env.NODE_ENV === NODE_ENV.PRODUCTION && env.RATE_LIMIT_SCALE > 1) {
       context.addIssue({
@@ -137,16 +166,77 @@ export const EnvSchema = z
         message: 'must be 1 when NODE_ENV is production',
       });
     }
-    if (env.MAIL_PROVIDER === MAIL_PROVIDER.SMTP && env.SMTP_URL === undefined) {
-      context.addIssue({
-        code: 'custom',
-        path: ['SMTP_URL'],
-        message: 'required when MAIL_PROVIDER is smtp',
-      });
-    }
+    requireWhen(
+      env.MAIL_PROVIDER === MAIL_PROVIDER.SMTP,
+      'SMTP_URL',
+      env.SMTP_URL,
+      'required when MAIL_PROVIDER is smtp'
+    );
+    const needsKeycloak = env.AUTH_PROVIDER === AUTH_PROVIDER.KEYCLOAK || env.DEMO_LOGIN_ENABLED;
+    requireWhen(
+      needsKeycloak,
+      'KEYCLOAK_URL',
+      env.KEYCLOAK_URL,
+      'required when AUTH_PROVIDER is keycloak or demo login is enabled'
+    );
+    requireWhen(
+      needsKeycloak,
+      'KEYCLOAK_DEMO_CLIENT_SECRET',
+      env.KEYCLOAK_DEMO_CLIENT_SECRET,
+      'required when AUTH_PROVIDER is keycloak or demo login is enabled'
+    );
+    const isCognito = env.AUTH_PROVIDER === AUTH_PROVIDER.COGNITO;
+    requireWhen(
+      isCognito,
+      'OIDC_ISSUER',
+      env.OIDC_ISSUER,
+      'required when AUTH_PROVIDER is cognito'
+    );
+    requireWhen(
+      isCognito,
+      'OIDC_CLIENT_ID',
+      env.OIDC_CLIENT_ID,
+      'required when AUTH_PROVIDER is cognito'
+    );
   });
 
 export type Env = z.infer<typeof EnvSchema>;
+
+/** Resolves issuer, JWKS endpoint and client ID for the active identity provider. */
+export function resolveOidcSettings(
+  env: Pick<
+    Env,
+    | 'AUTH_PROVIDER'
+    | 'OIDC_ISSUER'
+    | 'OIDC_JWKS_URL'
+    | 'OIDC_CLIENT_ID'
+    | 'KEYCLOAK_URL'
+    | 'KEYCLOAK_REALM'
+    | 'KEYCLOAK_DEMO_CLIENT_ID'
+  >
+): { provider: AuthProvider; issuer: string; jwksUrl: URL; clientId: string } {
+  if (env.AUTH_PROVIDER === AUTH_PROVIDER.COGNITO) {
+    if (env.OIDC_ISSUER === undefined || env.OIDC_CLIENT_ID === undefined) {
+      throw new Error('OIDC_ISSUER and OIDC_CLIENT_ID are required for cognito');
+    }
+    return {
+      provider: env.AUTH_PROVIDER,
+      issuer: env.OIDC_ISSUER,
+      jwksUrl: new URL(env.OIDC_JWKS_URL ?? `${env.OIDC_ISSUER}/.well-known/jwks.json`),
+      clientId: env.OIDC_CLIENT_ID,
+    };
+  }
+  if (env.KEYCLOAK_URL === undefined) {
+    throw new Error('KEYCLOAK_URL is required for keycloak');
+  }
+  const issuer = env.OIDC_ISSUER ?? `${env.KEYCLOAK_URL}/realms/${env.KEYCLOAK_REALM}`;
+  return {
+    provider: env.AUTH_PROVIDER,
+    issuer,
+    jwksUrl: new URL(env.OIDC_JWKS_URL ?? `${issuer}/protocol/openid-connect/certs`),
+    clientId: env.OIDC_CLIENT_ID ?? env.KEYCLOAK_DEMO_CLIENT_ID,
+  };
+}
 
 /** The login the migration job uses; it never falls back to the runtime login. */
 export function migrationDatabaseUrl(env: Env): string {

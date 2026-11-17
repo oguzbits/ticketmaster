@@ -394,6 +394,9 @@ Enterprise hardening follow-ups:
   and `DELETE` from `app_runtime` and installing a `BEFORE UPDATE OR DELETE` trigger.
 - `TRACING_SAMPLE_RATIO` (`0..1`, default `0.05` in production, `1` locally and in Compose)
   configures root trace sampling via `TraceIdRatioBasedSampler` inside `ParentBasedSampler`.
+- `AUTH_PROVIDER` (`keycloak` | `cognito`) and `OIDC_ISSUER`/`OIDC_JWKS_URL`/`OIDC_CLIENT_ID`
+  align the API's `JwksTokenVerifier` (`cognito:groups`, `client_id`, `token_use: 'access'`) and
+  `DemoModule` fallback with the AWS Cognito blueprint in `infra/aws/compute.tf`.
 
 ## Deviations from the plan
 

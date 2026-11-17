@@ -153,11 +153,12 @@ resource "aws_ecs_task_definition" "api" {
         { name = "UNSAFE_STRATEGIES_ENABLED", value = "false" },
         { name = "MAIL_PROVIDER", value = "ses" },
         { name = "MAIL_FROM", value = var.ses_sender_email },
-        { name = "KEYCLOAK_URL", value = "https://cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.main.id}" },
+        { name = "AUTH_PROVIDER", value = "cognito" },
+        { name = "OIDC_ISSUER", value = "https://cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.main.id}" },
+        { name = "OIDC_CLIENT_ID", value = aws_cognito_user_pool_client.web.id },
       ]
       secrets = [
         { name = "WAITING_ROOM_SIGNING_SECRET", valueFrom = aws_secretsmanager_secret.waiting_room_signing.arn },
-        { name = "KEYCLOAK_DEMO_CLIENT_SECRET", valueFrom = aws_secretsmanager_secret.cognito_client.arn },
       ]
       logConfiguration = {
         logDriver = "awslogs"
@@ -242,6 +243,9 @@ resource "aws_ecs_task_definition" "worker" {
       environment = [
         { name = "NODE_ENV", value = "production" },
         { name = "AWS_REGION", value = var.aws_region },
+        { name = "AUTH_PROVIDER", value = "cognito" },
+        { name = "OIDC_ISSUER", value = "https://cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.main.id}" },
+        { name = "OIDC_CLIENT_ID", value = aws_cognito_user_pool_client.web.id },
         { name = "UNSAFE_STRATEGIES_ENABLED", value = "false" },
         { name = "MAIL_PROVIDER", value = "ses" },
         { name = "MAIL_FROM", value = var.ses_sender_email },

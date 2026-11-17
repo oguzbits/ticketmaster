@@ -3,23 +3,43 @@ import { Logger, UnauthorizedException } from '@nestjs/common';
 import { createRemoteJWKSet, errors, jwtVerify } from 'jose';
 import { z } from 'zod';
 
+import { AUTH_PROVIDER, type AuthProvider } from '../../../config/env.js';
 import type { AuthUser } from '../domain/auth-user.js';
 import type { TokenVerifier } from '../domain/token-verifier.js';
 
-const ClaimsSchema = z.object({
-  sub: z.uuid(),
-  // Keycloak's own roles (offline_access, uma_authorization, ...) sit in the same list; keep ours.
-  realm_access: z
+const COGNITO_ACCESS_TOKEN_USE = 'access';
+
+function parseKnownRoles(names: readonly string[]): Role[] {
+  return names.flatMap((name): Role[] => {
+    const role = RoleSchema.safeParse(name);
+    return role.success ? [role.data] : [];
+  });
+}
+
+function buildClaimsSchema(provider: AuthProvider, clientId: string): z.ZodType<AuthUser> {
+  if (provider === AUTH_PROVIDER.COGNITO) {
+    return z
+      .object({
+        sub: z.uuid(),
+        token_use: z.literal(COGNITO_ACCESS_TOKEN_USE),
+        client_id: z.literal(clientId),
+        'cognito:groups': z.array(z.string()).transform(parseKnownRoles).optional(),
+      })
+      .transform((claims) => ({ id: claims.sub, roles: claims['cognito:groups'] ?? [] }));
+  }
+  return z
     .object({
-      roles: z.array(z.string()).transform((names) =>
-        names.flatMap((name): Role[] => {
-          const role = RoleSchema.safeParse(name);
-          return role.success ? [role.data] : [];
+      sub: z.uuid(),
+      azp: z.literal(clientId),
+      // Keycloak's own roles (offline_access, uma_authorization, ...) sit in the same list; keep ours.
+      realm_access: z
+        .object({
+          roles: z.array(z.string()).transform(parseKnownRoles),
         })
-      ),
+        .optional(),
     })
-    .optional(),
-});
+    .transform((claims) => ({ id: claims.sub, roles: claims.realm_access?.roles ?? [] }));
+}
 
 /**
  * A bad token (expired, wrong signature, unknown key, odd claims) is the caller's fault; a key set
@@ -36,24 +56,24 @@ function isTokenFault(error: Error): boolean {
   );
 }
 
-/** Verifies Keycloak access tokens against the realm's JWKS (cached by `jose`). */
+/** Verifies Keycloak or AWS Cognito RS256 access tokens against the provider's JWKS (cached by `jose`). */
 export class JwksTokenVerifier implements TokenVerifier {
   private readonly logger = new Logger(JwksTokenVerifier.name);
   private readonly keys: ReturnType<typeof createRemoteJWKSet>;
-  private readonly claims: typeof ClaimsSchema;
+  private readonly claims: z.ZodType<AuthUser>;
 
   /**
-   * `clientId` is the one client whose tokens are accepted. Keycloak puts the client a token was
-   * issued to in `azp` (the `aud` claim only appears with an audience mapper), so another client
-   * of the realm cannot reach the API with its own tokens.
+   * `clientId` pins the one client whose tokens are accepted (`azp` in Keycloak, `client_id` +
+   * `token_use: 'access'` in Cognito) so tokens issued to another client cannot reach the API.
    */
   constructor(
     private readonly issuer: string,
     jwksUrl: URL,
-    clientId: string
+    clientId: string,
+    provider: AuthProvider = AUTH_PROVIDER.KEYCLOAK
   ) {
     this.keys = createRemoteJWKSet(jwksUrl);
-    this.claims = ClaimsSchema.extend({ azp: z.literal(clientId) });
+    this.claims = buildClaimsSchema(provider, clientId);
   }
 
   async verify(token: string): Promise<AuthUser> {
@@ -63,8 +83,7 @@ export class JwksTokenVerifier implements TokenVerifier {
         algorithms: ['RS256'],
         requiredClaims: ['exp'],
       });
-      const claims = this.claims.parse(payload);
-      return { id: claims.sub, roles: claims.realm_access?.roles ?? [] };
+      return this.claims.parse(payload);
     } catch (error) {
       // The caller learns "unauthorized" and nothing else; the reason goes to the log as an error
       // name, never the token. An unreachable key set is an outage, so it is a warning.
