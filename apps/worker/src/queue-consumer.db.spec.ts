@@ -274,6 +274,34 @@ describe('QueueConsumer against the local emulator', () => {
     expect(await leftOver(queue, consumer)).toEqual([]);
   });
 
+  it(
+    'polls batches of up to 10 and deletes succeeding messages even when another message in the batch fails',
+    async () => {
+      const { queue, dlq } = await scratch();
+      const receiveSpy = vi.spyOn(queue, 'receive');
+      const deleteSpy = vi.spyOn(queue, 'delete');
+      const handler = new RecordingHandler();
+      const failing = confirmed();
+      const good1 = confirmed();
+      const good2 = confirmed();
+      handler.failures.set(failing.messageId, Infinity);
+
+      await send(queue, failing);
+      await send(queue, good1);
+      await send(queue, good2);
+      const consumer = start(queue, handler);
+
+      await expect
+        .poll(() => handler.handled.slice().sort(), { timeout: DLQ_WAIT_MS })
+        .toEqual([good1.messageId, good2.messageId].sort());
+      expect(receiveSpy).toHaveBeenCalledWith(10, expect.any(AbortSignal));
+      expect(deleteSpy).toHaveBeenCalledTimes(2);
+      expect(await inDlq(dlq, 1)).toEqual([failing.messageId]);
+      expect(await leftOver(queue, consumer)).toEqual([]);
+    },
+    SLOW_TEST_MS
+  );
+
   describe('effect metrics', () => {
     const outcomes = (metrics: RecordingMetrics) =>
       metrics.calls.map((call) => `${call.method}:${call.args.join(':')}`);

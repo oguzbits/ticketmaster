@@ -397,6 +397,9 @@ Enterprise hardening follow-ups:
 - `AUTH_PROVIDER` (`keycloak` | `cognito`) and `OIDC_ISSUER`/`OIDC_JWKS_URL`/`OIDC_CLIENT_ID`
   align the API's `JwksTokenVerifier` (`cognito:groups`, `client_id`, `token_use: 'access'`) and
   `DemoModule` fallback with the AWS Cognito blueprint in `infra/aws/compute.tf`.
+- `QueueConsumer` (`apps/worker/src/queue-consumer.ts`) receives batches of up to 10 SQS messages
+  (`receive(10)`) and processes/deletes each message independently so a failing or unparsable
+  message never blocks or discards the rest of the batch.
 
 ## Deviations from the plan
 
@@ -591,11 +594,11 @@ open points below.
   rows out of order after a failure; a consumer must not rely on the order of messages. A mail
   that repeats after a crash between its send and the dedupe commit is accepted: delivery is at
   least once, and a repeated confirmation mail is harmless.
-- **The queue consumer takes one message at a time** (`receive(1)`, one loop per worker), so its
-  throughput is one message per round trip and handler. Batching and parallel loops wait for a
-  handler that is slow enough to need them. A message whose handler keeps failing is received
-  `MAX_RECEIVE_COUNT` times (visibility timeout 120 s each) before it reaches the dead-letter
-  queue.
+- **The queue consumer runs a single batch loop per worker.** It receives batches of up to 10
+  messages per long poll and handles/deletes each message independently; scaling beyond one
+  batch loop per worker means running additional worker replicas. A message whose handler keeps
+  failing is received `MAX_RECEIVE_COUNT` times (visibility timeout 120 s each) before it reaches
+  the dead-letter queue.
 - **A handler that runs longer than the 120 s visibility timeout** still sees its message delivered
   again while it works (the dedupe record serializes the two); the timeouts of the external calls
   keep a run well below that.

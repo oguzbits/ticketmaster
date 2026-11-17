@@ -1,7 +1,12 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import { BUSINESS_METRICS, type BusinessMetrics, EFFECT_OUTCOME } from '@app/api/metrics';
-import { MESSAGE_QUEUE, type MessageQueue, OutboxService } from '@app/api/outbox';
+import {
+  MESSAGE_QUEUE,
+  type MessageQueue,
+  OutboxService,
+  type ReceivedMessage,
+} from '@app/api/outbox';
 import { SPAN_ATTR, SPAN_NAME, SpanKind, withExtractedContext, withSpan } from '@app/api/tracing';
 import { OUTBOX_MESSAGE_TYPE, type QueueMessage, QueueMessageSchema } from '@app/shared';
 import {
@@ -20,15 +25,18 @@ import type {
 /** The effects of a booking-confirmed message, in the order they run: the mail reads the PDF the first one stored. */
 export const BOOKING_CONFIRMED_EFFECTS = Symbol('BOOKING_CONFIRMED_EFFECTS');
 
+/** Maximum SQS batch size per ReceiveMessage call. */
+const RECEIVE_BATCH_SIZE = 10;
+
 /** The pause after a failing iteration, so a queue or database that is down is not hammered. */
 const ERROR_PAUSE_MS = 1000;
 
 /**
- * Receives one message at a time from the queue (long poll) and hands it to the handler of its
- * type, once per message ID. The message is deleted only after the handler succeeded (or the
- * message was handled before); every failure leaves it in the queue, which delivers it again after
- * the visibility timeout and moves it to the dead-letter queue after the receive limit.
- * An unparsable message is moved directly to the dead-letter queue without stalling the loop.
+ * Long-polls batches of up to 10 messages from the queue and handles each message independently,
+ * once per message ID. Each message is deleted only after its handler succeeded (or was handled
+ * before); a failure leaves that message in the queue for redelivery and dead-lettering without
+ * discarding or stalling the rest of the batch. An unparsable message is moved directly to the
+ * dead-letter queue.
  */
 @Injectable()
 export class QueueConsumer implements OnModuleInit, OnModuleDestroy {
@@ -49,7 +57,7 @@ export class QueueConsumer implements OnModuleInit, OnModuleDestroy {
     this.loop = this.consume();
   }
 
-  /** Ends the loop and the open long poll; a message that is being handled finishes first. */
+  /** Ends the loop and the open long poll; any batch that is being handled finishes first. */
   async onModuleDestroy(): Promise<void> {
     this.stopping.abort();
     await this.loop;
@@ -79,8 +87,22 @@ export class QueueConsumer implements OnModuleInit, OnModuleDestroy {
   }
 
   private async next(): Promise<void> {
-    const [received] = await this.queue.receive(1, this.stopping.signal);
-    if (received === undefined) return;
+    const batch = await this.queue.receive(RECEIVE_BATCH_SIZE, this.stopping.signal);
+    if (batch.length === 0) return;
+    const failures: Error[] = [];
+    await Promise.all(
+      batch.map(async (received) => {
+        try {
+          await this.handleOne(received);
+        } catch (error) {
+          failures.push(error instanceof Error ? error : new Error(String(error)));
+        }
+      })
+    );
+    if (failures[0] !== undefined) throw failures[0];
+  }
+
+  private async handleOne(received: ReceivedMessage): Promise<void> {
     const message = this.parse(received.body);
     if (message === null) {
       // The ID only, never the body. Moved directly to the dead-letter queue so it does not stall the loop.
