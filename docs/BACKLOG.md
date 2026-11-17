@@ -385,6 +385,12 @@ Enterprise production alignment, slice 5 (observability hardening, burn-rate ale
   scrubbed browser spans same-origin via `/v1/traces` (proxied by Caddy to `tempo:4318`) with W3C
   `traceparent` propagation.
 
+Enterprise hardening follow-ups:
+
+- `CacheAside` (`apps/api/src/infrastructure/cache/cache-aside.ts`) coalesces concurrent misses per
+  cache key in-process (singleflight) and marks active loads stale on `invalidate` so a pre-commit
+  reader cannot write stale values back after invalidation.
+
 ## Deviations from the plan
 
 - **No SWC for NestJS decorators.** Vitest (Vite 8, Oxc) reads `experimentalDecorators` and
@@ -675,9 +681,11 @@ Phase 3, slice A:
 
 Phase 3, slice D:
 
-- **A reader can cache a stale value up to the TTL.** A reader that loaded from PostgreSQL before a
-  commit can write its value after the invalidation of that commit; the entry then lives until the
-  TTL ends (30 s). Accepted; a version in the key would close it.
+- **A cross-instance reader can cache a stale value up to the TTL.** Within one API instance,
+  `CacheAside.invalidate` marks in-flight loads stale so they skip `redis.set`; across separate
+  API instances, a reader that loaded from PostgreSQL before another instance's commit can still
+  write its value after invalidation until the TTL ends (30 s). Accepted; a version in the key
+  would close it.
 - **Seeds are not invalidated.** The seed writes events by SQL, so a changed seed shows up after the
   TTL.
 - **A sandbox user pays one extra query.** The list of a signed-in user adds their own sandbox

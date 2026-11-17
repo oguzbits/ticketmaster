@@ -269,4 +269,100 @@ describe('CacheAside', () => {
       await close();
     });
   });
+
+  describe('singleflight', () => {
+    it('coalesces concurrent misses for the same key into a single load', async () => {
+      fresh();
+      const key = freshKey();
+      let loads = 0;
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const load = async () => {
+        loads += 1;
+        await gate;
+        return VALUE;
+      };
+
+      const pending = Promise.all([
+        cache.getOrLoad(CACHE, key, ValueSchema, TTL_SECONDS, load),
+        cache.getOrLoad(CACHE, key, ValueSchema, TTL_SECONDS, load),
+        cache.getOrLoad(CACHE, key, ValueSchema, TTL_SECONDS, load),
+      ]);
+      // Yield a tick so all callers queue behind the in-flight load before releasing it.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      release();
+
+      expect(await pending).toEqual([VALUE, VALUE, VALUE]);
+      expect(loads).toBe(1);
+    });
+
+    it('clears the in-flight slot after a failed load so the next call retries', async () => {
+      fresh();
+      const key = freshKey();
+      let attempt = 0;
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const load = async () => {
+        attempt += 1;
+        if (attempt === 1) {
+          await gate;
+          throw new Error('db timeout');
+        }
+        return VALUE;
+      };
+
+      const first = cache.getOrLoad(CACHE, key, ValueSchema, TTL_SECONDS, load);
+      const second = cache.getOrLoad(CACHE, key, ValueSchema, TTL_SECONDS, load);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      release();
+
+      await expect(first).rejects.toThrow('db timeout');
+      await expect(second).rejects.toThrow('db timeout');
+      expect(attempt).toBe(1);
+      await expect(cache.getOrLoad(CACHE, key, ValueSchema, TTL_SECONDS, load)).resolves.toEqual(
+        VALUE
+      );
+      expect(attempt).toBe(2);
+    });
+
+    it('does not write a stale value to redis when invalidated mid-flight', async () => {
+      fresh();
+      const key = freshKey();
+      const FRESH = { name: 'after-commit' };
+      let releaseStale!: () => void;
+      const staleGate = new Promise<void>((resolve) => {
+        releaseStale = resolve;
+      });
+      let loads = 0;
+
+      const staleRead = cache.getOrLoad(CACHE, key, ValueSchema, TTL_SECONDS, async () => {
+        loads += 1;
+        await staleGate;
+        return VALUE;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await cache.invalidate(CACHE, key);
+
+      const postInvalidateRead = await cache.getOrLoad(
+        CACHE,
+        key,
+        ValueSchema,
+        TTL_SECONDS,
+        async () => {
+          loads += 1;
+          return FRESH;
+        }
+      );
+      releaseStale();
+
+      expect(await staleRead).toEqual(VALUE);
+      expect(postInvalidateRead).toEqual(FRESH);
+      expect(loads).toBe(2);
+      expect(JSON.parse((await redis.get(key)) ?? 'null')).toEqual(FRESH);
+    });
+  });
 });

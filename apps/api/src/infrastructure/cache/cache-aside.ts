@@ -24,17 +24,24 @@ export const CACHE_COMMAND_TIMEOUT_MS = 250;
  */
 export const CACHE_BREAKER = { FAILURES: 5, OPEN_MS: 5000 } as const;
 
+interface InFlightEntry {
+  promise: Promise<string | null>;
+  stale: boolean;
+}
+
 /**
  * Cache-aside on Redis (JSON strings with a TTL). This is the one explicit fail-open path of the
  * API: when Redis fails or does not answer within CACHE_COMMAND_TIMEOUT_MS, the read goes to the
  * loader and the error is logged with the key (IDs only), counted as ERROR and never thrown. The
  * TTL bounds how stale a value can get. While the breaker is open a call is counted as ERROR and
- * skipped without a log line; the breaker logs once when it opens.
+ * skipped without a log line; the breaker logs once when it opens. Concurrent misses on the same
+ * key coalesce in-process (singleflight) so only one loader hits PostgreSQL.
  */
 @Injectable()
 export class CacheAside {
   private readonly logger = new Logger(CacheAside.name);
   private readonly breaker = new CircuitBreaker(CACHE_BREAKER.FAILURES, CACHE_BREAKER.OPEN_MS);
+  private readonly inflight = new Map<string, InFlightEntry>();
 
   constructor(
     @Inject(REDIS) private readonly redis: Redis,
@@ -52,6 +59,11 @@ export class CacheAside {
     load: () => Promise<z.infer<S> | null>
   ): Promise<z.infer<S> | null> {
     if (ttlSeconds === 0) return load();
+    const flightKey = `${cache}\0${key}`;
+    const existing = this.inflight.get(flightKey);
+    if (existing !== undefined) {
+      return this.awaitInFlight(existing.promise, schema);
+    }
     const lookup = await this.attempt(cache, key, async (redis) => {
       const raw = await redis.get(key);
       if (raw === null) return undefined;
@@ -63,25 +75,72 @@ export class CacheAside {
         throw error;
       }
     });
-    if (!lookup.ok) return load();
+    if (!lookup.ok) {
+      return this.coalesceLoad(flightKey, schema, load, () => Promise.resolve());
+    }
     if (lookup.value?.success) {
       this.metrics.cacheLookup(cache, CACHE_RESULT.HIT);
       return lookup.value.data;
     }
     // A value that fails the schema (an old shape after a deploy) is a miss and is replaced below.
     this.metrics.cacheLookup(cache, CACHE_RESULT.MISS);
-    const loaded = await load();
-    if (loaded !== null) {
-      await this.attempt(cache, key, (redis) =>
-        redis.set(key, JSON.stringify(loaded), { EX: ttlSeconds })
-      );
-    }
-    return loaded;
+    return this.coalesceLoad(flightKey, schema, load, (serialized) =>
+      this.attempt(cache, key, (redis) => redis.set(key, serialized, { EX: ttlSeconds })).then(
+        () => undefined
+      )
+    );
   }
 
-  /** Never throws; a Redis error is logged and counted as ERROR for `cache`. */
+  /**
+   * Marks any active in-flight load for these keys stale and removes them from coalescing so a
+   * pre-commit reader never writes stale data after invalidation, then deletes the Redis keys.
+   * Never throws; a Redis error is logged and counted as ERROR for `cache`.
+   */
   async invalidate(cache: string, ...keys: string[]): Promise<void> {
+    for (const key of keys) {
+      const flightKey = `${cache}\0${key}`;
+      const active = this.inflight.get(flightKey);
+      if (active !== undefined) {
+        active.stale = true;
+        this.inflight.delete(flightKey);
+      }
+    }
     await this.attempt(cache, keys.join(','), (redis) => redis.del(keys));
+  }
+
+  private async awaitInFlight<S extends z.ZodType>(
+    promise: Promise<string | null>,
+    schema: S
+  ): Promise<z.infer<S> | null> {
+    const serialized = await promise;
+    if (serialized === null) return null;
+    return schema.parse(JSON.parse(serialized));
+  }
+
+  private async coalesceLoad<S extends z.ZodType>(
+    flightKey: string,
+    schema: S,
+    load: () => Promise<z.infer<S> | null>,
+    persist: (serialized: string) => Promise<void>
+  ): Promise<z.infer<S> | null> {
+    const existing = this.inflight.get(flightKey);
+    if (existing !== undefined) {
+      return this.awaitInFlight(existing.promise, schema);
+    }
+    const entry: InFlightEntry = { stale: false, promise: Promise.resolve(null) };
+    entry.promise = (async () => {
+      try {
+        const loaded = await load();
+        if (loaded === null) return null;
+        const serialized = JSON.stringify(loaded);
+        if (!entry.stale) await persist(serialized);
+        return serialized;
+      } finally {
+        if (this.inflight.get(flightKey) === entry) this.inflight.delete(flightKey);
+      }
+    })();
+    this.inflight.set(flightKey, entry);
+    return this.awaitInFlight(entry.promise, schema);
   }
 
   /** The one catch: a failed or unanswered Redis call is logged with its key, counted, never thrown. */
