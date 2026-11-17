@@ -6,6 +6,8 @@ import {
   type BusinessMetrics,
   CACHE_RESULT,
 } from '../../core/business-metrics.js';
+import { CircuitBreaker } from '../../core/circuit-breaker.js';
+import { CLOCK, type Clock } from '../../core/clock.js';
 import { REDIS, type Redis } from '../redis/redis.module.js';
 
 /**
@@ -17,18 +19,27 @@ import { REDIS, type Redis } from '../redis/redis.module.js';
 export const CACHE_COMMAND_TIMEOUT_MS = 250;
 
 /**
+ * After FAILURES failed calls in a row the cache is skipped for OPEN_MS: no Redis call, no wait of
+ * CACHE_COMMAND_TIMEOUT_MS per read and no log line per call.
+ */
+export const CACHE_BREAKER = { FAILURES: 5, OPEN_MS: 5000 } as const;
+
+/**
  * Cache-aside on Redis (JSON strings with a TTL). This is the one explicit fail-open path of the
  * API: when Redis fails or does not answer within CACHE_COMMAND_TIMEOUT_MS, the read goes to the
  * loader and the error is logged with the key (IDs only), counted as ERROR and never thrown. The
- * TTL bounds how stale a value can get.
+ * TTL bounds how stale a value can get. While the breaker is open a call is counted as ERROR and
+ * skipped without a log line; the breaker logs once when it opens.
  */
 @Injectable()
 export class CacheAside {
   private readonly logger = new Logger(CacheAside.name);
+  private readonly breaker = new CircuitBreaker(CACHE_BREAKER.FAILURES, CACHE_BREAKER.OPEN_MS);
 
   constructor(
     @Inject(REDIS) private readonly redis: Redis,
-    @Inject(BUSINESS_METRICS) private readonly metrics: BusinessMetrics
+    @Inject(BUSINESS_METRICS) private readonly metrics: BusinessMetrics,
+    @Inject(CLOCK) private readonly clock: Clock
   ) {}
 
   /** ttlSeconds 0: no Redis call, no metric, just `load`. null from `load` is returned and not stored. */
@@ -79,6 +90,10 @@ export class CacheAside {
     key: string,
     run: (redis: Redis) => Promise<T>
   ): Promise<{ ok: true; value: T } | { ok: false }> {
+    if (this.breaker.isOpen(this.clock.now().getTime())) {
+      this.metrics.cacheLookup(cache, CACHE_RESULT.ERROR);
+      return { ok: false };
+    }
     // The signal drops a command that is still queued; the client's `timeout` option would do the
     // same and nothing more. A command already written is only ended by the race.
     const abort = new AbortController();
@@ -91,6 +106,7 @@ export class CacheAside {
     });
     try {
       const value = await Promise.race([run(this.redis.withAbortSignal(abort.signal)), timeout]);
+      this.breaker.success();
       return { ok: true, value };
     } catch (error) {
       this.metrics.cacheLookup(cache, CACHE_RESULT.ERROR);
@@ -98,6 +114,11 @@ export class CacheAside {
         key,
         message: error instanceof Error ? error.message : 'non-error thrown',
       });
+      if (this.breaker.failure(this.clock.now().getTime())) {
+        this.logger.warn({
+          message: `cache skipped for ${CACHE_BREAKER.OPEN_MS} ms after failures`,
+        });
+      }
       return { ok: false };
     } finally {
       clearTimeout(timer);

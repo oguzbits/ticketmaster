@@ -5,10 +5,12 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
 import { CACHE_RESULT } from '../../core/business-metrics.js';
+import type { Clock } from '../../core/clock.js';
 import { RecordingMetrics } from '../../modules/bookings/testing/recording-metrics.js';
 import { openReadOnlyRedis, openTestRedis, openUnresponsiveRedis } from '../../testing/redis.js';
+import { SystemClock } from '../clock/system-clock.js';
 import type { Redis } from '../redis/redis.module.js';
-import { CacheAside } from './cache-aside.js';
+import { CACHE_BREAKER, CacheAside } from './cache-aside.js';
 
 const CACHE = 'spec.cache';
 const TTL_SECONDS = 30;
@@ -38,7 +40,7 @@ describe('CacheAside', () => {
   });
   const fresh = () => {
     metrics = new RecordingMetrics();
-    cache = new CacheAside(redis, metrics);
+    cache = new CacheAside(redis, metrics, new SystemClock());
   };
 
   it('loads once on a miss, then serves the stored value with a lifetime', async () => {
@@ -112,7 +114,7 @@ describe('CacheAside', () => {
     const closed = await openTestRedis();
     await closed.quit();
     metrics = new RecordingMetrics();
-    cache = new CacheAside(closed, metrics);
+    cache = new CacheAside(closed, metrics, new SystemClock());
 
     const result = await cache.getOrLoad(
       CACHE,
@@ -129,7 +131,7 @@ describe('CacheAside', () => {
   it('answers within a bound when redis stops answering, counts ERROR', async () => {
     const { client, close } = await openUnresponsiveRedis();
     metrics = new RecordingMetrics();
-    cache = new CacheAside(client, metrics);
+    cache = new CacheAside(client, metrics, new SystemClock());
     const started = Date.now();
 
     const result = await cache.getOrLoad(
@@ -151,7 +153,7 @@ describe('CacheAside', () => {
     metrics = new RecordingMetrics();
     const started = Date.now();
 
-    await new CacheAside(client, metrics).invalidate(CACHE, freshKey());
+    await new CacheAside(client, metrics, new SystemClock()).invalidate(CACHE, freshKey());
 
     close();
     expect(Date.now() - started).toBeLessThan(RESPONSE_BOUND_MS);
@@ -162,7 +164,7 @@ describe('CacheAside', () => {
     const { client, close } = await openReadOnlyRedis();
     metrics = new RecordingMetrics();
 
-    const result = await new CacheAside(client, metrics).getOrLoad(
+    const result = await new CacheAside(client, metrics, new SystemClock()).getOrLoad(
       CACHE,
       freshKey(),
       ValueSchema,
@@ -185,7 +187,7 @@ describe('CacheAside', () => {
     const key = freshKey();
 
     try {
-      await new CacheAside(closed, new RecordingMetrics()).getOrLoad(
+      await new CacheAside(closed, new RecordingMetrics(), new SystemClock()).getOrLoad(
         CACHE,
         key,
         ValueSchema,
@@ -216,9 +218,55 @@ describe('CacheAside', () => {
     metrics = new RecordingMetrics();
 
     await expect(
-      new CacheAside(closed, metrics).invalidate(CACHE, freshKey())
+      new CacheAside(closed, metrics, new SystemClock()).invalidate(CACHE, freshKey())
     ).resolves.toBeUndefined();
 
     expect(counted()).toEqual([['cacheLookup', CACHE, CACHE_RESULT.ERROR]]);
+  });
+
+  describe('circuit breaker', () => {
+    const readFresh = (breaking: CacheAside) =>
+      breaking.getOrLoad(CACHE, freshKey(), ValueSchema, TTL_SECONDS, async () => VALUE);
+
+    it('skips redis after repeated failures, silently, and tries again once the window is over', async () => {
+      const closed = await openTestRedis();
+      await closed.quit();
+      metrics = new RecordingMetrics();
+      let nowMs = Date.UTC(2026, 0, 1);
+      const clock: Clock = { now: () => new Date(nowMs) };
+      const breaking = new CacheAside(closed, metrics, clock);
+      for (let i = 0; i < CACHE_BREAKER.FAILURES; i += 1) await readFresh(breaking);
+      const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      const calls = vi.spyOn(closed, 'withAbortSignal');
+
+      try {
+        const skipped = await readFresh(breaking);
+        nowMs += CACHE_BREAKER.OPEN_MS - 1;
+        await readFresh(breaking);
+        expect([skipped, logged.mock.calls.length, calls.mock.calls.length]).toEqual([VALUE, 0, 0]);
+        expect(counted()).toHaveLength(CACHE_BREAKER.FAILURES + 2);
+
+        nowMs += 1;
+        await readFresh(breaking);
+        expect([logged.mock.calls.length, calls.mock.calls.length]).toEqual([1, 1]);
+      } finally {
+        logged.mockRestore();
+        calls.mockRestore();
+      }
+    });
+
+    it('a successful call between failures keeps it closed', async () => {
+      // Reads succeed on this client and the write after the load fails: one success, one failure.
+      const { client, close } = await openReadOnlyRedis();
+      metrics = new RecordingMetrics();
+      const breaking = new CacheAside(client, metrics, new SystemClock());
+      const reads = vi.spyOn(client, 'withAbortSignal');
+
+      for (let i = 0; i <= CACHE_BREAKER.FAILURES; i += 1) await readFresh(breaking);
+
+      expect(reads).toHaveBeenCalledTimes(2 * (CACHE_BREAKER.FAILURES + 1));
+      reads.mockRestore();
+      await close();
+    });
   });
 });

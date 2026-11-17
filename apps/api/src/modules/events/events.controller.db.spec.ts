@@ -26,6 +26,7 @@ import { configureApp } from '../../app.setup.js';
 import { loadEnv } from '../../config/config.module.js';
 import { CLOCK } from '../../core/clock.js';
 import { CacheAside } from '../../infrastructure/cache/cache-aside.js';
+import { SystemClock } from '../../infrastructure/clock/system-clock.js';
 import { bookings, demoUsers } from '../../infrastructure/database/schema.js';
 import { createTestEvent, openTestDatabase } from '../../testing/database.js';
 import { fakeTokenVerifier, randomClientAddress } from '../../testing/http.js';
@@ -232,10 +233,13 @@ describe('events endpoints', () => {
     // The db project runs with the cache off; this service has it on, against a client that is gone.
     const closed = await openTestRedis();
     await closed.quit();
-    const cache = new EventCache(new CacheAside(closed, new RecordingMetrics()), {
-      ...loadEnv(),
-      EVENT_CACHE_TTL_SECONDS: 30,
-    });
+    const cache = new EventCache(
+      new CacheAside(closed, new RecordingMetrics(), new SystemClock()),
+      {
+        ...loadEnv(),
+        EVENT_CACHE_TTL_SECONDS: 30,
+      }
+    );
     const service = new EventsService(db, app.get(AuditService), cache);
     const { eventId } = await createTestEvent(db, { strategy: STRATEGY, seats: 1 });
 
