@@ -171,8 +171,9 @@ creation, strategy switch, waiting-room change, simulation start): who (`actor_i
 when it matches `^[A-Za-z0-9._-]{1,128}$`, otherwise a generated UUID, so no free text (an email
 address) reaches the table or the logs. It is
 append-only: `AuditService.record` is the only writer, it inserts on the transaction of the change
-(so a rolled-back change leaves no row), and nothing updates or deletes rows. The database does not
-enforce this (migrations are generated, a trigger would need a hand-written one). `at` comes from
+(so a rolled-back change leaves no row), `app_runtime` has no `UPDATE` or `DELETE` privilege on the
+table, and migration `0016` installs a `BEFORE UPDATE OR DELETE` trigger (`audit_log_append_only`)
+that rejects mutations even from the table owner. `at` comes from
 the injected clock. The table has no foreign key: a row must outlive a deleted demo user or event.
 `audit_log(actor_id, id)` and `audit_log(action, id)` serve the filtered pages of the admin route,
 which pages newest first by `id`. There is no retention yet (backlog).

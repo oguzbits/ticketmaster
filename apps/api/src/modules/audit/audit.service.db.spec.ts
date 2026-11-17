@@ -1,10 +1,16 @@
 import { randomUUID } from 'node:crypto';
 
 import { AUDIT_ACTION, AUDIT_SUBJECT } from '@app/shared';
+import { eq } from 'drizzle-orm';
+import postgres from 'postgres';
 import { afterAll, describe, expect, it } from 'vitest';
 
+import { loadEnv } from '../../config/config.module.js';
+import { migrationDatabaseUrl } from '../../config/env.js';
 import type { Clock } from '../../core/clock.js';
+import { auditLog } from '../../infrastructure/database/schema.js';
 import { openTestDatabase } from '../../testing/database.js';
+import { testDatabaseUrl } from '../../testing/test-database-url.js';
 import { AuditService } from './audit.service.js';
 import { auditRows } from './testing/index.js';
 
@@ -51,5 +57,31 @@ describe('AuditService.record', () => {
     ).rejects.toThrow(Rollback);
 
     expect(await rowsOf(input.actorId)).toEqual([]);
+  });
+
+  it('rejects UPDATE and DELETE at the database layer for both runtime and owner roles', async () => {
+    const input = entry();
+    await db.transaction((tx) => audit.record(tx, input));
+    const [stored] = await rowsOf(input.actorId);
+    const id = Number(stored?.id);
+
+    await expect(
+      db.update(auditLog).set({ requestId: 'tampered' }).where(eq(auditLog.id, id))
+    ).rejects.toThrow();
+    await expect(db.delete(auditLog).where(eq(auditLog.id, id))).rejects.toThrow();
+
+    const ownerClient = postgres(testDatabaseUrl(migrationDatabaseUrl(loadEnv())), { max: 1 });
+    try {
+      await expect(
+        ownerClient`update audit_log set request_id = 'tampered' where id = ${id}`
+      ).rejects.toThrow(/append-only/);
+      await expect(ownerClient`delete from audit_log where id = ${id}`).rejects.toThrow(
+        /append-only/
+      );
+    } finally {
+      await ownerClient.end();
+    }
+
+    expect(await rowsOf(input.actorId)).toEqual([stored]);
   });
 });
