@@ -577,9 +577,11 @@ open points below.
   outlives the deleted Keycloak user. The grace period (`ACCESS_TOKEN_GRACE_SECONDS`) covers only
   tokens issued before `expires_at`. A booking made in that window has no `demo_users` row to
   clean it (a hold still expires by itself).
-- **Chrome reports a Content-Security-Policy `eval` violation** on the web app. The source is not
-  traced yet; the policy has no `unsafe-eval`. Find the script that calls `eval` before widening
-  the policy.
+- **Chrome reports a Content-Security-Policy `eval` violation** on the web app, once per page load.
+  The source is Zod's JIT probe (`new Function("")` inside a `try/catch`, `allowsEval` in the
+  bundle): Zod falls back to its interpreted parser, so nothing breaks and the policy stays without
+  `unsafe-eval`. `z.config({ jitless: true })` at bootstrap would silence it; that needs `zod` as a
+  direct dependency of `apps/web` (today only `packages/shared` has it).
 - **The local development database holds test leftovers** (about 3,400 venues from earlier
   test runs). Reset it with
   `docker compose down -v`; the next `docker compose up` or `pnpm db:migrate` recreates it with the
