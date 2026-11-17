@@ -19,6 +19,7 @@ import { buildOpenApi } from '../../apps/api/src/openapi/build.ts';
 import { ROUTES, SCHEMAS } from '../../apps/api/src/openapi/routes.ts';
 import { WAITING_ROOM_ROUTES } from '../../apps/api/src/openapi/waiting-room-routes.ts';
 import { replaceBlocks, table } from './blocks.mjs';
+import { envStatus } from './env-status.mjs';
 import { apiSourceOf, moduleGraph } from './module-graph.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
@@ -64,11 +65,6 @@ function workerApiImports() {
       .filter((resolved) => resolved !== null)
       .map((resolved) => ({ resolved })),
   }));
-}
-
-function envStatus(schema) {
-  if (schema.def.type === 'default') return `default \`${schema.def.defaultValue}\``;
-  return schema.isOptional() ? 'optional' : 'required';
 }
 
 const BLOCKS = {

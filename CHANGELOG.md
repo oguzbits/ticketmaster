@@ -6,6 +6,33 @@ the versions follow [SemVer](https://semver.org/). The state of the work and the
 
 ## [Unreleased]
 
+### Added
+
+- Payments: release a claimed payment key when the provider throws `PaymentNotChargedError`, and
+  automatically refund charges that succeeded after a booking expired (`PAYMENT_REFUNDED` audit
+  row).
+- Tickets & demo cleanup: serialize ticket PDF/mail effects against cancellation with a share
+  lock, purge stored PDFs of cancelled bookings and expired demo users, move poison queue messages
+  directly to the dead-letter queue, and replay dead-letter queue messages via `pnpm dlq:replay`.
+- Audit log UI: filter entries by actor ID.
+- Waiting room UI: configure or disable `waitingRoomCapacity` on existing events from the seat map
+  for organizers and admins (`WaitingRoomSettings`).
+- Docs generator: report defaulted env fields wrapped in `.transform(...)` with their default
+  value (`TRACING_OTLP_ENDPOINT`).
+- Infrastructure: declare explicit `MessageRetentionPeriod` (4 days) on `BOOKING_EVENTS` and its
+  dead-letter queue in `INFRASTRUCTURE`.
+
+### Changed
+
+- Event cache: short-circuit Redis lookups for 5 s after five consecutive failures and admit a
+  single probe call on half-open recovery.
+- Waiting room stream: emit 15 s SSE heartbeats on the API and reconnect from the web client after
+  three missed beats (45 s idle).
+- Telemetry: flush tracing and metrics via Nest's `OnApplicationShutdown` lifecycle instead of
+  racing graceful shutdown on `SIGTERM`.
+- Web app: lazy-load non-root routes to reduce the initial bundle (844 kB -> 756 kB) and configure
+  Zod `jitless: true` so Chrome raises no CSP `eval` warning.
+
 ## [0.1.0]
 
 First release: the system runs locally with `docker compose up`. The public live demo is not part
