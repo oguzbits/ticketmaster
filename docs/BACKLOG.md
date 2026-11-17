@@ -602,11 +602,6 @@ open points below.
   consumer name in the consumer group of the stream; they are not removed. A worker that is slower
   than the timeout loses its run: the result it stores late is dropped and the run stays `FAILED`.
 
-- **`failover.e2e.ts` is flaky on CI.** It failed once (a request answered an error in the ten seconds
-  after one replica stopped) and passed on the next run of the same code; locally it once timed out
-  at the browser launch on a busy machine. Not investigated: check how many requests fail and
-  whether Caddy's failure window or the DNS refresh explains it before widening any limit.
-
 Phase 3, slice A:
 
 - **Traces of a retry or redelivery are children of the same send span:** one trace, several

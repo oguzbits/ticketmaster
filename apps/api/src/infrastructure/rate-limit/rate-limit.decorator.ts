@@ -6,12 +6,14 @@ export const RATE_LIMIT = {
   REFRESH: { limit: 30, windowSeconds: 60 },
   CREATE_EVENT: { limit: 10, windowSeconds: 60 },
   SIMULATION: { limit: 5, windowSeconds: 60 },
+  // Probes poll often; their own counter keeps them from using up the default limit of an address.
+  HEALTH: { limit: 600, windowSeconds: 60 },
 } as const;
 
 export type RateLimitName = keyof typeof RATE_LIMIT;
 
 export const RATE_LIMIT_KEY = 'rateLimit';
 
-/** Swaps the default per-IP limit of a route for a named, stricter one. */
+/** Swaps the default per-IP limit of a route for a named one. */
 export const RateLimit = (name: RateLimitName): CustomDecorator =>
   SetMetadata(RATE_LIMIT_KEY, name);

@@ -9,10 +9,15 @@
 # every replica that starts or stops (Caddy would otherwise resolve it once at start). A request
 # whose connection to a replica fails is tried on the next one for a few seconds, and a replica
 # that failed is skipped for a while. Only a failed connection is retried for every method; once a
-# connection is made, only GET is.
+# connection is made, only GET is. A replica that holds a connection but never answers (it died
+# without closing it) would keep a request waiting for about 15 minutes, until the kernel gives up
+# on the connection, so the first argument is the longest wait for the response headers.
 (api_replicas) {
 	dynamic a api 3000 {
 		refresh 2s
+	}
+	transport http {
+		response_header_timeout {args[0]}
 	}
 	lb_policy round_robin
 	lb_try_duration 5s
@@ -32,9 +37,10 @@
 		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
 	}
 
+	# A probe answers within milliseconds: a short wait lets the retry reach the other replica.
 	handle /health/* {
 		reverse_proxy {
-			import api_replicas
+			import api_replicas 2s
 		}
 	}
 
@@ -43,7 +49,7 @@
 	# only takes compressible types).
 	handle /api/* {
 		reverse_proxy {
-			import api_replicas
+			import api_replicas 30s
 			flush_interval -1
 		}
 	}

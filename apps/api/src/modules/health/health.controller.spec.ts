@@ -1,17 +1,22 @@
 import { HEALTH_STATUS, HealthResponseSchema, OUTBOX_SIGNAL } from '@app/shared';
 import type { INestApplication } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { ConfigModule } from '../../config/config.module.js';
 import { DatabaseModule, DB } from '../../infrastructure/database/database.module.js';
+import { RateLimitGuard } from '../../infrastructure/rate-limit/rate-limit.guard.js';
+import { RateLimiter } from '../../infrastructure/rate-limit/rate-limiter.js';
 import { REDIS, RedisModule } from '../../infrastructure/redis/redis.module.js';
 import { MESSAGE_QUEUE, OUTBOX_STUCK_SECONDS, OutboxService } from '../outbox/index.js';
 import { FakeMessageQueue } from '../outbox/testing/index.js';
 import { HealthModule } from './health.module.js';
 
 const FAKE_PONG = 'PONG';
+const DEFAULT_LIMIT_KEY = 'rl:DEFAULT:';
+const HEALTH_LIMIT_KEY = 'rl:HEALTH:';
 
 describe('health endpoints', () => {
   // The fakes stand in for the real connections and are switched per test.
@@ -32,11 +37,23 @@ describe('health endpoints', () => {
     oldestUnpublishedAgeSeconds: () =>
       outbox.failing ? Promise.reject(new Error('db down')) : Promise.resolve(outbox.ageSeconds),
   };
+  // Every key the rate limit guard counted; it lets every request through.
+  const limitedKeys: string[] = [];
+  const limiter = {
+    hit: (key: string) => {
+      limitedKeys.push(key);
+      return Promise.resolve({ allowed: true, retryAfterSeconds: 0 });
+    },
+  };
   let app: INestApplication;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [ConfigModule, DatabaseModule, RedisModule, HealthModule],
+      providers: [
+        { provide: APP_GUARD, useClass: RateLimitGuard },
+        { provide: RateLimiter, useValue: limiter },
+      ],
     })
       .overrideProvider(DB)
       .useValue(db)
@@ -52,6 +69,16 @@ describe('health endpoints', () => {
   });
 
   afterAll(() => app.close());
+
+  it('counts the probes on their own limit, not on the default one of the address', async () => {
+    limitedKeys.length = 0;
+
+    await request(app.getHttpServer()).get('/health/ready').expect(200);
+
+    expect(limitedKeys).toHaveLength(1);
+    expect(limitedKeys[0]).toMatch(new RegExp(`^${HEALTH_LIMIT_KEY}`));
+    expect(limitedKeys.some((key) => key.startsWith(DEFAULT_LIMIT_KEY))).toBe(false);
+  });
 
   it('GET /health/live answers 200 with the health contract', async () => {
     const response = await request(app.getHttpServer()).get('/health/live').expect(200);

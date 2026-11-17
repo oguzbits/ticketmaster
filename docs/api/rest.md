@@ -125,6 +125,7 @@ Every response carries no personal data; requests are logged with the `x-request
 | `DEMO_LOGIN`   | the demo login (replaces `DEFAULT` for the address)           | client address                                | 5 per 60 s         |
 | `REFRESH`      | the token refresh (replaces `DEFAULT` for the address)        | client address                                | 30 per 60 s        |
 | `CREATE_EVENT` | `POST /api/events` (replaces `DEFAULT` for the address)       | client address                                | 10 per 60 s        |
+| `HEALTH`       | `/health/*` (replaces `DEFAULT` for the address)              | client address                                | 600 per 60 s       |
 
 ## Payment idempotency
 

@@ -3,10 +3,12 @@ import { Controller, Get, Inject, Logger, ServiceUnavailableException } from '@n
 import { sql } from 'drizzle-orm';
 
 import { type Database, DB } from '../../infrastructure/database/database.module.js';
+import { RateLimit } from '../../infrastructure/rate-limit/rate-limit.decorator.js';
 import { REDIS, type Redis } from '../../infrastructure/redis/redis.module.js';
 import { Public } from '../auth/index.js';
 import { OUTBOX_STUCK_SECONDS, OutboxService } from '../outbox/index.js';
 
+@RateLimit('HEALTH')
 @Controller('health')
 export class HealthController {
   private readonly logger = new Logger(HealthController.name);
