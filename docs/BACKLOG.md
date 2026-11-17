@@ -344,6 +344,21 @@ Enterprise production alignment, slice 2 (AWS SESv2 mail transport):
   by `aws-init` (`GetEmailIdentity` / `CreateEmailIdentity`), and verified against Floci 2.4.0
   (`MessageRejected` without verified identity, `/_aws/ses` attachment round-trip).
 
+Enterprise production alignment, slice 3 (OpenTofu IaC):
+
+- Shared OpenTofu module `infra/modules/messaging` declares the SQS queues (`booking-events`,
+  `booking-events-dlq`, redrive policy), S3 `tickets` bucket (public access block, versioning,
+  SSE-KMS, lifecycle, conditional TLS-only bucket policy), and SESv2 sender identity.
+- `infra/local` targets Floci (`kms`, `s3`, `sqs`, `sesv2`, `sts`) and passes full `apply` ->
+  `plan -detailed-exitcode` -> `destroy`; `scripts/infrastructure.mjs` stays the sub-second Compose
+  bootstrapper while `scripts/infra-parity.test.mjs` prevents drift against
+  `packages/shared/src/aws.ts` ([ADR 0006](adr/0006-infrastructure-as-code.md)).
+- `infra/aws` declares the full AWS production blueprint (2-AZ VPC with Flow Logs and VPC
+  endpoints, KMS with rotation, Secrets Manager, least-privilege Security Groups & ECS IAM roles,
+  RDS PostgreSQL 18 Multi-AZ + RDS Proxy, Multi-AZ ElastiCache Redis, Cognito User Pool, ECS
+  Fargate `api`/`worker`, internal HTTPS ALB, and Regional WAFv2), validated by `pnpm infra:validate`,
+  `pnpm infra:trivy` (zero HIGH/CRITICAL findings), and CI.
+
 ## Deviations from the plan
 
 - **No SWC for NestJS decorators.** Vitest (Vite 8, Oxc) reads `experimentalDecorators` and

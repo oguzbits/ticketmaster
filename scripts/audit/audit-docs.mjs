@@ -20,6 +20,7 @@ const SKIP_DIRS = new Set([
   'dist',
   'coverage',
   '.git',
+  '.terraform',
   'reports',
   'results',
   '.superpowers',

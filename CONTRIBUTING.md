@@ -139,6 +139,7 @@ The full table is in [AGENTS.md](AGENTS.md#5-commands). The two that matter most
 - `pnpm check` runs every static gate; the pre-commit hook and CI run the same command.
 - `pnpm test` runs the unit tests offline; the pre-push hook runs it.
 - `pnpm e2e` runs the browser tests against the whole stack (see below); CI runs it as the `e2e` job.
+- `pnpm infra:validate` and `pnpm infra:trivy` format-check, validate, and Trivy-scan the OpenTofu configurations (`infra/local` for Floci, `infra/aws` for the AWS production blueprint, `infra/modules/messaging` shared between both).
 
 ## Tests
 

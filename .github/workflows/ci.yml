@@ -196,6 +196,25 @@ jobs:
         if: always()
         run: docker compose down --volumes --remove-orphans
 
+  tofu:
+    timeout-minutes: 10
+    name: OpenTofu (format check and validate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Format and validate OpenTofu configurations
+        run: |
+          docker run --rm -v "$PWD":/w -w /w ghcr.io/opentofu/opentofu:1.13.9-minimal@sha256:84af0049634b7a7c455ab79c485818a8ef7f775cad3b2d42ce1c98ade720b5d1 \
+            fmt -check -recursive infra/
+          for dir in infra/local infra/aws; do
+            docker run --rm -v "$PWD":/w -w "/w/$dir" ghcr.io/opentofu/opentofu:1.13.9-minimal@sha256:84af0049634b7a7c455ab79c485818a8ef7f775cad3b2d42ce1c98ade720b5d1 \
+              init -backend=false -input=false
+            docker run --rm -v "$PWD":/w -w "/w/$dir" ghcr.io/opentofu/opentofu:1.13.9-minimal@sha256:84af0049634b7a7c455ab79c485818a8ef7f775cad3b2d42ce1c98ade720b5d1 \
+              validate
+          done
+
   trivy:
     timeout-minutes: 10
     name: Trivy (dependencies, secrets, Dockerfile) and SBOM

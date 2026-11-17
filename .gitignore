@@ -21,3 +21,9 @@ _temp_*.md
 
 .stryker-tmp/
 stryker.log
+
+# OpenTofu
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan

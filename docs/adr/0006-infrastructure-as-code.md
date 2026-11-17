@@ -1,69 +1,89 @@
-# 0006: Infrastructure as code for queues and bucket
+# 0006: Infrastructure as code (OpenTofu and local bootstrap)
 
-- Status: accepted
+- Status: accepted (revised 2026-11-17)
 - Date: 2026-11-14
 
 ## Context and problem statement
 
-The queue `booking-events`, its dead-letter queue, the redrive policy and the bucket `tickets` were
-created by an imperative script ([ADR 0004](0004-local-aws-emulator.md)) that mixed what must exist
-with how to create it, and it set the queue attributes on every run. The resources must be declared
-in one place and applied idempotently by a one-shot that the apps wait for, locally against the
-emulator and later against a real account. Which tool applies the declaration?
+Initially only two SQS queues (`booking-events` and `booking-events-dlq`) and one S3 bucket
+(`tickets`) existed on the local AWS emulator ([ADR 0004](0004-local-aws-emulator.md)). When aligning
+the project with enterprise AWS production standards (VPC segmentation, KMS encryption, RDS
+PostgreSQL 18 + RDS Proxy, Multi-AZ ElastiCache Redis, Cognito, ECS Fargate behind WAF/ALB, SQS,
+S3, and SESv2), the declarative surface grew beyond what an application bootstrap script can model
+or tear down. At the same time, local Compose/E2E runs start from an ephemeral emulator without a
+volume and cannot afford a ~50 s delay on every test setup.
 
 ## Decision drivers
 
-- Smallest set of moving parts: no new binary, image, provider download or state file.
-- Runs against the emulator and against AWS with only an endpoint setting.
-- The declaration lives next to the names the application code already imports.
-- Applying twice changes nothing; a missing resource comes back; the behavior is testable offline.
+- Declarative production blueprint in OpenTofu (`infra/aws`, `infra/modules/messaging`) covering
+  compute, data, auth, security, and messaging without locking into a vendor-proprietary license.
+- Same shared `infra/modules/messaging` module verified live against the local Floci emulator
+  (`infra/local`) with `tofu apply` / `tofu plan -detailed-exitcode` / `tofu destroy`.
+- Sub-second local Compose and CI test startup (`aws-init` / `pnpm aws:init`): measured `tofu apply`
+  against Floci takes ~25 s per `aws_sqs_queue` (plus ~25 s for `aws_sqs_queue_redrive_allow_policy`
+  destroy) because of the AWS provider's built-in SQS attribute propagation wait.
+- Zero configuration drift between `packages/shared/src/aws.ts` (`INFRASTRUCTURE`) and
+  `infra/modules/messaging`.
 
 ## Considered options
 
-1. An SDK script: the declaration is a constant in `packages/shared`, `scripts/infrastructure.mjs`
-   converges it with the AWS SDK that the project already depends on.
-2. OpenTofu with the AWS provider, endpoint overrides for the emulator, run by a one-shot.
+1. SDK script only (`scripts/infrastructure.mjs` — original 2026-11-14 choice).
+2. OpenTofu for everything including `docker compose up` `aws-init`.
+3. Dual-layer IaC: OpenTofu (`infra/`) as the declarative specification for AWS production
+   (`infra/aws`), local Floci parity (`infra/local`), and shared messaging (`infra/modules/messaging`),
+   paired with `scripts/infrastructure.mjs` for sub-second ephemeral Compose/test initialization and a
+   unit parity check (`scripts/infra-parity.test.mjs`).
 
 ## Decision outcome
 
-Chosen: option 1.
+Chosen: option 3.
 
-- `INFRASTRUCTURE` (`packages/shared/src/aws.ts`) lists the queues (a dead-letter queue before the
-  queue that points to it), their visibility timeout and redrive policy, and the buckets. The names
-  and numbers are the constants the application code imports, so code and declaration cannot drift.
-- `applyInfrastructure` looks each resource up first. A missing queue or bucket is created, a queue
-  whose visibility timeout or redrive policy differs is set back, a matching one is left alone.
-  Any other error, such as a denied lookup, stops the run. It returns what it changed, and the
-  one-shot prints it (`nothing to change` on a second run).
-- The one-shot `aws-init` (Compose) and `pnpm aws:init` run it. `api` and `worker` start after it
-  has completed (`service_completed_successfully`).
-- Tests (`scripts/infrastructure.test.mjs`, offline, an in-memory SQS and S3): first run creates
-  everything with the redrive target, a second run sends no mutating call, a deleted queue is
-  recreated, a drifted attribute is set back, an unexpected error is not swallowed. The same was
-  run by hand against the emulator: delete `booking-events`, apply, apply again.
+- **Shared OpenTofu module (`infra/modules/messaging`):** declares the dead-letter queue
+  (`booking-events-dlq`), main queue (`booking-events` with visibility timeout `120`, retention
+  `345600`, and `maxReceiveCount = 5`), redrive-allow policy, S3 bucket (`tickets` with public
+  access block, versioning, KMS encryption, lifecycle, and conditional TLS-only bucket policy), and
+  SESv2 sender identity (`tickets@ticketmaster-klon.invalid`).
+- **AWS production blueprint (`infra/aws`):** declares the full enterprise target architecture:
+  2-AZ VPC (public, private-app, and isolated private-data subnets, VPC Flow Logs, Gateway/Interface
+  VPC Endpoints), customer-managed KMS key with rotation, Secrets Manager secret containers,
+  least-privilege Security Groups and ECS IAM roles, RDS PostgreSQL 18 Multi-AZ + RDS Proxy
+  (matching [ADR 0005](0005-pgbouncer-transaction-mode.md)), encrypted Multi-AZ ElastiCache Redis,
+  Cognito User Pool (`customer`, `organizer`, `admin` groups), ECS Fargate `api` (autoscaled,
+  `readonlyRootFilesystem`, `DEMO_LOGIN_ENABLED=false`, `UNSAFE_STRATEGIES_ENABLED=false`,
+  `MAIL_PROVIDER=ses`) & `worker`, internal HTTPS ALB, Regional WAFv2 WebACL, and `module "messaging"`.
+- **Local OpenTofu target (`infra/local`):** targets Floci via `endpoints { s3, sqs, sesv2, kms, sts }`
+  with `skip_requesting_account_id = false` (required so Floci STS resolves `000000000000` and
+  `aws_sesv2_email_identity` produces valid ARNs) and `enforce_tls_bucket_policy = false` (local
+  emulator uses plain HTTP).
+- **Fast local bootstrap (`scripts/infrastructure.mjs`):** retained for Compose `aws-init` and
+  `pnpm aws:init` / `pnpm db:up` / `pnpm e2e` so local container startup stays under a second instead
+  of waiting ~50 s per run on AWS provider SQS propagation timers.
+- **Drift & security gates:** `scripts/infra-parity.test.mjs` asserts in `pnpm test` that
+  `infra/modules/messaging` defaults match `INFRASTRUCTURE` (`packages/shared/src/aws.ts`);
+  `pnpm infra:validate` (`tofu fmt -check`, `tofu validate`) and `pnpm infra:trivy` (Trivy config
+  scan with zero HIGH/CRITICAL findings) run locally and in CI (`tofu` and `trivy` jobs).
 
 ### Consequences
 
-- Good: no new dependency or binary; the one-shot image is the existing `tools` stage.
-- Good: a change of a limit (receive count, visibility timeout) is one edit that both the code and
-  the infrastructure read.
-- Bad: the script knows only queues, redrive, visibility timeout and buckets. A new kind of
-  resource (a topic, a bucket policy) needs code in the script, where OpenTofu would need a block.
-  Revisit when the declaration needs more than a handful of resource kinds or a real account with
-  several environments.
-- Bad: nothing is removed. A resource that leaves the declaration stays until it is deleted by hand;
-  there is no state file to diff against.
+- Good: declarative `plan` / `destroy`, full AWS production architecture, zero Trivy HIGH/CRITICAL
+  misconfigurations, and shared module parity verified against Floci.
+- Good: local `docker compose up`, `pnpm db:up`, and `pnpm e2e` stay fast without downloading
+  provider plugins or paying the 25 s/queue provider delay on every ephemeral container boot.
+- Bad: changing queue/bucket/SES defaults in `packages/shared/src/aws.ts` requires updating
+  `infra/modules/messaging/variables.tf` as well — enforced automatically by
+  `scripts/infra-parity.test.mjs`.
 
 ## Pros and cons of the options
 
-### Option 1: SDK script
+### Option 1: SDK script only
 
-- Good: reuses the SDK, the shared constants and the Node image; unit-testable with a fake client.
-- Bad: convergence logic is ours, limited to what it handles; no plan or destroy.
+- Good: minimal moving parts when only queues and a bucket existed.
+- Bad: cannot express VPCs, KMS, IAM, RDS/RDS Proxy, ElastiCache, Cognito, ECS, ALB, or WAF; no
+  `plan`/`destroy` or static security scanning.
 
-### Option 2: OpenTofu
+### Option 2: OpenTofu in `aws-init`
 
-- Good: declarative language, plan and destroy, a large resource catalogue.
-- Bad: another binary and image, a provider download at start, a state file to keep or discard on
-  each emulator restart, endpoint overrides per service. Its behavior against the emulator was not
-  evaluated, because option 1 already covers everything the system declares.
+- Good: single provisioning mechanism.
+- Bad: adds ~50–75 s to every `pnpm db:up` / `pnpm e2e` cold start due to the AWS provider's
+  hardcoded SQS attribute wait, plus provider plugin and state management inside ephemeral Compose
+  runs.

@@ -33,6 +33,9 @@
     "db:down": "docker compose down",
     "aws:init": "pnpm --filter @app/shared build && node scripts/aws-init.mjs",
     "aws:smoke": "pnpm --filter @app/shared build && node scripts/aws-smoke.mjs",
+    "infra:fmt": "tofu fmt -recursive infra/",
+    "infra:validate": "tofu fmt -check -recursive infra/ && tofu -chdir=infra/local init -backend=false >/dev/null && tofu -chdir=infra/local validate && tofu -chdir=infra/aws init -backend=false >/dev/null && tofu -chdir=infra/aws validate",
+    "infra:trivy": "trivy config --severity HIGH,CRITICAL --exit-code 1 infra/",
     "dlq:replay": "pnpm --filter @app/shared build && node scripts/dlq-replay.mjs",
     "dlq:status": "pnpm --filter @app/shared build && node scripts/dlq-replay.mjs --status",
     "e2e": "node scripts/e2e.mjs",
@@ -78,7 +81,9 @@
           "@playwright/test"
         ],
         "ignoreBinaries": [
-          "ffmpeg"
+          "ffmpeg",
+          "tofu",
+          "trivy"
         ]
       },
       "apps/web": {
