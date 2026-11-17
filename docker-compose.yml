@@ -231,6 +231,7 @@ services:
       # see docs/observability.md.
       TRACING_ENABLED: ${TRACING_ENABLED:-false}
       TRACING_OTLP_ENDPOINT: http://tempo:4318
+      TRACING_SAMPLE_RATIO: ${TRACING_SAMPLE_RATIO:-1}
       # Off unless started with METRICS_ENABLED=true (see docs/observability.md). Prometheus scrapes
       # port 9464 inside the network; it is never published to the host.
       METRICS_ENABLED: ${METRICS_ENABLED:-false}
@@ -276,6 +277,7 @@ services:
       # see docs/observability.md.
       TRACING_ENABLED: ${TRACING_ENABLED:-false}
       TRACING_OTLP_ENDPOINT: http://tempo:4318
+      TRACING_SAMPLE_RATIO: ${TRACING_SAMPLE_RATIO:-1}
       # Off unless started with METRICS_ENABLED=true (see docs/observability.md). Prometheus scrapes
       # port 9464 inside the network; it is never published to the host.
       METRICS_ENABLED: ${METRICS_ENABLED:-false}

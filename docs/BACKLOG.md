@@ -392,6 +392,8 @@ Enterprise hardening follow-ups:
   reader cannot write stale values back after invalidation.
 - `audit_log` (`migration 0016`) enforces append-only at the PostgreSQL layer by revoking `UPDATE`
   and `DELETE` from `app_runtime` and installing a `BEFORE UPDATE OR DELETE` trigger.
+- `TRACING_SAMPLE_RATIO` (`0..1`, default `0.05` in production, `1` locally and in Compose)
+  configures root trace sampling via `TraceIdRatioBasedSampler` inside `ParentBasedSampler`.
 
 ## Deviations from the plan
 
@@ -653,7 +655,8 @@ Phase 3, slice A:
 
 - **Traces of a retry or redelivery are children of the same send span:** one trace, several
   consumer spans.
-- **Sampling is always on.** Fine for the demo; revisit before the live demo.
+- **Root trace sampling defaults to 5 % in production** (`TRACING_SAMPLE_RATIO`, `1` locally and
+  in Compose). Tail-based error/latency sampling at the collector is not configured yet.
 - **Alloy mounts the Docker socket.** `:ro` does not limit the API
   ([observability.md](observability.md)).
 - **Rows older than migration 0009 have no `traceparent`.**

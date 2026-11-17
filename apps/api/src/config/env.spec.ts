@@ -57,12 +57,21 @@ describe('parseEnv', () => {
       MAIL_FROM: DEFAULT_MAIL_FROM,
       TRACING_ENABLED: false,
       TRACING_OTLP_ENDPOINT: LOCAL_OTLP_ENDPOINT,
+      TRACING_SAMPLE_RATIO: 1,
       METRICS_ENABLED: false,
       METRICS_PORT: 9464,
       METRICS_HOST: '127.0.0.1',
       EVENT_CACHE_TTL_SECONDS: 30,
       RATE_LIMIT_SCALE: 1,
     });
+  });
+
+  it('defaults TRACING_SAMPLE_RATIO to 0.05 in production and rejects values outside [0, 1]', () => {
+    expect(parseEnv({ ...PRODUCTION_BASE, ...KEYCLOAK_PRODUCTION }).TRACING_SAMPLE_RATIO).toBe(
+      0.05
+    );
+    expect(() => parseEnv({ TRACING_SAMPLE_RATIO: '1.5' })).toThrow(/TRACING_SAMPLE_RATIO/);
+    expect(() => parseEnv({ TRACING_SAMPLE_RATIO: '-0.1' })).toThrow(/TRACING_SAMPLE_RATIO/);
   });
 
   it('names the invalid variable but never prints its value', () => {

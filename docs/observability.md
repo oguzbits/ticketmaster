@@ -26,7 +26,9 @@ docker compose --profile observability down   # stop it again (add -v to drop th
 | alloy        | none                  | reads the container logs and ships them to Loki                                                       |
 
 `api` and `worker` send spans to `http://tempo:4318` (`TRACING_OTLP_ENDPOINT` in the Compose file)
-when `TRACING_ENABLED=true`. Their Docker command is
+when `TRACING_ENABLED=true`. Root trace sampling uses `TRACING_SAMPLE_RATIO` (`0.05` by default in
+production, `1` locally and in Compose), wrapped in `ParentBasedSampler` so child spans always follow
+their incoming `traceparent`. Their Docker command is
 `node --import ./dist/tracing.preload.js dist/main.js`; the preload registers the ESM hooks before the
 app imports Express and does nothing when tracing is off. When `GET /health/live` answers `tracing: true`,
 the web app lazily loads its OpenTelemetry browser bundle (`ticketmaster-web`) after bootstrap and

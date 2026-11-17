@@ -59,6 +59,21 @@ describe('startTracing', () => {
     expect(spans.map((span) => span.name)).toEqual(['probe']);
     expect(spans[0]?.resource.attributes['service.name']).toBe(SERVICE_NAME.WORKER);
   });
+
+  it('drops unsampled root spans when TRACING_SAMPLE_RATIO is 0', async () => {
+    const { exporter, spans } = collectingExporter();
+    const batch = new BatchSpanProcessor({ exporter, scheduledDelayMillis: 60_000 });
+    handle = startTracing(
+      { ...ENV_ON, TRACING_SAMPLE_RATIO: 0 },
+      { serviceName: SERVICE_NAME.API, spanProcessor: batch }
+    );
+
+    await withSpan('dropped-root', () => Promise.resolve());
+    await handle?.shutdown();
+    handle = null;
+
+    expect(spans).toHaveLength(0);
+  });
 });
 
 describe('exported spans', () => {

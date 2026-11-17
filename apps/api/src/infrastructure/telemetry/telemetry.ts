@@ -53,6 +53,7 @@ export async function startTelemetry(
     Env,
     | 'TRACING_ENABLED'
     | 'TRACING_OTLP_ENDPOINT'
+    | 'TRACING_SAMPLE_RATIO'
     | 'METRICS_ENABLED'
     | 'METRICS_PORT'
     | 'METRICS_HOST'

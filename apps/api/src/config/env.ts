@@ -10,6 +10,7 @@ const DEFAULT_KEYCLOAK_DEMO_CLIENT_ID = 'api-demo';
 const DEFAULT_DEMO_USER_TTL_SECONDS = 3600;
 const DEFAULT_AWS_REGION = 'us-east-1';
 const DEFAULT_TRACING_OTLP_ENDPOINT = 'http://localhost:4318';
+const DEFAULT_TRACING_SAMPLE_RATIO = 0.05;
 const DEFAULT_METRICS_PORT = 9464;
 const DEFAULT_METRICS_HOST = '127.0.0.1';
 const DEFAULT_EVENT_CACHE_TTL_SECONDS = 30;
@@ -48,6 +49,8 @@ const LOCAL_DEFAULTS = {
   // Enabled locally for the demo and strategy comparison; off by default in production.
   DEMO_LOGIN_ENABLED: 'true',
   UNSAFE_STRATEGIES_ENABLED: 'true',
+  // Sample all root traces locally so the observability profile captures every request.
+  TRACING_SAMPLE_RATIO: '1',
   // Local HMAC key for signed waiting-room admission tokens; production requires a dedicated secret.
   WAITING_ROOM_SIGNING_SECRET: 'local-waiting-room-signing-secret-0000',
 };
@@ -104,6 +107,8 @@ export const EnvSchema = z
       .url()
       .default(DEFAULT_TRACING_OTLP_ENDPOINT)
       .transform((url) => url.replace(/\/+$/, '')),
+    // Share of root traces recorded when tracing is on (parent decisions are still honored).
+    TRACING_SAMPLE_RATIO: z.coerce.number().min(0).max(1).default(DEFAULT_TRACING_SAMPLE_RATIO),
     // Off by default and in every test: no provider, no exporter, no listening socket.
     METRICS_ENABLED: z.stringbool().default(false),
     // Port of the Prometheus scrape endpoint (`/metrics`); served by its own listener, never by the app.

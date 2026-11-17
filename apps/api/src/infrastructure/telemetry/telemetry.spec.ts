@@ -37,6 +37,7 @@ describe('startTelemetry', () => {
       {
         TRACING_ENABLED: flags.tracing,
         TRACING_OTLP_ENDPOINT: 'http://localhost:4318',
+        TRACING_SAMPLE_RATIO: 1,
         METRICS_ENABLED: flags.metrics,
         METRICS_PORT: port,
         METRICS_HOST: LOOPBACK,

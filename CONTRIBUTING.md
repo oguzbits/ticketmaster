@@ -92,6 +92,7 @@ variable with a comment; the table is generated (`pnpm docs:generate`).
 | `MAIL_FROM` | default `tickets@ticketmaster-klon.invalid` |
 | `TRACING_ENABLED` | default `false` |
 | `TRACING_OTLP_ENDPOINT` | default `http://localhost:4318` |
+| `TRACING_SAMPLE_RATIO` | default `0.05` |
 | `METRICS_ENABLED` | default `false` |
 | `METRICS_PORT` | default `9464` |
 | `METRICS_HOST` | default `127.0.0.1` |

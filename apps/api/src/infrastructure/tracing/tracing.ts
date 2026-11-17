@@ -20,6 +20,7 @@ import {
   type SamplingResult,
   type Span,
   type SpanProcessor,
+  TraceIdRatioBasedSampler,
   TracerProvider,
 } from '@opentelemetry/sdk-trace';
 
@@ -69,9 +70,15 @@ class PersonalDataFilter implements SpanProcessor {
   }
 }
 
-/** Parent-based, except that a parentless queue receive span is not recorded. */
+/** Parent-based with configurable root sampling, except a parentless queue receive span is dropped. */
 class DropReceiveRootSampler implements Sampler {
-  private readonly parentBased = new ParentBasedSampler({ root: new AlwaysOnSampler() });
+  private readonly parentBased: ParentBasedSampler;
+
+  constructor(sampleRatio: number) {
+    const root =
+      sampleRatio >= 1 ? new AlwaysOnSampler() : new TraceIdRatioBasedSampler(sampleRatio);
+    this.parentBased = new ParentBasedSampler({ root });
+  }
 
   // eslint-disable-next-line max-params -- the Sampler interface fixes this signature
   shouldSample(
@@ -115,14 +122,15 @@ function otlpProcessor(endpoint: string): SpanProcessor {
  * exporters, see ADR 0007). Returns null and registers nothing when tracing is off.
  */
 export function startTracing(
-  env: Pick<Env, 'TRACING_ENABLED' | 'TRACING_OTLP_ENDPOINT'>,
+  env: Pick<Env, 'TRACING_ENABLED' | 'TRACING_OTLP_ENDPOINT'> &
+    Partial<Pick<Env, 'TRACING_SAMPLE_RATIO'>>,
   options: { serviceName: ServiceName; spanProcessor?: SpanProcessor }
 ): TracingHandle | null {
   if (!env.TRACING_ENABLED) return null;
 
   const provider = new TracerProvider({
     resource: resourceFromAttributes({ [RESOURCE_SERVICE_NAME]: options.serviceName }),
-    sampler: new DropReceiveRootSampler(),
+    sampler: new DropReceiveRootSampler(env.TRACING_SAMPLE_RATIO ?? 1),
     spanProcessors: [
       new PersonalDataFilter(),
       options.spanProcessor ?? otlpProcessor(env.TRACING_OTLP_ENDPOINT),
