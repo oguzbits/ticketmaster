@@ -1,9 +1,9 @@
-import { TRANSITION_REASON, type TransitionReason } from '@app/shared';
+import { BOOKING_STATUS, TRANSITION_REASON, type TransitionReason } from '@app/shared';
 import { ConflictException } from '@nestjs/common';
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
-import type { Tx } from '../../../infrastructure/database/database.module.js';
+import type { Database, Tx } from '../../../infrastructure/database/database.module.js';
 import { withOwner } from '../../../infrastructure/database/rls.js';
 import { bookings, bookingTransitions } from '../../../infrastructure/database/schema.js';
 import {
@@ -56,6 +56,18 @@ export async function claimPaymentKey(
     }
     throw error;
   }
+}
+
+/**
+ * Clears the claim of a payment the provider did not charge, so the customer can pay again or
+ * cancel. Only a HELD booking: one that left HELD was settled by a parallel payment of the same key
+ * and needs its key to answer a retry.
+ */
+export async function releasePaymentKey(db: Database, bookingId: string): Promise<void> {
+  await db
+    .update(bookings)
+    .set({ paymentIdempotencyKey: null, paymentClaimedAt: null })
+    .where(and(eq(bookings.id, bookingId), eq(bookings.status, BOOKING_STATUS.HELD)));
 }
 
 /** Writes the new status and the transition record; every transition is stored. */

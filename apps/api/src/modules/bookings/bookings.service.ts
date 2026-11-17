@@ -25,6 +25,7 @@ import {
   storeOwnTransition,
   storeTransition,
 } from './adapters/booking-transitions.js';
+import { chargeOrRelease } from './adapters/charge-or-release.js';
 import { loadOwnBookings } from './adapters/load-own-bookings.js';
 import { lockOwnBooking } from './adapters/lock-own-booking.js';
 import { publishSeatChange } from './adapters/publish-seat-change.js';
@@ -193,7 +194,7 @@ export class BookingsService {
     input: PayInput,
     claim: { amountCents: number; seat: SeatRef; claimedAt: Date }
   ): Promise<{ state: BookingState; seat: SeatRef | null }> {
-    const { succeeded } = await this.ports.payments.charge({
+    const succeeded = await chargeOrRelease(this.db, this.ports.payments, {
       bookingId: input.bookingId,
       amountCents: claim.amountCents,
       idempotencyKey: input.idempotencyKey,

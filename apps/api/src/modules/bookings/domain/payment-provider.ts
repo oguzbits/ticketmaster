@@ -1,4 +1,4 @@
-/** Charges a booking. The idempotency key is the one the client sent with the payment request. */
+/** Charges a booking, or throws `PaymentNotChargedError`. The idempotency key is the one the client sent with the payment request. */
 export interface PaymentProvider {
   charge(input: {
     bookingId: string;
@@ -6,6 +6,13 @@ export interface PaymentProvider {
     idempotencyKey: string;
   }): Promise<{ succeeded: boolean }>;
 }
+
+/**
+ * Thrown by a provider that answered that it did not charge (a response, not a timeout or a lost
+ * connection): the payment claim can be released. Any other error leaves the claim, because the
+ * charge may have gone through.
+ */
+export class PaymentNotChargedError extends Error {}
 
 export const PAYMENT_PROVIDER = Symbol('PAYMENT_PROVIDER');
 

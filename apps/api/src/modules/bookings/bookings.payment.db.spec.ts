@@ -11,7 +11,12 @@ import {
   QueueMessageSchema,
   TRANSITION_REASON,
 } from '@app/shared';
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadGatewayException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -31,7 +36,7 @@ import { OutboxService } from '../outbox/index.js';
 import { FakeMessageQueue } from '../outbox/testing/index.js';
 import type { BookingsService } from './bookings.service.js';
 import type { BookingState } from './domain/booking-state-machine.js';
-import type { PaymentProvider } from './domain/payment-provider.js';
+import { PaymentNotChargedError, type PaymentProvider } from './domain/payment-provider.js';
 import { HOLD_OUTCOME } from './domain/seat-reservation.js';
 import { createBookingsService } from './testing/create-bookings-service.js';
 import { RecordingMetrics } from './testing/recording-metrics.js';
@@ -51,6 +56,8 @@ class RecordingProvider implements PaymentProvider {
   duringCharge: (input: Parameters<PaymentProvider['charge']>[0]) => Promise<void> = async () => {};
   /** The next charge throws instead of answering (the provider is down, the process dies). */
   failNext = false;
+  /** The next charge throws the error of a provider that answered it did not charge. */
+  declineNext = false;
   async charge(input: Parameters<PaymentProvider['charge']>[0]): Promise<{ succeeded: boolean }> {
     this.calls.push(input);
     await this.duringCharge(input);
@@ -58,6 +65,10 @@ class RecordingProvider implements PaymentProvider {
     if (this.failNext) {
       this.failNext = false;
       throw new Error('provider down');
+    }
+    if (this.declineNext) {
+      this.declineNext = false;
+      throw new PaymentNotChargedError('provider refused the request');
     }
     return { succeeded: this.succeed };
   }
@@ -108,6 +119,7 @@ describe('payment and cancel', () => {
     provider.succeed = true;
     provider.chargeDelayMs = 0;
     provider.failNext = false;
+    provider.declineNext = false;
     outbox.crashNext = false;
     provider.duringCharge = async () => {};
     const { eventId, seatIds } = await createTestEvent(db, {
@@ -327,6 +339,75 @@ describe('payment and cancel', () => {
     expect(retried.status).toBe(BOOKING_STATUS.CONFIRMED);
     expect(provider.calls).toHaveLength(2);
     expect(await transitionsOf(bookingId)).toHaveLength(3);
+  });
+
+  it('a provider that did not charge releases the claim; the retry with the same key charges and confirms', async () => {
+    const { bookingId, userId } = await heldBooking();
+    const idempotencyKey = key('not-charged');
+    provider.declineNext = true;
+
+    await expect(
+      service.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' })
+    ).rejects.toBeInstanceOf(BadGatewayException);
+    const afterRelease = await rowOf(bookingId);
+    const retried = await service.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' });
+
+    expect(afterRelease).toMatchObject({
+      status: BOOKING_STATUS.HELD,
+      paymentIdempotencyKey: null,
+      paymentClaimedAt: null,
+    });
+    expect(retried.status).toBe(BOOKING_STATUS.CONFIRMED);
+    expect(provider.calls).toHaveLength(2);
+  });
+
+  it('after a release the customer can pay with another key or cancel', async () => {
+    const paying = await heldBooking();
+    provider.declineNext = true;
+    await expect(
+      service.pay({ ...paying, idempotencyKey: key('released-a'), requestId: 'spec' })
+    ).rejects.toBeInstanceOf(BadGatewayException);
+    const cancelling = await heldBooking();
+    provider.declineNext = true;
+    await expect(
+      service.pay({ ...cancelling, idempotencyKey: key('released-b'), requestId: 'spec' })
+    ).rejects.toBeInstanceOf(BadGatewayException);
+
+    const paid = await service.pay({
+      ...paying,
+      idempotencyKey: key('released-c'),
+      requestId: 'spec',
+    });
+    const cancelled = await service.cancel({ ...cancelling, requestId: 'spec' });
+
+    expect(paid.status).toBe(BOOKING_STATUS.CONFIRMED);
+    expect(cancelled.status).toBe(BOOKING_STATUS.CANCELLED);
+  });
+
+  it('a release leaves the key of a payment another instance confirmed meanwhile', async () => {
+    const { bookingId, userId } = await heldBooking();
+    const idempotencyKey = key('released-late');
+    const other = createBookingsService(
+      db,
+      redis,
+      { now: () => now },
+      new RecordingProvider(),
+      undefined,
+      outbox
+    );
+    provider.declineNext = true;
+    provider.duringCharge = async () => {
+      await other.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' });
+    };
+
+    await expect(
+      service.pay({ bookingId, userId, idempotencyKey, requestId: 'spec' })
+    ).rejects.toBeInstanceOf(BadGatewayException);
+
+    expect(await rowOf(bookingId)).toMatchObject({
+      status: BOOKING_STATUS.CONFIRMED,
+      paymentIdempotencyKey: idempotencyKey,
+    });
   });
 
   it('a retry after the hold ran out but inside the grace confirms once, dated at the claim', async () => {

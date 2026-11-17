@@ -498,11 +498,13 @@ open points below.
 - **A payment key stays claimed on a `HELD` booking that is never retried.** The expiry job spares
   such a booking for `PAYMENT_GRACE_SECONDS` (120) past its hold and expires it after that; the
   key is not released earlier, and a customer who abandons the payment keeps the seat until then.
-- **A charge that throws after the claim leaves the booking stuck.** The key stays claimed on the
-  `HELD` booking: the customer cannot cancel it (409, a payment may be in flight) and cannot pay it
-  with a new key (409, another payment is in progress) until the hold TTL plus the grace has passed
-  and the expiry job releases the seat; only a retry with the same key can finish it. The claim
-  should be released on a definite provider error (a response, not a timeout).
+- **A charge that throws without saying it did not charge still leaves the booking stuck.** The
+  key stays claimed on the `HELD` booking: the customer cannot cancel it (409, a payment may be in
+  flight) and cannot pay it with a new key (409, another payment is in progress) until the hold TTL
+  plus the grace has passed and the expiry job releases the seat; only a retry with the same key can
+  finish it. A provider that answers it did not charge throws `PaymentNotChargedError`: the claim is
+  released and the API answers 502. Only a real provider adapter can throw it; the fake provider
+  never does, and a timeout must not (the charge may have gone through).
 - **No refund when a charge succeeds after the booking left `HELD`.** The payment runs outside
   the transaction, so a cancel or an expiry can land while the provider answers. The apply step
   then answers 409, stores nothing and logs the booking ID; the money is not returned. Needs a
