@@ -7,6 +7,7 @@ import { MetricsModule } from '@app/api/metrics';
 import { OutboxModule } from '@app/api/outbox';
 import { RedisModule } from '@app/api/redis';
 import { SimulationsModule } from '@app/api/simulations';
+import { TelemetryModule } from '@app/api/telemetry';
 import { TicketsModule } from '@app/api/tickets';
 import { WaitingRoomModule } from '@app/api/waiting-room';
 import { Module } from '@nestjs/common';
@@ -34,6 +35,7 @@ import { workerLogOptions } from './worker-logger.js';
     ScheduleModule.forRoot(),
     ConfigModule,
     ClockModule,
+    TelemetryModule,
     MetricsModule,
     DatabaseModule,
     RedisModule,

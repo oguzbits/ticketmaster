@@ -1,1 +1,2 @@
-export { SERVICE_NAME, startTelemetry } from './telemetry.js';
+export { SERVICE_NAME, shutdownTelemetry, startTelemetry } from './telemetry.js';
+export { TelemetryModule } from './telemetry.module.js';

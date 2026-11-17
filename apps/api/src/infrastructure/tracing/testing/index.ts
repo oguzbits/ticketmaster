@@ -5,11 +5,24 @@ import {
   SimpleSpanProcessor,
   TracerProvider,
 } from '@opentelemetry/sdk-trace';
+import { register } from 'import-in-the-middle/register-hooks.mjs';
 
 import { SERVICE_NAME, startTracing } from '../tracing.js';
 
 /** Re-exported for the specs of packages that do not depend on the API themselves. */
 export { SpanStatusCode } from '@opentelemetry/api';
+
+let hooksRegistered = false;
+
+/**
+ * What the preload does before the app imports Express: without the ESM hooks the instrumentations
+ * do not patch what the spec imports. Call it before the first start, once per file.
+ */
+export function registerEsmHooks(): void {
+  if (hooksRegistered) return;
+  hooksRegistered = true;
+  register();
+}
 
 /** Registers the tracing SDK with an in-memory exporter; call `shutdown` in `afterEach`. */
 export function startTestTracing(): {

@@ -3,18 +3,50 @@ import { SERVICE_NAME, type ServiceName } from '../tracing/service-name.js';
 
 export { SERVICE_NAME };
 
+interface SignalTarget {
+  once(event: 'SIGTERM', listener: () => void): void;
+  removeListener(event: 'SIGTERM', listener: () => void): void;
+}
+
 export interface TelemetryOptions {
   serviceName: ServiceName;
   /** Where SIGTERM arrives; the process, unless a spec passes its own emitter. */
-  signals?: { once(event: 'SIGTERM', listener: () => void): void };
+  signals?: SignalTarget;
+}
+
+let activeShutdown: (() => Promise<void>) | undefined;
+let fallbackSignal: { target: SignalTarget; listener: () => void } | undefined;
+
+function detachFallbackSignal(): void {
+  if (fallbackSignal === undefined) return;
+  fallbackSignal.target.removeListener('SIGTERM', fallbackSignal.listener);
+  fallbackSignal = undefined;
+}
+
+/**
+ * Hands shutdown responsibility to Nest (`TelemetryModule.onApplicationShutdown`) so a SIGTERM
+ * does not flush and stop the telemetry providers while HTTP requests or queue handlers are still
+ * draining. Before Nest reaches `onModuleInit` (or if bootstrap fails), the SIGTERM fallback stays
+ * armed.
+ */
+export function claimTelemetryLifecycle(): void {
+  detachFallbackSignal();
+}
+
+/** Flushes and closes any running tracing and metrics providers. Idempotent. */
+export async function shutdownTelemetry(): Promise<void> {
+  detachFallbackSignal();
+  const stop = activeShutdown;
+  activeShutdown = undefined;
+  await stop?.();
 }
 
 /**
  * What both preloads do, in one place: with tracing or metrics on, register the ESM hooks before
  * the app imports Express, start the SDK parts that are on (tracing first: metrics hands its meter
- * provider to the instrumentations tracing registered) and stop them on SIGTERM. With both off
- * nothing is imported, registered or listened for. Spans reach the exporter only when the
- * provider shuts down, which is why SIGTERM matters.
+ * provider to the instrumentations tracing registered) and stop them on Nest shutdown (with a
+ * SIGTERM fallback if bootstrap has not claimed the lifecycle yet). With both off nothing is
+ * imported, registered or listened for. Spans reach the exporter only when the provider shuts down.
  */
 export async function startTelemetry(
   env: Pick<
@@ -35,8 +67,16 @@ export async function startTelemetry(
   const { startMetrics } = await import('../metrics/index.js');
   const tracing = startTracing(env, { serviceName: options.serviceName });
   const metrics = startMetrics(env, { serviceName: options.serviceName });
-  (options.signals ?? process).once(
-    'SIGTERM',
-    () => void Promise.all([tracing?.shutdown(), metrics?.shutdown()])
-  );
+
+  activeShutdown = async () => {
+    await Promise.all([tracing?.shutdown(), metrics?.shutdown()]);
+  };
+
+  const target = options.signals ?? process;
+  const listener = (): void => {
+    void shutdownTelemetry();
+  };
+  detachFallbackSignal();
+  fallbackSignal = { target, listener };
+  target.once('SIGTERM', listener);
 }

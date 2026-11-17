@@ -5,22 +5,11 @@ import {
   MetricReader,
   type ResourceMetrics,
 } from '@opentelemetry/sdk-metrics';
-import { register } from 'import-in-the-middle/register-hooks.mjs';
 
 import { SERVICE_NAME } from '../../tracing/index.js';
 import { scrapeTemporality, startMetrics } from '../metrics.js';
 
-let hooksRegistered = false;
-
-/**
- * What the tracing preload does before the app imports Express: without the ESM hooks the
- * instrumentations do not patch what the spec imports. Call it before the first start, once per file.
- */
-export function registerEsmHooks(): void {
-  if (hooksRegistered) return;
-  hooksRegistered = true;
-  register();
-}
+export { registerEsmHooks } from '../../tracing/testing/index.js';
 
 /** A reader nobody polls: the spec collects when it wants to look. */
 class CollectingReader extends MetricReader {

@@ -27,7 +27,10 @@ docker compose --profile observability down   # stop it again (add -v to drop th
 `api` and `worker` send spans to `http://tempo:4318` (`TRACING_OTLP_ENDPOINT` in the Compose file)
 when `TRACING_ENABLED=true`. Their Docker command is
 `node --import ./dist/tracing.preload.js dist/main.js`; the preload registers the ESM hooks before the
-app imports Express and does nothing when tracing is off. Without Tempo running, tracing on costs a
+app imports Express and does nothing when tracing is off. Once Nest boots, `TelemetryModule`
+flushes and closes the telemetry providers during `onApplicationShutdown` after requests and queue
+handlers drain (a `SIGTERM` fallback covers crashes before Nest finishes starting). Without Tempo
+running, tracing on costs a
 request nothing: spans are dropped when the export fails.
 
 The Grafana data sources are provisioned from `docker/observability/grafana/provisioning/`:

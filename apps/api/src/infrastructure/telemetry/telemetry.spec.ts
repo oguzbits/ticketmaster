@@ -5,7 +5,8 @@ import { metrics, trace } from '@opentelemetry/api';
 import { MeterProvider } from '@opentelemetry/sdk-metrics';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { SERVICE_NAME, startTelemetry } from './telemetry.js';
+import { SERVICE_NAME, shutdownTelemetry, startTelemetry } from './telemetry.js';
+import { TelemetryModule } from './telemetry.module.js';
 
 const SIGTERM = 'SIGTERM';
 const LOOPBACK = '127.0.0.1';
@@ -25,7 +26,7 @@ const isMetrics = (): boolean => metrics.getMeterProvider() instanceof MeterProv
 describe('startTelemetry', () => {
   const signals = new EventEmitter();
   afterEach(async () => {
-    signals.emit(SIGTERM);
+    await shutdownTelemetry();
     await vi.waitFor(() => expect(isTracing() || isMetrics()).toBe(false));
     signals.removeAllListeners();
   });
@@ -84,5 +85,21 @@ describe('startTelemetry', () => {
     await vi.waitFor(() => expect(isTracing()).toBe(false));
     await vi.waitFor(async () => expect(scrape(port)).rejects.toThrow());
     expect(isMetrics()).toBe(false);
+  });
+
+  it('lets TelemetryModule own shutdown instead of racing SIGTERM once initialized', async () => {
+    const port = await start({ tracing: true, metrics: true });
+    const lifecycle = new TelemetryModule();
+    lifecycle.onModuleInit();
+
+    expect(signals.listenerCount(SIGTERM)).toBe(0);
+    signals.emit(SIGTERM);
+    expect(isTracing()).toBe(true);
+    expect(isMetrics()).toBe(true);
+
+    await lifecycle.onApplicationShutdown();
+    expect(isTracing()).toBe(false);
+    expect(isMetrics()).toBe(false);
+    await expect(scrape(port)).rejects.toThrow();
   });
 });
