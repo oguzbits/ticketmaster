@@ -19,6 +19,7 @@ describe('FakePaymentProvider', () => {
       const idempotencyKey = randomUUID();
       const first = await chargeOf(provider, idempotencyKey);
       expect(await chargeOf(provider, idempotencyKey)).toEqual(first);
+      expect(await provider.lookup(idempotencyKey)).toEqual({ charged: first.succeeded });
     }
   });
 

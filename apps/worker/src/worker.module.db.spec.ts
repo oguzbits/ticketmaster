@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { DemoCleanupJob } from './demo-cleanup.job.js';
 import { OperationalGauges } from './operational-gauges.js';
 import { OutboxRelayJob } from './outbox-relay.job.js';
+import { PaymentReconciliationJob } from './payment-reconciliation.job.js';
 import { SimulationConsumer } from './simulation.consumer.js';
 import { TicketRetentionJob } from './ticket-retention.job.js';
 import { WaitingRoomAdmissionJob } from './waiting-room-admission.job.js';
@@ -26,6 +27,7 @@ describe('WorkerModule', () => {
     // The relay needs the queue adapter, which connects to the emulator at start.
     expect(moduleRef.get(OutboxService, { strict: false })).toBeInstanceOf(OutboxService);
     expect(moduleRef.get(OutboxRelayJob)).toBeInstanceOf(OutboxRelayJob);
+    expect(moduleRef.get(PaymentReconciliationJob)).toBeInstanceOf(PaymentReconciliationJob);
     expect(moduleRef.get(TicketRetentionJob)).toBeInstanceOf(TicketRetentionJob);
     expect(moduleRef.get(WaitingRoomService, { strict: false })).toBeInstanceOf(WaitingRoomService);
     expect(moduleRef.get(WaitingRoomAdmissionJob)).toBeInstanceOf(WaitingRoomAdmissionJob);

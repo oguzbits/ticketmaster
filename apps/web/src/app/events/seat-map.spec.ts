@@ -143,12 +143,14 @@ const ADMITTED = {
   position: null,
   waiting: 0,
   admittedUntil: '2099-01-01T00:00:00.000Z',
+  admissionToken: 'admitted-jwt',
 };
 const NOT_JOINED = {
   state: WAITING_ROOM_STATE.NONE,
   position: null,
   waiting: 0,
   admittedUntil: null,
+  admissionToken: null,
 };
 type DetailStatus = (typeof SEAT_STATUS)[keyof typeof SEAT_STATUS];
 
@@ -236,6 +238,11 @@ describe('SeatMap', () => {
       expect(openSeat(element)?.getAttribute('aria-disabled')).toBeNull();
       press(OPEN_SEAT);
       const hold = http.expectOne('/api/bookings');
+      expect(hold.request.body).toEqual({
+        eventId: DETAIL.id,
+        seatId: SEAT_ID(3),
+        admissionToken: ADMITTED.admissionToken,
+      });
       await answer(() => hold.flush(BOOKING));
       await refreshed(SEAT_STATUS.HELD);
     });

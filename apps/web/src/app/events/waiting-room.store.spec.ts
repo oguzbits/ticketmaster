@@ -17,18 +17,21 @@ const NONE: WaitingRoomStatus = {
   position: null,
   waiting: 0,
   admittedUntil: null,
+  admissionToken: null,
 };
 const WAITING: WaitingRoomStatus = {
   state: WAITING_ROOM_STATE.WAITING,
   position: 3,
   waiting: 5,
   admittedUntil: null,
+  admissionToken: null,
 };
 const ADMITTED: WaitingRoomStatus = {
   state: WAITING_ROOM_STATE.ADMITTED,
   position: null,
   waiting: 4,
   admittedUntil: new Date(NOW + 90_000).toISOString(),
+  admissionToken: 'admitted-jwt',
 };
 const status = (value: WaitingRoomStatus): WaitingRoomStreamMessage => ({
   type: WAITING_ROOM_STREAM.STATUS,
@@ -120,6 +123,7 @@ describe('WaitingRoomStore', () => {
 
     fake.streams[0]?.next(status(ADMITTED));
     expect(store.state()).toBe(WAITING_ROOM_STATE.ADMITTED);
+    expect(store.admissionToken()).toBe('admitted-jwt');
     expect(store.countdown()).toBe('1:30');
 
     vi.advanceTimersByTime(65_000);
@@ -128,6 +132,7 @@ describe('WaitingRoomStore', () => {
 
     vi.advanceTimersByTime(25_000);
     expect(store.state()).toBe(WAITING_ROOM_STATE.NONE);
+    expect(store.admissionToken()).toBeNull();
   });
 
   it('leaves once, stops following the stream and is not joined', () => {
@@ -155,6 +160,7 @@ describe('WaitingRoomStore', () => {
 
     expect(store.state()).toBe(WAITING_ROOM_STATE.NONE);
     expect(store.admittedUntil()).toBeNull();
+    expect(store.admissionToken()).toBeNull();
   });
 
   it('reports a failed join and lets the caller try again', () => {

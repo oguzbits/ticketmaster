@@ -8,6 +8,7 @@ export interface HoldInput {
   userId: string;
   /** The request that asked for the hold; null for a hold nobody requested (not audited). */
   requestId: string | null;
+  admissionToken?: string | undefined;
 }
 
 export type HoldResult =

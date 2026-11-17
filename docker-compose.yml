@@ -198,6 +198,7 @@ services:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       SMTP_URL: smtp://mailpit:1025
+      WAITING_ROOM_SIGNING_SECRET: local-waiting-room-signing-secret-0000
     depends_on:
       postgres:
         condition: service_healthy
@@ -221,6 +222,7 @@ services:
       KEYCLOAK_DEMO_CLIENT_SECRET: local-demo-client-secret
       DEMO_LOGIN_ENABLED: ${DEMO_LOGIN_ENABLED:-true}
       UNSAFE_STRATEGIES_ENABLED: ${UNSAFE_STRATEGIES_ENABLED:-true}
+      WAITING_ROOM_SIGNING_SECRET: ${WAITING_ROOM_SIGNING_SECRET:-local-waiting-room-signing-secret-0000}
       AWS_ENDPOINT_URL: http://aws:4566
       S3_PRESIGN_BASE_URL: /storage
       AWS_ACCESS_KEY_ID: test
@@ -266,6 +268,7 @@ services:
       KEYCLOAK_URL: http://keycloak:8080
       KEYCLOAK_DEMO_CLIENT_SECRET: local-demo-client-secret
       UNSAFE_STRATEGIES_ENABLED: ${UNSAFE_STRATEGIES_ENABLED:-true}
+      WAITING_ROOM_SIGNING_SECRET: ${WAITING_ROOM_SIGNING_SECRET:-local-waiting-room-signing-secret-0000}
       AWS_ENDPOINT_URL: http://aws:4566
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test

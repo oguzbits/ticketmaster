@@ -4,6 +4,7 @@ import {
   BOOKING_STATUS,
   BOOKING_STRATEGY,
   OUTBOX_MESSAGE_TYPE,
+  PAYMENT_ATTEMPT_STATUS,
   type QueueMessage,
   ROLE,
   SIMULATION_STATUS,
@@ -30,6 +31,7 @@ import {
 export const bookingStrategyEnum = pgEnum('booking_strategy', BOOKING_STRATEGY);
 export const bookingStatusEnum = pgEnum('booking_status', BOOKING_STATUS);
 export const transitionReasonEnum = pgEnum('transition_reason', TRANSITION_REASON);
+export const paymentAttemptStatusEnum = pgEnum('payment_attempt_status', PAYMENT_ATTEMPT_STATUS);
 export const userRoleEnum = pgEnum('user_role', ROLE);
 export const simulationStatusEnum = pgEnum('simulation_status', SIMULATION_STATUS);
 export const outboxMessageTypeEnum = pgEnum('outbox_message_type', OUTBOX_MESSAGE_TYPE);
@@ -257,5 +259,29 @@ export const auditLog = pgTable(
   (t) => [
     index('audit_log_actor_id_id_idx').on(t.actorId, t.id),
     index('audit_log_action_id_idx').on(t.action, t.id),
+  ]
+);
+
+/**
+ * Payment attempts tracked across the 3-step charge pipeline (claim -> charge -> apply/refund).
+ * Allows the worker reconciliation job to settle crashed charges and retry failed late refunds.
+ */
+export const paymentAttempts = pgTable(
+  'payment_attempts',
+  {
+    idempotencyKey: text('idempotency_key').primaryKey(),
+    bookingId: uuid('booking_id')
+      .notNull()
+      .references(() => bookings.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull(),
+    amountCents: integer('amount_cents').notNull(),
+    status: paymentAttemptStatusEnum('status').notNull(),
+    requestId: text('request_id').notNull(),
+    claimedAt: timestamp('claimed_at', { withTimezone: true }).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('payment_attempts_reconcile_idx').on(t.status, t.updatedAt),
+    index('payment_attempts_booking_idx').on(t.bookingId),
   ]
 );

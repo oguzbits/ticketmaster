@@ -25,6 +25,7 @@ const NOT_JOINED: WaitingRoomStatus = {
   position: null,
   waiting: 0,
   admittedUntil: null,
+  admissionToken: null,
 };
 const TICK_MS = 1000;
 
@@ -64,6 +65,7 @@ export class WaitingRoomStore {
   readonly position = computed(() => this.status().position);
   readonly waiting = computed(() => this.status().waiting);
   readonly admittedUntil = computed(() => this.status().admittedUntil);
+  readonly admissionToken = computed(() => (this.admitted() ? this.status().admissionToken : null));
   /** The time left as `m:ss`. */
   readonly countdown = computed(() => {
     const seconds = this.secondsLeft() ?? 0;

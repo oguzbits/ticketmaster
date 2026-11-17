@@ -31,7 +31,7 @@ describe('BookingsService', () => {
   );
   afterEach(() => TestBed.inject(HttpTestingController).verify());
 
-  it('hold posts the event and the seat only', () => {
+  it('hold posts the event and the seat only, or with admissionToken when given', () => {
     const http = TestBed.inject(HttpTestingController);
     let result: Booking | null = null;
     TestBed.inject(BookingsService)
@@ -42,8 +42,18 @@ describe('BookingsService', () => {
     expect(request.request.method).toBe('POST');
     expect(request.request.body).toEqual({ eventId: BOOKING.eventId, seatId: BOOKING.seatId });
     request.flush(BOOKING);
-
     expect(result).toEqual(BOOKING);
+
+    TestBed.inject(BookingsService)
+      .hold(BOOKING.eventId, BOOKING.seatId, 'signed-admission-jwt')
+      .subscribe();
+    const gatedRequest = http.expectOne('/api/bookings');
+    expect(gatedRequest.request.body).toEqual({
+      eventId: BOOKING.eventId,
+      seatId: BOOKING.seatId,
+      admissionToken: 'signed-admission-jwt',
+    });
+    gatedRequest.flush(BOOKING);
   });
 
   it('pay sends the idempotency key as a header', () => {

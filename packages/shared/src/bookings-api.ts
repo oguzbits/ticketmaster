@@ -3,7 +3,11 @@ import { z } from 'zod';
 import { BookingStatusSchema, SeatStatusSchema, TransitionReasonSchema } from './booking.js';
 import { SeatSchema } from './events.js';
 
-export const HoldRequestSchema = z.object({ eventId: z.uuid(), seatId: z.uuid() });
+export const HoldRequestSchema = z.object({
+  eventId: z.uuid(),
+  seatId: z.uuid(),
+  admissionToken: z.string().min(1).optional(),
+});
 
 export const BookingTransitionSchema = z.object({
   fromStatus: BookingStatusSchema.nullable(),

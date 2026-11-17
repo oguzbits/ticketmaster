@@ -10,6 +10,12 @@ export interface PaymentProvider {
     idempotencyKey: string;
   }): Promise<{ succeeded: boolean }>;
   refund(input: { bookingId: string; amountCents: number; idempotencyKey: string }): Promise<void>;
+  /**
+   * Optional status probe for reconciliation when a charge call crashed or timed out before
+   * persisting its outcome. Returns `{ charged: true }` if the provider settled the key,
+   * `{ charged: false }` if declined/absent, or `null` if unknown.
+   */
+  lookup?(idempotencyKey: string): Promise<{ charged: boolean } | null>;
 }
 
 /** The idempotency key of the refund of the charge made under `chargeKey`. */
@@ -29,3 +35,6 @@ export const PAYMENT_PROVIDER = Symbol('PAYMENT_PROVIDER');
  * past: a charge that started in time may still finish. After that it expires like any hold.
  */
 export const PAYMENT_GRACE_SECONDS = 120;
+
+/** Age after which a `CLAIMED` attempt with no recorded charge result is probed by reconciliation. */
+export const RECONCILE_STALE_SECONDS = 60;

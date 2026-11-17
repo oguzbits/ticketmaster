@@ -105,6 +105,7 @@ describe('RedisWaitingRoomStore', () => {
       position: null,
       waiting: 1,
       admittedUntil: at(ADMISSION_MS).toISOString(),
+      admissionToken: null,
     });
     expect(await store.isAdmitted(eventId, 'a', SPEC_NOW)).toBe(true);
     expect(await store.isAdmitted(eventId, 'c', SPEC_NOW)).toBe(false);
@@ -171,6 +172,7 @@ describe('RedisWaitingRoomStore', () => {
       position: null,
       waiting: 1,
       admittedUntil: null,
+      admissionToken: null,
     });
   });
 

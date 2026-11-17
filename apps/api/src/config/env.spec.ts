@@ -12,6 +12,7 @@ const LOCAL_AWS_CREDENTIAL = 'test';
 const LOCAL_SMTP_URL = 'smtp://localhost:1025';
 const DEFAULT_MAIL_FROM = 'tickets@ticketmaster-klon.invalid';
 const LOCAL_OTLP_ENDPOINT = 'http://localhost:4318';
+const LOCAL_WAITING_ROOM_SIGNING_SECRET = 'local-waiting-room-signing-secret-0000';
 
 const PRODUCTION_BASE = {
   NODE_ENV: 'production',
@@ -20,6 +21,7 @@ const PRODUCTION_BASE = {
   AWS_ACCESS_KEY_ID: 'prod-key-id',
   AWS_SECRET_ACCESS_KEY: 'prod-secret-key',
   SMTP_URL: 'smtp://mail:1025',
+  WAITING_ROOM_SIGNING_SECRET: 'prod-waiting-room-signing-secret-00',
 };
 
 const KEYCLOAK_PRODUCTION = {
@@ -45,6 +47,7 @@ describe('parseEnv', () => {
       DEMO_USER_TTL_SECONDS: 3600,
       DEMO_LOGIN_ENABLED: true,
       UNSAFE_STRATEGIES_ENABLED: true,
+      WAITING_ROOM_SIGNING_SECRET: LOCAL_WAITING_ROOM_SIGNING_SECRET,
       AWS_ENDPOINT_URL: LOCAL_AWS_ENDPOINT_URL,
       AWS_REGION: 'us-east-1',
       AWS_ACCESS_KEY_ID: LOCAL_AWS_CREDENTIAL,
@@ -326,5 +329,19 @@ describe('parseEnv', () => {
     expect(parseEnv({ S3_PRESIGN_BASE_URL: 'https://cdn.example.com/' }).S3_PRESIGN_BASE_URL).toBe(
       'https://cdn.example.com'
     );
+  });
+
+  it('requires WAITING_ROOM_SIGNING_SECRET of at least 32 characters in production without printing it', () => {
+    const { WAITING_ROOM_SIGNING_SECRET: _omitted, ...raw } = PRODUCTION_BASE;
+    expect(() => parseEnv({ ...raw, ...KEYCLOAK_PRODUCTION })).toThrow(
+      /WAITING_ROOM_SIGNING_SECRET/
+    );
+    expect(() =>
+      parseEnv({
+        ...raw,
+        ...KEYCLOAK_PRODUCTION,
+        WAITING_ROOM_SIGNING_SECRET: 'too-short-secret-value',
+      })
+    ).toThrow(/^(?!.*too-short-secret-value).*WAITING_ROOM_SIGNING_SECRET/s);
   });
 });

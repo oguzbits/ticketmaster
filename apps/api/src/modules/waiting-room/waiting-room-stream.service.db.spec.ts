@@ -13,6 +13,7 @@ import { lockSpecs } from '../../testing/spec-lock.js';
 import { SPEC_NOW } from '../../testing/time.js';
 import { AuditService } from '../audit/index.js';
 import { createUncachedEventCache } from '../event-cache/testing/index.js';
+import { HmacAdmissionTokenAdapter } from './adapters/hmac-admission-token.js';
 import { RedisWaitingRoomStore } from './adapters/redis-waiting-room-store.js';
 import { WaitingRoomService } from './waiting-room.service.js';
 import {
@@ -23,6 +24,7 @@ import {
 
 const POLL_MS = 20;
 const CAPACITY = 5;
+const SIGNING_SECRET = 'test-waiting-room-signing-secret-0123456789';
 
 describe('WaitingRoomStreamService', () => {
   const database = openTestDatabase();
@@ -45,7 +47,8 @@ describe('WaitingRoomStreamService', () => {
       { now: () => SPEC_NOW },
       store,
       new AuditService(db, { now: () => SPEC_NOW }),
-      createUncachedEventCache()
+      createUncachedEventCache(),
+      new HmacAdmissionTokenAdapter(SIGNING_SECRET)
     );
     stream = new WaitingRoomStreamService(service, new SlotLimiter(redis, { now: () => SPEC_NOW }));
     stream.pollMs = POLL_MS;

@@ -16,6 +16,7 @@ erDiagram
     events ||--o{ simulation_runs : "is the sandbox of"
     seats ||--o{ bookings : "is held by"
     bookings ||--o{ booking_transitions : "records"
+    bookings ||--o{ payment_attempts : "attempts"
     demo_users ||--o{ events : "owns as sandbox (by sandbox_user_id)"
 
     venue_seats {
@@ -111,7 +112,23 @@ erDiagram
         uuid message_id PK
         timestamptz processed_at
     }
+    payment_attempts {
+        text idempotency_key PK
+        uuid booking_id FK "cascade"
+        uuid user_id
+        int amount_cents
+        payment_attempt_status status "CLAIMED, CHARGED, APPLIED, REFUND_PENDING, REFUNDED, RELEASED"
+        text request_id
+        timestamptz claimed_at
+        timestamptz updated_at
+    }
 ```
+
+`payment_attempts` tracks every charge attempt across the three-step payment flow (claim, provider
+charge, apply/refund) so the worker's reconciliation job (every 30 s) can settle crashed charges
+(`CHARGED` while the booking is still `HELD` -> `CONFIRMED` + `BOOKING_CONFIRMED` outbox message),
+retry failed late-charge refunds (`REFUND_PENDING` -> `REFUNDED` + `PAYMENT_REFUNDED` audit row)
+and probe stale `CLAIMED` rows against the provider's lookup when supported.
 
 `demo_users` lists the temporary Keycloak users of the demo login. It has no foreign key: `user_id`
 is the Keycloak user ID, which `events.sandbox_user_id`, `events.owner_id` and `bookings.user_id`

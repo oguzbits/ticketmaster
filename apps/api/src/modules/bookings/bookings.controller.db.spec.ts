@@ -121,13 +121,10 @@ describe('booking endpoints', () => {
     charges.length = 0;
   });
 
-  const call = (method: 'get' | 'post', path: string, caller?: Caller) => {
+  const call = (method: 'get' | 'post' | 'delete', path: string, caller?: Caller) => {
     const url = `/api${path}`;
     const server = request(app.getHttpServer());
-    const pending = (method === 'get' ? server.get(url) : server.post(url)).set(
-      'X-Forwarded-For',
-      randomClientAddress()
-    );
+    const pending = server[method](url).set('X-Forwarded-For', randomClientAddress());
     return caller === undefined ? pending : pending.set('Authorization', `Bearer ${caller}`);
   };
 
@@ -290,26 +287,56 @@ describe('booking endpoints', () => {
       expect(rows).toEqual([]);
     });
 
-    it('answers 201 after the admission', async () => {
+    it('answers 201 after the admission with a valid admissionToken', async () => {
       const seat = await room();
-      await admit(seat.eventId, 'alice');
+      const { admissionToken } = await admit(seat.eventId, 'alice');
+      expect(admissionToken).not.toBeNull();
 
-      await call('post', '/bookings', 'alice').send(seat).expect(201);
+      await call('post', '/bookings', 'alice')
+        .send({ ...seat, admissionToken: admissionToken ?? undefined })
+        .expect(201);
+    });
+
+    it('answers 403 when admitted without passing admissionToken or with a tampered token', async () => {
+      const seat = await room();
+      const { admissionToken } = await admit(seat.eventId, 'alice');
+
+      await call('post', '/bookings', 'alice').send(seat).expect(403);
+      await call('post', '/bookings', 'alice')
+        .send({ ...seat, admissionToken: `${admissionToken}x` })
+        .expect(403);
+    });
+
+    it('answers 403 after leave() revokes the Redis admission even with the previously issued token', async () => {
+      const seat = await room();
+      const { admissionToken } = await admit(seat.eventId, 'alice');
+      await call('delete', `/events/${seat.eventId}/waiting-room`, 'alice').expect(204);
+
+      await call('post', '/bookings', 'alice')
+        .send({ ...seat, admissionToken: admissionToken ?? undefined })
+        .expect(403);
     });
 
     it('answers 403 after the admission ran out', async () => {
       const seat = await room();
-      const { admittedUntil } = await admit(seat.eventId, 'alice');
+      const { admittedUntil, admissionToken } = await admit(seat.eventId, 'alice');
       now = new Date(Date.parse(admittedUntil ?? '') + 1);
 
-      await call('post', '/bookings', 'alice').send(seat).expect(403);
+      await call('post', '/bookings', 'alice')
+        .send({ ...seat, admissionToken: admissionToken ?? undefined })
+        .expect(403);
     });
 
-    it('does not let an admitted customer hold on another waiting-room event', async () => {
+    it('does not let an admitted customer use their token for another waiting-room event or another user', async () => {
       const [admitted, other] = [await room(), await room()];
-      await admit(admitted.eventId, 'alice');
+      const { admissionToken } = await admit(admitted.eventId, 'alice');
 
-      await call('post', '/bookings', 'alice').send(other).expect(403);
+      await call('post', '/bookings', 'alice')
+        .send({ ...other, admissionToken: admissionToken ?? undefined })
+        .expect(403);
+      await call('post', '/bookings', 'bob')
+        .send({ ...admitted, admissionToken: admissionToken ?? undefined })
+        .expect(403);
     });
 
     it('keeps a foreign sandbox event at 404, not 403', async () => {

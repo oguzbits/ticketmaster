@@ -164,6 +164,7 @@ describe('waiting room endpoints', () => {
       position: null,
       waiting: 0,
       admittedUntil: null,
+      admissionToken: null,
     });
   });
 

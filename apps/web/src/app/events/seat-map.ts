@@ -158,7 +158,9 @@ export class SeatMap {
   }
 
   protected choose(seat: Seat): void {
-    if (this.canChoose(seat)) this.bookings.hold(this.id(), seat.id);
+    if (this.canChoose(seat)) {
+      this.bookings.hold(this.id(), seat.id, this.waitingRoom.admissionToken());
+    }
   }
 
   private apply(message: SeatStreamMessage): void {

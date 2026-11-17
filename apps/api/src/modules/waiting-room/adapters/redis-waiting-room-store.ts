@@ -90,6 +90,7 @@ export class RedisWaitingRoomStore implements WaitingRoomStore {
         position: null,
         waiting,
         admittedUntil: new Date(Number(expiry)).toISOString(),
+        admissionToken: null,
       };
     }
     if (rank !== null) {
@@ -98,9 +99,16 @@ export class RedisWaitingRoomStore implements WaitingRoomStore {
         position: rank + 1,
         waiting,
         admittedUntil: null,
+        admissionToken: null,
       };
     }
-    return { state: WAITING_ROOM_STATE.NONE, position: null, waiting, admittedUntil: null };
+    return {
+      state: WAITING_ROOM_STATE.NONE,
+      position: null,
+      waiting,
+      admittedUntil: null,
+      admissionToken: null,
+    };
   }
 
   async isAdmitted(eventId: string, userId: string, now: Date): Promise<boolean> {

@@ -19,4 +19,9 @@ export class FakePaymentProvider implements PaymentProvider {
 
   /** Nothing was charged for real, so there is nothing to return. */
   async refund(): Promise<void> {}
+
+  async lookup(idempotencyKey: string): Promise<{ charged: boolean }> {
+    const { succeeded } = await this.charge({ bookingId: '', amountCents: 0, idempotencyKey });
+    return { charged: succeeded };
+  }
 }

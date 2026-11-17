@@ -23,6 +23,7 @@ import { loadOwnBookings } from './adapters/load-own-bookings.js';
 import { lockOwnBooking } from './adapters/lock-own-booking.js';
 import { payBooking, type PayInput, type PaymentFlight } from './adapters/pay-booking.js';
 import { publishSeatChange } from './adapters/publish-seat-change.js';
+import { reconcilePaymentAttempts } from './adapters/reconcile-payments.js';
 import { SeatReservations } from './adapters/seat-reservations.js';
 import { type BookingState, SYSTEM_ACTOR_ID } from './domain/booking-state-machine.js';
 import { PAYMENT_GRACE_SECONDS } from './domain/payment-provider.js';
@@ -67,7 +68,11 @@ export class BookingsService {
       throw new NotFoundException('Seat not found in this event');
     }
     if (event.waitingRoomCapacity !== null) {
-      await this.ports.waitingRoom.assertAdmitted(input.eventId, input.userId);
+      await this.ports.waitingRoom.assertAdmitted(
+        input.eventId,
+        input.userId,
+        input.admissionToken
+      );
     }
     const result = await withSpan(
       SPAN_NAME.HOLD_STRATEGY,
@@ -214,6 +219,21 @@ export class BookingsService {
       expired += batch.length;
       if (batch.length < EXPIRY_BATCH_SIZE) return expired;
     }
+  }
+
+  /** Settles crashed charges and retries failed late refunds. Safe to run in parallel. */
+  async reconcilePayments(
+    now: Date
+  ): Promise<{ settled: number; refunded: number; released: number }> {
+    const { settled, refunded, released } = await reconcilePaymentAttempts(
+      { db: this.db, ports: this.ports, logger: this.logger },
+      now
+    );
+    if (settled.length > 0) {
+      this.ports.metrics.bookingSettled(BOOKING_STATUS.CONFIRMED, settled.length);
+      await Promise.all(settled.map((b) => this.announce(b.bookingId, b)));
+    }
+    return { settled: settled.length, refunded, released };
   }
 
   /** Called after the commit: tells the viewers of the event which status the seat has now. */

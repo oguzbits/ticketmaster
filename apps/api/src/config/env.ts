@@ -48,6 +48,8 @@ const LOCAL_DEFAULTS = {
   // Enabled locally for the demo and strategy comparison; off by default in production.
   DEMO_LOGIN_ENABLED: 'true',
   UNSAFE_STRATEGIES_ENABLED: 'true',
+  // Local HMAC key for signed waiting-room admission tokens; production requires a dedicated secret.
+  WAITING_ROOM_SIGNING_SECRET: 'local-waiting-room-signing-secret-0000',
 };
 
 export const EnvSchema = z
@@ -77,6 +79,8 @@ export const EnvSchema = z
     DEMO_LOGIN_ENABLED: z.stringbool().default(false),
     // Off by default in production; prevents configuring or holding under the NAIVE strategy.
     UNSAFE_STRATEGIES_ENABLED: z.stringbool().default(false),
+    // HMAC-SHA256 key (min 32 bytes) signing stateless waiting-room admission tokens.
+    WAITING_ROOM_SIGNING_SECRET: z.string().min(32),
     // Unset in production means real AWS; parseEnv fills the local emulator otherwise.
     AWS_ENDPOINT_URL: z.url().optional(),
     // Optional origin/path prefix for presigned S3 ticket URLs (e.g. `/storage` behind Caddy).

@@ -3,6 +3,7 @@ import {
   AUDIT_SUBJECT,
   type EventSummary,
   ROLE,
+  WAITING_ROOM_STATE,
   type WaitingRoomStatus,
 } from '@app/shared';
 import {
@@ -26,6 +27,7 @@ import {
   ADMISSION_TTL_SECONDS,
   planAdmissions,
 } from './domain/admission-policy.js';
+import { ADMISSION_TOKENS, type AdmissionTokenPort } from './domain/admission-token.js';
 import { WAITING_ROOM_STORE, type WaitingRoomStore } from './domain/waiting-room-store.js';
 
 const SECOND_MS = 1000;
@@ -40,7 +42,8 @@ export class WaitingRoomService {
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(WAITING_ROOM_STORE) private readonly store: WaitingRoomStore,
     private readonly audit: AuditService,
-    private readonly eventCache: EventCache
+    private readonly eventCache: EventCache,
+    @Inject(ADMISSION_TOKENS) private readonly tokens: AdmissionTokenPort
   ) {}
 
   /** NotFound for an event the caller cannot see, Conflict when the event has no waiting room. */
@@ -58,27 +61,62 @@ export class WaitingRoomService {
     if (event.capacity === null) throw new ConflictException('The event has no waiting room');
     const now = this.clock.now();
     await this.store.join(eventId, userId, now);
-    return this.store.status(eventId, userId, now);
+    return this.withAdmissionToken(
+      eventId,
+      userId,
+      await this.store.status(eventId, userId, now),
+      now
+    );
   }
 
   leave(eventId: string, userId: string): Promise<void> {
     return this.store.leave(eventId, userId);
   }
 
-  status(eventId: string, userId: string): Promise<WaitingRoomStatus> {
-    return this.store.status(eventId, userId, this.clock.now());
+  async status(eventId: string, userId: string): Promise<WaitingRoomStatus> {
+    const now = this.clock.now();
+    return this.withAdmissionToken(
+      eventId,
+      userId,
+      await this.store.status(eventId, userId, now),
+      now
+    );
   }
 
-  /** ForbiddenException unless the event has no waiting room or the user holds a live admission. */
-  async assertAdmitted(eventId: string, userId: string): Promise<void> {
+  /**
+   * ForbiddenException unless the event has no waiting room or the user holds both a valid signed
+   * admission token and a live unrevoked admission in Redis.
+   */
+  async assertAdmitted(eventId: string, userId: string, admissionToken?: string): Promise<void> {
     const [event] = await this.db
       .select({ capacity: events.waitingRoomCapacity })
       .from(events)
       .where(eq(events.id, eventId));
     if (event === undefined || event.capacity === null) return;
-    if (!(await this.store.isAdmitted(eventId, userId, this.clock.now()))) {
+    if (admissionToken === undefined) {
       throw new ForbiddenException('Join the waiting room first');
     }
+    const now = this.clock.now();
+    const valid = await this.tokens.verify(admissionToken, { eventId, userId }, now);
+    if (!valid || !(await this.store.isAdmitted(eventId, userId, now))) {
+      throw new ForbiddenException('Join the waiting room first');
+    }
+  }
+
+  private async withAdmissionToken(
+    eventId: string,
+    userId: string,
+    status: WaitingRoomStatus,
+    now: Date
+  ): Promise<WaitingRoomStatus> {
+    if (status.state !== WAITING_ROOM_STATE.ADMITTED || status.admittedUntil === null) {
+      return status;
+    }
+    const admissionToken = await this.tokens.issue(
+      { eventId, userId, admittedUntil: new Date(status.admittedUntil) },
+      now
+    );
+    return { ...status, admissionToken };
   }
 
   /**

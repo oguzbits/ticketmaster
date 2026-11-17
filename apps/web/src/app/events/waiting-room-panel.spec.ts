@@ -14,18 +14,21 @@ const NONE: WaitingRoomStatus = {
   position: null,
   waiting: 0,
   admittedUntil: null,
+  admissionToken: null,
 };
 const WAITING: WaitingRoomStatus = {
   state: WAITING_ROOM_STATE.WAITING,
   position: 3,
   waiting: 5,
   admittedUntil: null,
+  admissionToken: null,
 };
 const ADMITTED: WaitingRoomStatus = {
   state: WAITING_ROOM_STATE.ADMITTED,
   position: null,
   waiting: 4,
   admittedUntil: new Date(NOW + 90_000).toISOString(),
+  admissionToken: 'admitted-jwt',
 };
 
 function render(first: WaitingRoomStatus | null = NONE) {

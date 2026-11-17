@@ -7,7 +7,11 @@ import { AuditService } from '../../audit/index.js';
 import { createUncachedEventCache } from '../../event-cache/testing/index.js';
 import { OutboxService } from '../../outbox/index.js';
 import { FakeMessageQueue } from '../../outbox/testing/index.js';
-import { RedisWaitingRoomStore, WaitingRoomService } from '../../waiting-room/index.js';
+import {
+  HmacAdmissionTokenAdapter,
+  RedisWaitingRoomStore,
+  WaitingRoomService,
+} from '../../waiting-room/index.js';
 import { FakePaymentProvider } from '../adapters/fake-payment.provider.js';
 import { RedisSeatChangePublisher } from '../adapters/redis-seat-changes.js';
 import { SeatReservations } from '../adapters/seat-reservations.js';
@@ -38,7 +42,8 @@ export function createBookingsService(
     clock,
     new RedisWaitingRoomStore(redis),
     audit,
-    createUncachedEventCache()
+    createUncachedEventCache(),
+    new HmacAdmissionTokenAdapter(loadEnv().WAITING_ROOM_SIGNING_SECRET)
   );
   return new BookingsService(db, reservations, clock, {
     payments,

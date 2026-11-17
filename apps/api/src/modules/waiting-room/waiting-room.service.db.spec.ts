@@ -11,11 +11,13 @@ import { lockSpecs } from '../../testing/spec-lock.js';
 import { SPEC_NOW } from '../../testing/time.js';
 import { AuditService } from '../audit/index.js';
 import { createUncachedEventCache } from '../event-cache/testing/index.js';
+import { HmacAdmissionTokenAdapter } from './adapters/hmac-admission-token.js';
 import { RedisWaitingRoomStore } from './adapters/redis-waiting-room-store.js';
 import { ADMISSION_TTL_SECONDS } from './domain/admission-policy.js';
 import { WaitingRoomService } from './waiting-room.service.js';
 
 const SECOND_MS = 1000;
+const SIGNING_SECRET = 'test-waiting-room-signing-secret-0123456789';
 const at = (offsetMs: number) => new Date(SPEC_NOW.getTime() + offsetMs);
 
 describe('WaitingRoomService', () => {
@@ -35,7 +37,8 @@ describe('WaitingRoomService', () => {
       { now: () => now },
       new RedisWaitingRoomStore(redis),
       new AuditService(db, { now: () => now }),
-      createUncachedEventCache()
+      createUncachedEventCache(),
+      new HmacAdmissionTokenAdapter(SIGNING_SECRET)
     );
   });
   afterAll(async () => {
@@ -110,7 +113,7 @@ describe('WaitingRoomService', () => {
     expect((await service.status(eventId, userId)).state).toBe(WAITING_ROOM_STATE.WAITING);
   });
 
-  it('assertAdmitted throws Forbidden before and after the admission, passes during it', async () => {
+  it('assertAdmitted throws Forbidden before, without a token, and after the admission; passes during it with token', async () => {
     const { eventId, userIds } = await room(1, 1);
     const [userId = ''] = userIds;
     now = SPEC_NOW;
@@ -119,10 +122,17 @@ describe('WaitingRoomService', () => {
     await service.join(eventId, userId);
     await expect(service.assertAdmitted(eventId, userId)).rejects.toThrow(ForbiddenException);
     await service.admitDue();
-    await expect(service.assertAdmitted(eventId, userId)).resolves.toBeUndefined();
+    const { admissionToken } = await service.status(eventId, userId);
+    expect(admissionToken).not.toBeNull();
+    await expect(service.assertAdmitted(eventId, userId)).rejects.toThrow(ForbiddenException);
+    await expect(
+      service.assertAdmitted(eventId, userId, admissionToken ?? undefined)
+    ).resolves.toBeUndefined();
 
     now = at((ADMISSION_TTL_SECONDS + 1) * SECOND_MS);
-    await expect(service.assertAdmitted(eventId, userId)).rejects.toThrow(ForbiddenException);
+    await expect(
+      service.assertAdmitted(eventId, userId, admissionToken ?? undefined)
+    ).rejects.toThrow(ForbiddenException);
     now = SPEC_NOW;
   });
 

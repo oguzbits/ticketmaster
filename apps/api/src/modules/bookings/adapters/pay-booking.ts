@@ -1,18 +1,10 @@
-import { randomUUID } from 'node:crypto';
-
-import {
-  AUDIT_ACTION,
-  AUDIT_SUBJECT,
-  BOOKING_STATUS,
-  OUTBOX_MESSAGE_TYPE,
-  TRANSITION_REASON,
-  type TransitionReason,
-} from '@app/shared';
+import { BOOKING_STATUS, PAYMENT_ATTEMPT_STATUS, TRANSITION_REASON } from '@app/shared';
 import { ConflictException, type Logger } from '@nestjs/common';
 
 import type { Clock } from '../../../core/clock.js';
 import type { Database } from '../../../infrastructure/database/database.module.js';
 import type { BookingState } from '../domain/booking-state-machine.js';
+import { confirmPaidBooking } from './apply-payment.js';
 import type { BookingPorts } from './booking-ports.js';
 import {
   claimPaymentKey,
@@ -22,6 +14,7 @@ import {
 } from './booking-transitions.js';
 import { chargeOrRelease } from './charge-or-release.js';
 import { lockOwnBooking } from './lock-own-booking.js';
+import { recordPaymentAttemptClaim, setPaymentAttemptStatus } from './payment-attempts.js';
 import { refundLateCharge } from './refund-late-charge.js';
 
 export type SeatRef = { eventId: string; seatId: string };
@@ -46,11 +39,9 @@ export interface PayBookingDeps {
  * Charges the held booking once per idempotency key: the same key again returns the stored
  * result (CONFIRMED or CANCELLED) without a second charge. Three steps, so that no database
  * transaction (and no row lock) stays open while the provider answers:
- * 1. claim: lock the booking, refuse what cannot be paid, store the key (commit);
- * 2. charge: call the provider with the key, outside any transaction;
+ * 1. claim: lock the booking, refuse what cannot be paid, store the key and attempt (commit);
+ * 2. charge: call the provider with the key, outside any transaction, and record CHARGED;
  * 3. apply: lock the booking again, re-read its status and store the result.
- * Returns `seat` only for the request that actually applied the transition so callers count
- * metrics and publish seat changes once.
  */
 export async function payBooking(
   deps: PayBookingDeps,
@@ -58,9 +49,6 @@ export async function payBooking(
 ): Promise<{ state: BookingState; seat: SeatRef | null }> {
   const claim = await claimPayment(deps.db, deps.clock, input);
   if (claim.settled !== null) return { state: claim.settled, seat: null };
-  // Single flight per process: parallel requests with one key (ownership is checked above) share
-  // one charge and one apply. shortcut: across instances each may call the provider (it answers a
-  // repeated key alike) and the re-read in the apply step lets the first win; a lock if needed.
   const running = deps.flights.get(input.idempotencyKey);
   if (running !== undefined) return { state: (await running).state, seat: null };
   const flight = chargeAndApply(deps, input, claim).finally(() => {
@@ -83,19 +71,24 @@ async function claimPayment(
       await lockOwnBooking(tx, input.bookingId, input.userId);
     const sameKey = paymentIdempotencyKey === input.idempotencyKey;
     if (sameKey && booking.status !== BOOKING_STATUS.HELD) {
-      // The same key on a booking that left HELD: its stored result, or 409 if it was never paid.
       if (await paymentApplied(tx, booking.id)) return { settled: booking };
       throw new ConflictException(`Booking is ${booking.status}, the payment was not applied`);
     }
-    // A retry keeps the first claim time: the hold was valid then and may finish inside the grace.
     const claimedAt = sameKey && paymentClaimedAt !== null ? paymentClaimedAt : clock.now();
-    // Refused before the charge: another key on a settled booking, or a hold that ran out.
     planTransition(booking, TRANSITION_REASON.PAYMENT_SUCCEEDED, input.userId, claimedAt);
     if (!sameKey) {
       if (paymentIdempotencyKey !== null) {
         throw new ConflictException('Another payment of this booking is in progress');
       }
       await claimPaymentKey(tx, booking.id, input.idempotencyKey, claimedAt);
+      await recordPaymentAttemptClaim(tx, {
+        idempotencyKey: input.idempotencyKey,
+        bookingId: booking.id,
+        userId: input.userId,
+        amountCents: priceCents,
+        requestId: input.requestId,
+        claimedAt,
+      });
     }
     return { settled: null, amountCents: priceCents, seat, claimedAt };
   });
@@ -103,65 +96,111 @@ async function claimPayment(
 
 /** Steps 2 and 3. */
 async function chargeAndApply(
-  deps: Omit<PayBookingDeps, 'clock' | 'flights'>,
+  deps: Omit<PayBookingDeps, 'flights'>,
   input: PayInput,
   claim: { amountCents: number; seat: SeatRef; claimedAt: Date }
 ): Promise<{ state: BookingState; seat: SeatRef | null }> {
-  const succeeded = await chargeOrRelease(deps.db, deps.ports.payments, {
-    bookingId: input.bookingId,
-    amountCents: claim.amountCents,
-    idempotencyKey: input.idempotencyKey,
-  });
-  const result = await deps.db.transaction(async (tx) => {
-    // Locked and read again: the booking may have changed while the provider was working.
-    const { booking } = await lockOwnBooking(tx, input.bookingId, input.userId);
-    if (booking.status !== BOOKING_STATUS.HELD) {
-      // A parallel request of this key applied the result first: its answer stands.
-      if (await paymentApplied(tx, booking.id)) return { state: booking, seat: null };
-      deps.logger.warn(
-        `payment of booking ${booking.id} finished while the booking was ${booking.status}; not applied`
-      );
-      // The money was taken, the booking is gone: refunded below, outside this transaction.
-      if (succeeded) return { late: booking.status };
-      throw new ConflictException(`Booking is ${booking.status}, the payment was not applied`);
-    }
-    // Planned at the claim time (stored, so also for a late retry): the hold was valid then.
-    const plan = (from: BookingState, reason: TransitionReason) =>
-      planTransition(from, reason, input.userId, claim.claimedAt);
-    if (!succeeded) {
-      const failed = plan(booking, TRANSITION_REASON.PAYMENT_FAILED);
-      return { state: await storeOwnTransition(tx, input.userId, failed), seat: claim.seat };
-    }
-    const paid = await storeOwnTransition(
-      tx,
-      input.userId,
-      plan(booking, TRANSITION_REASON.PAYMENT_SUCCEEDED)
-    );
-    const confirmed = await storeOwnTransition(
-      tx,
-      input.userId,
-      plan(paid, TRANSITION_REASON.CONFIRMED)
-    );
-    // In this transaction: the rows exist if and only if the booking is CONFIRMED.
-    await deps.ports.audit.record(tx, {
-      actorId: input.userId,
-      action: AUDIT_ACTION.BOOKING_PAID,
-      subjectType: AUDIT_SUBJECT.BOOKING,
-      subjectId: booking.id,
-      requestId: input.requestId,
+  const succeeded = await chargeOrRelease(
+    deps.db,
+    deps.ports.payments,
+    {
+      bookingId: input.bookingId,
+      amountCents: claim.amountCents,
+      idempotencyKey: input.idempotencyKey,
+    },
+    deps.clock.now()
+  );
+  if (succeeded) {
+    await setPaymentAttemptStatus(deps.db, input.idempotencyKey, {
+      from: [PAYMENT_ATTEMPT_STATUS.CLAIMED],
+      to: PAYMENT_ATTEMPT_STATUS.CHARGED,
+      at: deps.clock.now(),
     });
-    await deps.ports.outbox.enqueue(tx, {
-      messageId: randomUUID(),
-      type: OUTBOX_MESSAGE_TYPE.BOOKING_CONFIRMED,
-      bookingId: booking.id,
-      eventId: claim.seat.eventId,
-      userId: input.userId,
-      occurredAt: claim.claimedAt.toISOString(),
-    });
-    return { state: confirmed, seat: claim.seat };
-  });
+  }
+  const result = await applyChargedOutcome(deps, input, claim, succeeded);
   if ('late' in result) {
-    return refundLateCharge(deps.db, deps.ports, { ...input, ...claim }, result.late);
+    return refundLateCharge(
+      deps.db,
+      deps.ports,
+      { ...input, amountCents: claim.amountCents, at: deps.clock.now() },
+      result.late
+    );
   }
   return result;
+}
+
+async function applyChargedOutcome(
+  deps: Omit<PayBookingDeps, 'flights'>,
+  input: PayInput,
+  claim: { amountCents: number; seat: SeatRef; claimedAt: Date },
+  succeeded: boolean
+): Promise<{ state: BookingState; seat: SeatRef | null } | { late: BookingState['status'] }> {
+  const now = deps.clock.now();
+  return deps.db.transaction(async (tx) => {
+    const { booking } = await lockOwnBooking(tx, input.bookingId, input.userId);
+    if (booking.status !== BOOKING_STATUS.HELD) {
+      return applyNonHeldOutcome(tx, deps.logger, {
+        booking,
+        idempotencyKey: input.idempotencyKey,
+        succeeded,
+        now,
+      });
+    }
+    if (!succeeded) {
+      const failed = planTransition(
+        booking,
+        TRANSITION_REASON.PAYMENT_FAILED,
+        input.userId,
+        claim.claimedAt
+      );
+      await setPaymentAttemptStatus(tx, input.idempotencyKey, {
+        from: [PAYMENT_ATTEMPT_STATUS.CLAIMED],
+        to: PAYMENT_ATTEMPT_STATUS.APPLIED,
+        at: now,
+      });
+      return { state: await storeOwnTransition(tx, input.userId, failed), seat: claim.seat };
+    }
+    const state = await confirmPaidBooking(tx, deps.ports, {
+      booking,
+      userId: input.userId,
+      idempotencyKey: input.idempotencyKey,
+      requestId: input.requestId,
+      eventId: claim.seat.eventId,
+      at: claim.claimedAt,
+    });
+    return { state, seat: claim.seat };
+  });
+}
+
+async function applyNonHeldOutcome(
+  tx: Parameters<Parameters<Database['transaction']>[0]>[0],
+  logger: Logger,
+  input: { booking: BookingState; idempotencyKey: string; succeeded: boolean; now: Date }
+): Promise<{ state: BookingState; seat: null } | { late: BookingState['status'] }> {
+  const { booking, idempotencyKey, succeeded, now } = input;
+  if (await paymentApplied(tx, booking.id)) {
+    await setPaymentAttemptStatus(tx, idempotencyKey, {
+      from: [PAYMENT_ATTEMPT_STATUS.CLAIMED, PAYMENT_ATTEMPT_STATUS.CHARGED],
+      to: PAYMENT_ATTEMPT_STATUS.APPLIED,
+      at: now,
+    });
+    return { state: booking, seat: null };
+  }
+  logger.warn(
+    `payment of booking ${booking.id} finished while the booking was ${booking.status}; not applied`
+  );
+  if (succeeded) {
+    await setPaymentAttemptStatus(tx, idempotencyKey, {
+      from: [PAYMENT_ATTEMPT_STATUS.CLAIMED, PAYMENT_ATTEMPT_STATUS.CHARGED],
+      to: PAYMENT_ATTEMPT_STATUS.REFUND_PENDING,
+      at: now,
+    });
+    return { late: booking.status };
+  }
+  await setPaymentAttemptStatus(tx, idempotencyKey, {
+    from: [PAYMENT_ATTEMPT_STATUS.CLAIMED],
+    to: PAYMENT_ATTEMPT_STATUS.APPLIED,
+    at: now,
+  });
+  throw new ConflictException(`Booking is ${booking.status}, the payment was not applied`);
 }

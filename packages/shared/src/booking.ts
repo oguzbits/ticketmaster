@@ -32,12 +32,23 @@ export const TRANSITION_REASON = {
   CANCELLED_BY_USER: 'CANCELLED_BY_USER',
 } as const;
 
+export const PAYMENT_ATTEMPT_STATUS = {
+  CLAIMED: 'CLAIMED',
+  CHARGED: 'CHARGED',
+  APPLIED: 'APPLIED',
+  REFUND_PENDING: 'REFUND_PENDING',
+  REFUNDED: 'REFUNDED',
+  RELEASED: 'RELEASED',
+} as const;
+
 export const BookingStrategySchema = z.enum(BOOKING_STRATEGY);
 export const BookingStatusSchema = z.enum(BOOKING_STATUS);
 export const SeatStatusSchema = z.enum(SEAT_STATUS);
 export const TransitionReasonSchema = z.enum(TRANSITION_REASON);
+export const PaymentAttemptStatusSchema = z.enum(PAYMENT_ATTEMPT_STATUS);
 
 export type BookingStrategy = z.infer<typeof BookingStrategySchema>;
 export type BookingStatus = z.infer<typeof BookingStatusSchema>;
 export type SeatStatus = z.infer<typeof SeatStatusSchema>;
 export type TransitionReason = z.infer<typeof TransitionReasonSchema>;
+export type PaymentAttemptStatus = z.infer<typeof PaymentAttemptStatusSchema>;

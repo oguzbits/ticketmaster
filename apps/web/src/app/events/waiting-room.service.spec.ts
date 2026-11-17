@@ -22,18 +22,21 @@ const WAITING: WaitingRoomStatus = {
   position: 2,
   waiting: 5,
   admittedUntil: null,
+  admissionToken: null,
 };
 const ADMITTED: WaitingRoomStatus = {
   state: WAITING_ROOM_STATE.ADMITTED,
   position: null,
   waiting: 4,
   admittedUntil: '2027-01-01T00:05:00.000Z',
+  admissionToken: 'admitted-jwt',
 };
 const NONE: WaitingRoomStatus = {
   state: WAITING_ROOM_STATE.NONE,
   position: null,
   waiting: 0,
   admittedUntil: null,
+  admissionToken: null,
 };
 const frame = (data: object) => `data: ${JSON.stringify(data)}\n\n`;
 const status = (value: WaitingRoomStatus): WaitingRoomStreamMessage => ({

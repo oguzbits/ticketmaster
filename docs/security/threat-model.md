@@ -43,11 +43,11 @@ a compromised customer account, and an operator of the host.
 
 ## 4. API and worker to Redis
 
-| STRIDE | Threat                                              | Control                                                                                                | Evidence                                                                              |
-| ------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| T      | A cached value was written wrongly or tampered with | A cached value is parsed again; one that no longer parses counts as a miss                             | [cache spec](../../apps/api/src/infrastructure/cache/cache-aside.db.spec.ts)          |
-| T      | A lock or admission key is forged                   | A forged lock cannot book a seat twice: the partial unique index still refuses a second active booking | [Redis lock spec](../../apps/api/src/modules/bookings/adapters/redis-lock.db.spec.ts) |
-| D      | Redis is down                                       | Commands time out after 250 ms and the cache falls through to PostgreSQL                               | [cache spec](../../apps/api/src/infrastructure/cache/cache-aside.db.spec.ts)          |
+| STRIDE | Threat                                              | Control                                                                                                                                                                                                      | Evidence                                                                                                                                                                                                                                                                                          |
+| ------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| T      | A cached value was written wrongly or tampered with | A cached value is parsed again; one that no longer parses counts as a miss                                                                                                                                   | [cache spec](../../apps/api/src/infrastructure/cache/cache-aside.db.spec.ts)                                                                                                                                                                                                                      |
+| T      | A lock or admission key is forged or replayed       | A forged lock cannot book a seat twice (partial unique index); waiting-room admission uses an HS256 JWT bound to `sub`, `eventId` and `admittedUntilMs` plus Redis revocation check (`DELETE /waiting-room`) | [Redis lock spec](../../apps/api/src/modules/bookings/adapters/redis-lock.db.spec.ts), [HMAC admission token spec](../../apps/api/src/modules/waiting-room/adapters/hmac-admission-token.spec.ts), [bookings controller spec](../../apps/api/src/modules/bookings/bookings.controller.db.spec.ts) |
+| D      | Redis is down                                       | Commands time out after 250 ms and the cache falls through to PostgreSQL                                                                                                                                     | [cache spec](../../apps/api/src/infrastructure/cache/cache-aside.db.spec.ts)                                                                                                                                                                                                                      |
 
 ## 5. API and worker to SQS and S3
 
@@ -96,9 +96,9 @@ Accepted for now; each is tracked in the [backlog](../BACKLOG.md#open-points).
   `aud` only through an audience mapper. A second client of the realm needs its own decision.
 - Row-level security is opt-in per path: the ticket download and `claimPaymentKey` have no database
   layer, and the user scope does not stop SQL injection (ADR 0009).
-- A refund of a charge that succeeded after the booking left `HELD` that fails is not repeated (it
-  needs a manual refund); a charge that throws after the claim leaves the booking stuck until the
-  hold and the grace pass.
+- A charge that throws without `PaymentNotChargedError` leaves its key claimed until the hold
+  and grace pass (or `PaymentReconciliationJob` probes `payments.lookup` once stale); failed late
+  refunds and crashed post-charge confirmations are retried every 30 s via `payment_attempts`.
 - The cache breaker for a Redis outage has no single probe call; no retention of audit and outbox rows; the audit table is
   append-only by convention only.
 - The local stack uses fixed credentials, publishes Redis on a host port without a password and runs

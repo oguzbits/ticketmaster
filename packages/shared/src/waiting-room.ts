@@ -18,6 +18,8 @@ export const WaitingRoomStatusSchema = z.object({
   waiting: z.number().int().min(0),
   /** Only while ADMITTED. */
   admittedUntil: z.iso.datetime().nullable(),
+  /** Signed HMAC admission token; present while ADMITTED. */
+  admissionToken: z.string().min(1).nullable(),
 });
 
 export const SetWaitingRoomRequestSchema = z.object({

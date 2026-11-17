@@ -73,10 +73,10 @@ export class BookingsStore {
    */
   private paymentKey: string | null = null;
 
-  hold(eventId: string, seatId: string): void {
+  hold(eventId: string, seatId: string, admissionToken?: string | null): void {
     if (!this.canHold()) return;
     this.start(BOOKING_ACTION.HOLD);
-    this.service.hold(eventId, seatId).subscribe({
+    this.service.hold(eventId, seatId, admissionToken ?? undefined).subscribe({
       next: (booking) => {
         this.paymentKey = null;
         this.finish(booking);

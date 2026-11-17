@@ -33,7 +33,7 @@ bucket `tickets` and the verified SES sender identity) to the emulator and exits
 changed; running it again, or after a resource went missing, converges and changes nothing else, see
 [ADR 0006](docs/adr/0006-infrastructure-as-code.md)); `migrate`, a one-shot service
 that applies the migrations and the seed with the API image and exits, and `worker`, the scheduled
-jobs (hold expiry every two seconds, the simulation reaper every 30 seconds, the simulation retention every minute, the outbox relay every second), the consumer of the rush simulator and the consumer of the queue `booking-events` run. `api` and `worker` start only after `migrate` and `aws-init` have completed.
+jobs (hold expiry every two seconds, payment reconciliation every 30 seconds, the simulation reaper every 30 seconds, the simulation retention every minute, the outbox relay every second), the consumer of the rush simulator and the consumer of the queue `booking-events` run. `api` and `worker` start only after `migrate` and `aws-init` have completed.
 
 `pnpm aws:smoke` checks the emulator against the features the async chain relies on (redrive to
 the dead-letter queue, visibility timeout, long polling, message attributes, bucket round trip, presigned download, SESv2 email identity and outbound send)
@@ -81,6 +81,7 @@ variable with a comment; the table is generated (`pnpm docs:generate`).
 | `DEMO_USER_TTL_SECONDS` | default `3600` |
 | `DEMO_LOGIN_ENABLED` | default `false` |
 | `UNSAFE_STRATEGIES_ENABLED` | default `false` |
+| `WAITING_ROOM_SIGNING_SECRET` | required |
 | `AWS_ENDPOINT_URL` | optional |
 | `S3_PRESIGN_BASE_URL` | optional |
 | `AWS_REGION` | default `us-east-1` |

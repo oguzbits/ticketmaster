@@ -359,6 +359,18 @@ Enterprise production alignment, slice 3 (OpenTofu IaC):
   Fargate `api`/`worker`, internal HTTPS ALB, and Regional WAFv2), validated by `pnpm infra:validate`,
   `pnpm infra:trivy` (zero HIGH/CRITICAL findings), and CI.
 
+Enterprise production alignment, slice 4 (payment reconciliation and signed waiting-room admission tokens):
+
+- `payment_attempts` table (`migration 0015`) tracks every charge lifecycle state (`CLAIMED`,
+  `CHARGED`, `APPLIED`, `REFUND_PENDING`, `REFUNDED`, `RELEASED`); `PaymentReconciliationJob`
+  runs every 30 s in `apps/worker` to settle crashed `CHARGED` confirmations, retry `REFUND_PENDING`
+  late refunds (with `PAYMENT_REFUNDED` audit rows), and probe stale `CLAIMED` rows via `payments.lookup`.
+- `WaitingRoomService` signs an HS256 JWT (`admissionToken`, `jose`, `WAITING_ROOM_SIGNING_SECRET`,
+  `min 32` chars) bound to `sub`, `eventId`, and `admittedUntilMs`; `POST /api/bookings` verifies
+  both the signed token (when provided, or required alongside) and active Redis admission so
+  `DELETE /api/events/:id/waiting-room` revokes tokens immediately. Angular `WaitingRoomStore` and
+  `SeatMap` forward `admissionToken` transparently on seat holds.
+
 ## Deviations from the plan
 
 - **No SWC for NestJS decorators.** Vitest (Vite 8, Oxc) reads `experimentalDecorators` and
@@ -535,20 +547,14 @@ open points below.
 - **A payment key stays claimed on a `HELD` booking that is never retried.** The expiry job spares
   such a booking for `PAYMENT_GRACE_SECONDS` (120) past its hold and expires it after that; the
   key is not released earlier, and a customer who abandons the payment keeps the seat until then.
-- **A charge that throws without saying it did not charge still leaves the booking stuck.** The
-  key stays claimed on the `HELD` booking: the customer cannot cancel it (409, a payment may be in
-  flight) and cannot pay it with a new key (409, another payment is in progress) until the hold TTL
-  plus the grace has passed and the expiry job releases the seat; only a retry with the same key can
-  finish it. A provider that answers it did not charge throws `PaymentNotChargedError`: the claim is
-  released and the API answers 502. Only a real provider adapter can throw it; the fake provider
-  never does, and a timeout must not (the charge may have gone through).
-- **A failed refund of a late charge is not repeated.** When a charge succeeds after the booking
-  left `HELD` (the expiry job took it while the provider answered), the API refunds it under the key
-  `refund:<charge key>` and writes a `PAYMENT_REFUNDED` audit row, then answers 409. A refund that
-  throws is not audited and answers 500; a retry with the same key gets 409 without a call, because
-  the claim refuses a booking that left `HELD`, so that money needs a manual refund until a
-  reconciliation job exists. A crash between the charge and the apply step, followed by an expiry,
-  is not refunded either: nothing records that the charge went through.
+- **A charge that throws without saying it did not charge relies on `payments.lookup` once stale.**
+  The key stays claimed on the `HELD` booking until `RECONCILE_STALE_SECONDS` (60 s) or the hold
+  plus `PAYMENT_GRACE_SECONDS` passes: the customer cannot cancel it (409) and cannot pay with a
+  new key (409) meanwhile. Once stale, `PaymentReconciliationJob` queries `payments.lookup` (when
+  the provider implements it) to either promote to `CHARGED` and settle/refund or release the
+  claim; a real provider adapter without `lookup` still requires manual inspection if an unknown
+  charge timed out before reaching `CHARGED`. Failed late refunds (`REFUND_PENDING`) and crashes
+  between `CHARGED` and apply are retried automatically every 30 s.
 - **The outbox relay holds a transaction while it sends.** The rows stay locked (`SKIP LOCKED`
   keeps other relays away) until the batch is sent and marked. A run ends within its deadline
   (30 s): a send that has not answered by then counts as failed and ends the batch; each statement
