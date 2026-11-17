@@ -1,6 +1,6 @@
 import type { QueueMessage } from '@app/shared';
 import { Inject, Injectable } from '@nestjs/common';
-import { asc, eq, isNull, min, sql } from 'drizzle-orm';
+import { asc, eq, inArray, isNull, lt, min, sql } from 'drizzle-orm';
 
 import { CLOCK, type Clock } from '../../core/clock.js';
 import { type Database, DB, type Tx } from '../../infrastructure/database/database.module.js';
@@ -15,6 +15,9 @@ import { MESSAGE_QUEUE, type MessageQueue } from './domain/message-queue.js';
 
 /** The oldest unpublished row may be this old before the ready probe reports the outbox as stuck. */
 export const OUTBOX_STUCK_SECONDS = 300;
+
+/** How long a published row is kept (for debugging a booking) before the retention job deletes it. */
+export const OUTBOX_RETENTION_SECONDS = 7 * 24 * 60 * 60;
 
 /**
  * Limits of one relay run. The run holds a transaction (and the locks of its rows) while it sends,
@@ -148,6 +151,25 @@ export class OutboxService {
       await effect(tx);
       return true;
     });
+  }
+
+  /**
+   * The retention job's step: deletes up to `limit` rows that were published more than
+   * OUTBOX_RETENTION_SECONDS before `now`. Unpublished rows are never touched. The consumers'
+   * idempotency records (`processed_messages`) stay. Returns the number of rows deleted.
+   */
+  async deletePublished(now: Date, limit: number): Promise<number> {
+    const cutoff = new Date(now.getTime() - OUTBOX_RETENTION_SECONDS * 1000);
+    const due = this.db
+      .select({ id: outboxMessages.id })
+      .from(outboxMessages)
+      .where(lt(outboxMessages.publishedAt, cutoff))
+      .limit(limit);
+    const deleted = await this.db
+      .delete(outboxMessages)
+      .where(inArray(outboxMessages.id, due))
+      .returning({ id: outboxMessages.id });
+    return deleted.length;
   }
 
   /** Seconds since the oldest unpublished row was written; null when every row is published. */

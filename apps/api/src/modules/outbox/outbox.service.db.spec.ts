@@ -10,7 +10,7 @@ import { outboxMessages } from '../../infrastructure/database/schema.js';
 import { currentTraceparent, SPAN_NAME, withSpan } from '../../infrastructure/tracing/index.js';
 import { startTestTracing } from '../../infrastructure/tracing/testing/index.js';
 import { openTestDatabase } from '../../testing/database.js';
-import { OutboxService, RELAY_DEADLINE_ERROR } from './outbox.service.js';
+import { OUTBOX_RETENTION_SECONDS, OutboxService, RELAY_DEADLINE_ERROR } from './outbox.service.js';
 import { FakeMessageQueue, lockOutboxRelays } from './testing/index.js';
 
 // The relay takes every unpublished row of the table, and the other db specs share it. So these
@@ -406,6 +406,61 @@ describe('OutboxService', () => {
     ]);
 
     expect(await service.oldestUnpublishedAgeSeconds()).toBe(120);
+  });
+
+  describe('deletePublished', () => {
+    // The table is shared and other specs publish rows with fixed clocks (the year 2000 among
+    // them): these rows get an epoch no other spec uses, so the cutoff reaches no foreign row.
+    const EPOCH = new Date('1990-01-01T00:00:00.000Z');
+    const afterEpoch = (seconds: number) => new Date(EPOCH.getTime() + seconds * 1000);
+    const AFTER_RETENTION = OUTBOX_RETENTION_SECONDS + 1;
+
+    /** Enqueues `count` rows and marks them published `secondsAfterEpoch` after the spec clock. */
+    async function enqueued(secondsAfterEpoch: number | null, count = 1): Promise<string[]> {
+      const messages = await enqueueMessages(serviceWith(new FakeMessageQueue()), count);
+      const ids = messages.map((m) => m.messageId);
+      if (secondsAfterEpoch !== null) {
+        await db
+          .update(outboxMessages)
+          .set({ publishedAt: afterEpoch(secondsAfterEpoch) })
+          .where(inArray(outboxMessages.id, ids));
+      }
+      return ids;
+    }
+    const existing = async (ids: string[]) =>
+      (
+        await db
+          .select({ id: outboxMessages.id })
+          .from(outboxMessages)
+          .where(inArray(outboxMessages.id, ids))
+      ).map((row) => row.id);
+
+    it('deletes published rows older than the retention and keeps the rest', async () => {
+      const old = await enqueued(0);
+      const recent = await enqueued(AFTER_RETENTION - 10);
+      const unpublished = await enqueued(null);
+
+      const deleted = await serviceWith(new FakeMessageQueue()).deletePublished(
+        afterEpoch(AFTER_RETENTION),
+        BATCH
+      );
+
+      expect(deleted).toBe(1);
+      expect(await existing(old)).toEqual([]);
+      expect(await existing([...recent, ...unpublished])).toHaveLength(2);
+    });
+
+    it('deletes at most the batch size', async () => {
+      const ids = await enqueued(0, 3);
+
+      const deleted = await serviceWith(new FakeMessageQueue()).deletePublished(
+        afterEpoch(AFTER_RETENTION),
+        2
+      );
+
+      expect(deleted).toBe(2);
+      expect(await existing(ids)).toHaveLength(1);
+    });
   });
 });
 

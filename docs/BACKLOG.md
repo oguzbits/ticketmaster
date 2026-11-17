@@ -514,8 +514,9 @@ open points below.
   rows out of order after a failure; a consumer must not rely on the order of messages. A mail
   that repeats after a crash between its send and the dedupe commit is accepted: delivery is at
   least once, and a repeated confirmation mail is harmless.
-- **Published outbox rows are never deleted.** The table grows with every confirmed booking; a
-  retention job (like the simulation retention) is needed before it matters.
+- **`processed_messages` is never pruned.** The outbox rows go after seven days, but the consumers'
+  idempotency records stay; the table grows by two rows per confirmed booking. A record may go only
+  once the queue can no longer redeliver its message.
 - **The queue consumer takes one message at a time** (`receive(1)`, one loop per worker), so its
   throughput is one message per round trip and handler. Batching and parallel loops wait for a
   handler that is slow enough to need them. A message that does not parse or whose
@@ -535,8 +536,8 @@ open points below.
   down for five deliveries) stays there until someone moves it back by hand, as the
   [runbook](runbooks/dead-letter-queue.md) describes (a move task against the emulator).
 - **The PDF stays after a cancel and is never deleted.** The download answers 404 for a booking
-  that is no longer `CONFIRMED`, but the object remains in the bucket; a retention job (with the
-  outbox rows) would remove it.
+  that is no longer `CONFIRMED`, but the object remains in the bucket; a retention job would
+  remove it.
 - **The mail effect costs one Keycloak call per message** (the address is read when the mail is
   sent, not stored). Acceptable at demo volume; a cache or a stored address needs a data-protection
   decision first.

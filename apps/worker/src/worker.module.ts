@@ -19,6 +19,7 @@ import { TicketPdfHandler } from './handlers/ticket-pdf.handler.js';
 import { HoldExpiryJob } from './hold-expiry.job.js';
 import { OperationalGauges } from './operational-gauges.js';
 import { OutboxRelayJob } from './outbox-relay.job.js';
+import { OutboxRetentionJob } from './outbox-retention.job.js';
 import { BOOKING_CONFIRMED_EFFECTS, QueueConsumer } from './queue-consumer.js';
 import { SimulationConsumer } from './simulation.consumer.js';
 import { SimulationReaperJob } from './simulation-reaper.job.js';
@@ -46,6 +47,7 @@ import { workerLogOptions } from './worker-logger.js';
     HoldExpiryJob,
     WaitingRoomAdmissionJob,
     OutboxRelayJob,
+    OutboxRetentionJob,
     DemoCleanupJob,
     SimulationReaperJob,
     SimulationRetentionJob,
