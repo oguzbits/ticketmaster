@@ -4,10 +4,11 @@ import { applyInfrastructure } from './infrastructure.mjs';
 
 const DECLARED = {
   queues: [
-    { name: 'dlq' },
+    { name: 'dlq', messageRetentionSeconds: 345600 },
     {
       name: 'work',
       visibilityTimeoutSeconds: 120,
+      messageRetentionSeconds: 345600,
       redrive: { deadLetterQueue: 'dlq', maxReceiveCount: 5 },
     },
   ],
@@ -81,6 +82,8 @@ describe('applyInfrastructure', () => {
       maxReceiveCount: 5,
     });
     expect(aws.queues.get('work').VisibilityTimeout).toBe('120');
+    expect(aws.queues.get('work').MessageRetentionPeriod).toBe('345600');
+    expect(aws.queues.get('dlq').MessageRetentionPeriod).toBe('345600');
   });
 
   it('changes nothing when applied twice', async () => {
@@ -109,10 +112,15 @@ describe('applyInfrastructure', () => {
       maxReceiveCount: 3,
     });
     aws.queues.get('work').VisibilityTimeout = '30';
+    aws.queues.get('dlq').MessageRetentionPeriod = '60';
 
-    expect(await applyInfrastructure(DECLARED, aws)).toEqual(['updated queue work']);
+    expect(await applyInfrastructure(DECLARED, aws)).toEqual([
+      'updated queue dlq',
+      'updated queue work',
+    ]);
     expect(JSON.parse(aws.queues.get('work').RedrivePolicy).maxReceiveCount).toBe(5);
     expect(aws.queues.get('work').VisibilityTimeout).toBe('120');
+    expect(aws.queues.get('dlq').MessageRetentionPeriod).toBe('345600');
   });
 
   it('does not swallow an unexpected error when looking up a queue', async () => {

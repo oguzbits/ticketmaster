@@ -13,6 +13,7 @@ export const QUEUE_POLICY = {
   MAX_RECEIVE_COUNT: 5,
   VISIBILITY_TIMEOUT_SECONDS: 120,
   LONG_POLL_SECONDS: 20,
+  MESSAGE_RETENTION_SECONDS: 4 * 24 * 60 * 60,
 } as const;
 
 export const BUCKET_NAME = {
@@ -45,10 +46,14 @@ export type ReplayStatus = (typeof REPLAY_STATUS)[keyof typeof REPLAY_STATUS];
  */
 export const INFRASTRUCTURE = {
   queues: [
-    { name: QUEUE_NAME.BOOKING_EVENTS_DLQ },
+    {
+      name: QUEUE_NAME.BOOKING_EVENTS_DLQ,
+      messageRetentionSeconds: QUEUE_POLICY.MESSAGE_RETENTION_SECONDS,
+    },
     {
       name: QUEUE_NAME.BOOKING_EVENTS,
       visibilityTimeoutSeconds: QUEUE_POLICY.VISIBILITY_TIMEOUT_SECONDS,
+      messageRetentionSeconds: QUEUE_POLICY.MESSAGE_RETENTION_SECONDS,
       redrive: {
         deadLetterQueue: QUEUE_NAME.BOOKING_EVENTS_DLQ,
         maxReceiveCount: QUEUE_POLICY.MAX_RECEIVE_COUNT,

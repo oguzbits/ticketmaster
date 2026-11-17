@@ -41,6 +41,9 @@ export async function applyInfrastructure({ queues, buckets }, { sqs, s3 }) {
     if (queue.visibilityTimeoutSeconds !== undefined) {
       wanted.VisibilityTimeout = String(queue.visibilityTimeoutSeconds);
     }
+    if (queue.messageRetentionSeconds !== undefined) {
+      wanted.MessageRetentionPeriod = String(queue.messageRetentionSeconds);
+    }
     let redrive;
     if (queue.redrive) {
       redrive = {
@@ -64,6 +67,8 @@ export async function applyInfrastructure({ queues, buckets }, { sqs, s3 }) {
     const drifted =
       (wanted.VisibilityTimeout !== undefined &&
         actual.VisibilityTimeout !== wanted.VisibilityTimeout) ||
+      (wanted.MessageRetentionPeriod !== undefined &&
+        actual.MessageRetentionPeriod !== wanted.MessageRetentionPeriod) ||
       (redrive !== undefined && !sameRedrive(actual.RedrivePolicy, redrive));
     if (drifted) {
       await sqs.send(new SetQueueAttributesCommand({ QueueUrl: url, Attributes: wanted }));
