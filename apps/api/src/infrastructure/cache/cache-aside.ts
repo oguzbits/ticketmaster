@@ -90,7 +90,7 @@ export class CacheAside {
     key: string,
     run: (redis: Redis) => Promise<T>
   ): Promise<{ ok: true; value: T } | { ok: false }> {
-    if (this.breaker.isOpen(this.clock.now().getTime())) {
+    if (!this.breaker.allow(this.clock.now().getTime())) {
       this.metrics.cacheLookup(cache, CACHE_RESULT.ERROR);
       return { ok: false };
     }
