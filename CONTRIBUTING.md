@@ -105,6 +105,9 @@ the `FROM` lines of the `Dockerfile` too. A rule a service cannot meet is named 
 service that lacks a rule or a reason. It also refuses added capabilities beyond a short list,
 host namespaces, `privileged` and a Docker socket mount unless an exception gives the reason.
 
+The worker and the pooler also carry `restart: unless-stopped`: they come back after a crash, not
+after a stop by hand ([runbook](docs/runbooks/service-down.md)).
+
 Limits come from `docker stats` during the four `pnpm load` scenarios (the load override, which
 sets `NODE_ENV=development`) (peak, 15 November 2026, hardened stack on a
 laptop) and sit at about twice the peak. Observability services were measured at idle with data.

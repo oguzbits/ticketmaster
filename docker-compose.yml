@@ -37,6 +37,8 @@ services:
   # db specs reach `app_test` through it. migrate talks to Postgres directly.
   pgbouncer:
     <<: *hardening
+    # A single point of the path: it comes back after a crash (not after a stop by hand).
+    restart: unless-stopped
     mem_limit: 64m
     cpus: 0.25
     # The entrypoint writes the config and the user list; the image runs as uid 70.
@@ -246,6 +248,8 @@ services:
 
   worker:
     <<: *hardening
+    # A single point of the path: it comes back after a crash (not after a stop by hand).
+    restart: unless-stopped
     mem_limit: 256m
     cpus: 2.0
     tmpfs: [/tmp]

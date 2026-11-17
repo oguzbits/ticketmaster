@@ -581,7 +581,8 @@ open points below.
   test runs). Reset it with
   `docker compose down -v`; the next `docker compose up` or `pnpm db:migrate` recreates it with the
   seed (this also resets the Keycloak realm, which lives in the same Postgres).
-- **The worker has no healthcheck and no restart policy** in the Compose stack.
+- **The worker has no healthcheck.** It has a restart policy, but a hung process (alive, not
+  working) is not restarted; `GaugeSourceMissing` and `OutboxStuck` show it.
 - **Stream slots of a vanished process expire only after the stream lifetime plus 60 s.** A slot
   is released when its stream ends; if the process dies, the address stays counted for up to eleven
   minutes. The caps are now shared (500 seat streams, 10 per address, 50 simulation streams for all
@@ -589,7 +590,7 @@ open points below.
 - **The worker is a single instance.** Its jobs are safe in parallel (locks, consumer groups) but
   nothing runs more than one yet.
 - **The pooler is one container on the path.** If it is down the apps are down; it has a
-  health check and no restart policy.
+  health check and a restart policy, so it is back after a crash, but the apps fail meanwhile.
 - **Simulation data is kept for one hour.** The worker's retention job deletes the sandbox event of
   every run that ended more than `SIMULATION_RETENTION_SECONDS` ago (seats, bookings, transitions
   and the run go with it), so the comparison table lists the runs of the last hour only. Within

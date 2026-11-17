@@ -35,7 +35,8 @@ error: PostgreSQL or the emulator is unreachable (`docker compose ps postgres pg
 
 ## Dependency
 
-No service in the Compose file has a restart policy yet (phase 5): a crashed container stays down
-until `docker compose up -d <service>`. The apps reconnect to PostgreSQL, PgBouncer and Redis once
+Only the worker and the pooler have a restart policy (`unless-stopped`): a crash brings them back,
+a stop by hand keeps them down. Any other crashed container stays down until
+`docker compose up -d <service>`. The apps reconnect to PostgreSQL, PgBouncer and Redis once
 they are back. The pooler is one container on the path, so while it is down both API replicas and
 the worker fail.
