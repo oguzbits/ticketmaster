@@ -4,9 +4,11 @@ import {
   type EventSummary,
   type OrganizerEvent,
   ROLE,
-  type Venue,
+  type VenueListQuery,
+  VenueListQuerySchema,
+  type VenueListResponse,
 } from '@app/shared';
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 
 import { RequestId } from '../../infrastructure/http/request-id.decorator.js';
 import { ZodPipe } from '../../infrastructure/http/zod.pipe.js';
@@ -20,8 +22,10 @@ export class OrganizerController {
 
   @Roles(ROLE.ORGANIZER)
   @Get('venues')
-  venues(): Promise<Venue[]> {
-    return this.organizer.listVenues();
+  venues(
+    @Query(new ZodPipe(VenueListQuerySchema)) query: VenueListQuery
+  ): Promise<VenueListResponse> {
+    return this.organizer.listVenues(query);
   }
 
   @Roles(ROLE.ORGANIZER)

@@ -2,11 +2,14 @@ import {
   AUDIT_ACTION,
   AUDIT_SUBJECT,
   type BookingStrategy,
+  EVENT_LIST_LIMITS,
   type EventDetail,
+  type EventListQuery,
+  type EventListResponse,
   type EventSummary,
 } from '@app/shared';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, asc, eq, inArray, isNull, or, type SQL, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, inArray, isNull, lte, or, type SQL, sql } from 'drizzle-orm';
 
 import { APP_CONFIG } from '../../config/config.module.js';
 import type { Env } from '../../config/env.js';
@@ -33,6 +36,32 @@ function visibleTo(userId: string | null): SQL | undefined {
     : or(isNull(events.sandboxUserId), eq(events.sandboxUserId, userId));
 }
 
+function encodeEventCursor(event: Pick<EventSummary, 'startsAt' | 'id'>): string {
+  return `${event.startsAt}|${event.id}`;
+}
+
+function decodeEventCursor(cursor: string): { startsAt: Date; id: string } {
+  const sep = cursor.indexOf('|');
+  const startsAt = new Date(cursor.slice(0, sep));
+  const id = cursor.slice(sep + 1);
+  if (Number.isNaN(startsAt.getTime()) || id === '') {
+    throw new BadRequestException('Invalid cursor');
+  }
+  return { startsAt, id };
+}
+
+function isDefaultPublicQuery(userId: string | null, query: EventListQuery): boolean {
+  return (
+    userId === null &&
+    query.q === undefined &&
+    query.from === undefined &&
+    query.to === undefined &&
+    query.maxPriceCents === undefined &&
+    query.cursor === undefined &&
+    query.limit === EVENT_LIST_LIMITS.PAGE_DEFAULT
+  );
+}
+
 const summaryColumns = {
   id: events.id,
   name: events.name,
@@ -54,26 +83,69 @@ export class EventsService {
     }
   ) {}
 
-  /** Public events from the cache, plus the caller's own sandbox events straight from the database. */
-  async list(userId: string | null): Promise<EventSummary[]> {
-    const publicEvents = await this.eventCache.list(() =>
-      this.summaries(isNull(events.sandboxUserId))
-    );
-    if (userId === null) return publicEvents;
-    const own = await this.summaries(eq(events.sandboxUserId, userId));
-    return [...publicEvents, ...own].sort(
-      (a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt)
-    );
+  /**
+   * Unfiltered anonymous first-page reads go through `EventCache`; filtered, paginated, or
+   * authenticated reads (which include the caller's sandbox events) query PostgreSQL directly.
+   */
+  async list(
+    userId: string | null,
+    query: EventListQuery = { limit: EVENT_LIST_LIMITS.PAGE_DEFAULT }
+  ): Promise<EventListResponse> {
+    if (isDefaultPublicQuery(userId, query)) {
+      return this.eventCache.list(() => this.listFromDb(null, query));
+    }
+    return this.listFromDb(userId, query);
   }
 
-  private async summaries(scope: SQL): Promise<EventSummary[]> {
+  private async listFromDb(
+    userId: string | null,
+    query: EventListQuery
+  ): Promise<EventListResponse> {
+    const conditions: (SQL | undefined)[] = [visibleTo(userId)];
+    if (query.q !== undefined) {
+      const pattern = `%${query.q.replace(/[\\%_]/g, '\\$&')}%`;
+      conditions.push(
+        or(
+          sql`${events.name} ilike ${pattern} escape '\\'`,
+          sql`${venues.name} ilike ${pattern} escape '\\'`
+        )
+      );
+    }
+    if (query.from !== undefined) {
+      conditions.push(gte(events.startsAt, new Date(query.from)));
+    }
+    if (query.to !== undefined) {
+      conditions.push(lte(events.startsAt, new Date(query.to)));
+    }
+    if (query.maxPriceCents !== undefined) {
+      conditions.push(
+        sql`exists (select 1 from ${seats} where ${seats.eventId} = ${events.id} and ${seats.priceCents} <= ${query.maxPriceCents})`
+      );
+    }
+    if (query.cursor !== undefined) {
+      const cursor = decodeEventCursor(query.cursor);
+      conditions.push(
+        or(
+          gt(events.startsAt, cursor.startsAt),
+          and(eq(events.startsAt, cursor.startsAt), gt(events.id, cursor.id))
+        )
+      );
+    }
     const rows = await this.db
       .select(summaryColumns)
       .from(events)
       .innerJoin(venues, eq(venues.id, events.venueId))
-      .where(scope)
-      .orderBy(asc(events.startsAt));
-    return rows.map((row) => ({ ...row, startsAt: row.startsAt.toISOString() }));
+      .where(and(...conditions))
+      .orderBy(asc(events.startsAt), asc(events.id))
+      .limit(query.limit + 1);
+    const items = rows
+      .slice(0, query.limit)
+      .map((row) => ({ ...row, startsAt: row.startsAt.toISOString() }));
+    const last = items.at(-1);
+    return {
+      items,
+      nextCursor: rows.length > query.limit && last !== undefined ? encodeEventCursor(last) : null,
+    };
   }
 
   /** NotFound unless the event is public or the caller's own sandbox; cheaper than `detail`. */

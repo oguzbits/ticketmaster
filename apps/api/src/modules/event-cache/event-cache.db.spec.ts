@@ -89,12 +89,33 @@ describe('event cache', () => {
     const call = server[method](path).set('X-Forwarded-For', randomClientAddress());
     return caller === undefined ? call : call.set('Authorization', `Bearer ${caller}`);
   };
-  const listed = async (caller?: Caller) =>
-    EventListResponseSchema.parse((await send('get', '/api/events', caller).expect(200)).body);
+  const listed = async (caller?: Caller, query = '') =>
+    EventListResponseSchema.parse(
+      (await send('get', `/api/events${query}`, caller).expect(200)).body
+    );
+  const allListedIds = async (caller?: Caller) => {
+    const ids: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const page = await listed(
+        caller,
+        cursor === null ? '' : `?cursor=${encodeURIComponent(cursor)}`
+      );
+      ids.push(...page.items.map((e) => e.id));
+      cursor = page.nextCursor;
+    } while (cursor !== null);
+    return ids;
+  };
   const detailOf = async (eventId: string, caller?: Caller) =>
     EventDetailSchema.parse((await send('get', `/api/events/${eventId}`, caller).expect(200)).body);
+  // Early startsAt keeps test events on page 1 so they sit inside the cached default page.
   const newEvent = (seats = 1, extra: { ownerId?: string; waitingRoomCapacity?: number } = {}) =>
-    createTestEvent(db, { strategy: STRATEGY, seats, ...extra });
+    createTestEvent(db, {
+      strategy: STRATEGY,
+      seats,
+      startsAt: new Date('2000-01-01T00:00:00.000Z'),
+      ...extra,
+    });
 
   it('second list request runs no event query', async () => {
     await listed();
@@ -104,6 +125,16 @@ describe('event cache', () => {
 
     queries.stop();
     expect(queries.started()).toBe(0);
+  });
+
+  it('filtered or paginated queries bypass the default list cache', async () => {
+    await listed();
+    const queries = countQueries();
+
+    await listed(undefined, '?limit=5');
+
+    queries.stop();
+    expect(queries.started()).toBe(1);
   });
 
   it('second detail request runs only the status query', async () => {
@@ -138,7 +169,7 @@ describe('event cache', () => {
       .send({ strategy: BOOKING_STRATEGY.OPTIMISTIC })
       .expect(200);
 
-    expect((await listed()).find(({ id }) => id === eventId)?.strategy).toBe(
+    expect((await listed()).items.find(({ id }) => id === eventId)?.strategy).toBe(
       BOOKING_STRATEGY.OPTIMISTIC
     );
     expect((await detailOf(eventId)).strategy).toBe(BOOKING_STRATEGY.OPTIMISTIC);
@@ -152,10 +183,10 @@ describe('event cache', () => {
       .send({ capacity: 7 })
       .expect(200);
 
-    expect((await listed()).find(({ id }) => id === eventId)?.waitingRoomCapacity).toBe(7);
+    expect((await listed()).items.find(({ id }) => id === eventId)?.waitingRoomCapacity).toBe(7);
   });
 
-  it('a new public event shows in the list at once', async () => {
+  it('a new public event invalidates the list cache and shows at once', async () => {
     const venueId = randomUUID();
     await db.insert(venues).values({ id: venueId, name: `cache venue ${venueId}` });
     await listed();
@@ -169,8 +200,8 @@ describe('event cache', () => {
       })
       .expect(201);
 
-    const ids = (await listed()).map(({ id }) => id);
-    expect(ids).toContain(created.body.id);
+    expect(await redis.get(LIST_KEY)).toBeNull();
+    expect(await allListedIds()).toContain(created.body.id);
   });
 
   it('a sandbox event is served only to its owner, from the database', async () => {
@@ -178,17 +209,18 @@ describe('event cache', () => {
       strategy: STRATEGY,
       seats: 1,
       sandboxUserId: OWNER.id,
+      startsAt: new Date('2000-01-01T00:00:00.000Z'),
     });
 
-    expect((await listed('owner')).map(({ id }) => id)).toContain(eventId);
+    expect(await allListedIds('owner')).toContain(eventId);
     await detailOf(eventId, 'owner');
 
-    expect((await listed()).map(({ id }) => id)).not.toContain(eventId);
-    expect((await listed('other')).map(({ id }) => id)).not.toContain(eventId);
+    expect(await allListedIds()).not.toContain(eventId);
+    expect(await allListedIds('other')).not.toContain(eventId);
     await send('get', `/api/events/${eventId}`).expect(404);
     await send('get', `/api/events/${eventId}`, 'other').expect(404);
     const keys = await redis.keys('events:*');
     expect(keys.filter((key) => key.includes(eventId))).toEqual([]);
-    expect((await listed('owner')).map(({ id }) => id)).toContain(eventId);
+    expect(await allListedIds('owner')).toContain(eventId);
   });
 });

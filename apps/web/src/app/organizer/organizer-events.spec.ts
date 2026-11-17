@@ -47,7 +47,7 @@ describe('OrganizerEvents', () => {
 
   it('shows loading, then each own event with its sales and utilization', async () => {
     const { element, http, answer } = render();
-    http.expectOne(VENUES_URL).flush([]);
+    http.expectOne(VENUES_URL).flush({ items: [], nextCursor: null });
     expect(element.querySelector('[role=status]')?.textContent).toContain('Loading your events');
 
     await answer(() => http.expectOne(LIST_URL).flush([GALA]));
@@ -62,7 +62,7 @@ describe('OrganizerEvents', () => {
 
   it('shows the strategy of an event as its label', async () => {
     const { element, http, answer } = render();
-    http.expectOne(VENUES_URL).flush([]);
+    http.expectOne(VENUES_URL).flush({ items: [], nextCursor: null });
 
     await answer(() => http.expectOne(LIST_URL).flush([GALA]));
 
@@ -73,7 +73,7 @@ describe('OrganizerEvents', () => {
 
   it('says so when the organizer has no events yet', async () => {
     const { element, http, answer } = render();
-    http.expectOne(VENUES_URL).flush([]);
+    http.expectOne(VENUES_URL).flush({ items: [], nextCursor: null });
 
     await answer(() => http.expectOne(LIST_URL).flush([]));
 
@@ -82,7 +82,7 @@ describe('OrganizerEvents', () => {
 
   it('offers a retry when the list fails and loads again on click', async () => {
     const { element, http, answer } = render();
-    http.expectOne(VENUES_URL).flush([]);
+    http.expectOne(VENUES_URL).flush({ items: [], nextCursor: null });
     await answer(() =>
       http.expectOne(LIST_URL).flush(null, { status: 503, statusText: 'Service Unavailable' })
     );
@@ -100,7 +100,9 @@ describe('OrganizerEvents', () => {
 
   it('reads the list again after an event was created', async () => {
     const { element, http, answer } = render();
-    http.expectOne(VENUES_URL).flush([{ id: GALA.id, name: 'Hall', seatCount: 40 }]);
+    http
+      .expectOne(VENUES_URL)
+      .flush({ items: [{ id: GALA.id, name: 'Hall', seatCount: 40 }], nextCursor: null });
     await answer(() => http.expectOne(LIST_URL).flush([]));
 
     const name = element.querySelector<HTMLInputElement>('#event-name');

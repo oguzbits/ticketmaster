@@ -73,8 +73,13 @@ export {
   TicketDownloadSchema,
 } from './bookings-api.js';
 export {
+  EVENT_LIST_LIMITS,
+  EventCursorSchema,
   type EventDetail,
   EventDetailSchema,
+  type EventListQuery,
+  EventListQuerySchema,
+  type EventListResponse,
   EventListResponseSchema,
   type EventSummary,
   EventSummarySchema,
@@ -96,6 +101,11 @@ export {
   type SetStrategyRequest,
   SetStrategyRequestSchema,
   type Venue,
+  VENUE_LIST_LIMITS,
+  VenueCursorSchema,
+  type VenueListQuery,
+  VenueListQuerySchema,
+  type VenueListResponse,
   VenueListResponseSchema,
   VenueSchema,
 } from './organizer.js';

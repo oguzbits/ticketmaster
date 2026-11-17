@@ -1,14 +1,15 @@
 import { HttpErrorResponse, HttpStatusCode } from '@angular/common/http';
-import { Component, inject, linkedSignal, output, signal } from '@angular/core';
-import { rxResource } from '@angular/core/rxjs-interop';
+import { Component, DestroyRef, inject, linkedSignal, output, signal } from '@angular/core';
 import {
   BOOKING_STRATEGY,
   type BookingStrategy,
   BookingStrategySchema,
   type EventSummary,
   MAX_ADMISSION_CAPACITY,
+  type Venue,
   WaitingRoomCapacitySchema,
 } from '@app/shared';
+import { Subscription } from 'rxjs';
 
 import { strategyLabel } from '../events/strategy-label';
 import { OrganizerService } from './organizer.service';
@@ -50,14 +51,18 @@ function messageFor(error: Error): string {
 })
 export class EventForm {
   private readonly service = inject(OrganizerService);
+  private venuesRequest: Subscription | null = null;
 
   readonly created = output<EventSummary>();
 
-  protected readonly venues = rxResource({ stream: () => this.service.venues() });
+  protected readonly venues = signal<Venue[]>([]);
+  protected readonly venuesNextCursor = signal<string | null>(null);
+  protected readonly venuesLoading = signal(false);
+  protected readonly venuesError = signal(false);
   protected readonly strategies = STRATEGIES;
   protected readonly label = strategyLabel;
 
-  protected readonly venueId = linkedSignal(() => this.venues.value()?.[0]?.id ?? '');
+  protected readonly venueId = linkedSignal(() => this.venues()[0]?.id ?? '');
   protected readonly name = signal('');
   protected readonly startsAt = signal('');
   protected readonly strategy = signal<BookingStrategy>(BOOKING_STRATEGY.PESSIMISTIC);
@@ -66,6 +71,41 @@ export class EventForm {
   protected readonly pending = signal(false);
   protected readonly problem = signal<string | null>(null);
   protected readonly done = signal(false);
+
+  constructor() {
+    this.loadVenues(undefined);
+    inject(DestroyRef).onDestroy(() => this.venuesRequest?.unsubscribe());
+  }
+
+  protected reloadVenues(): void {
+    this.venues.set([]);
+    this.venuesNextCursor.set(null);
+    this.loadVenues(undefined);
+  }
+
+  protected loadMoreVenues(): void {
+    const cursor = this.venuesNextCursor();
+    if (cursor && !this.venuesLoading()) this.loadVenues(cursor);
+  }
+
+  private loadVenues(cursor: string | undefined): void {
+    this.venuesRequest?.unsubscribe();
+    this.venuesLoading.set(true);
+    this.venuesError.set(false);
+    this.venuesRequest = this.service.venues(cursor ? { cursor } : {}).subscribe({
+      next: (page) => {
+        this.venuesLoading.set(false);
+        this.venues.update((current) =>
+          cursor === undefined ? page.items : [...current, ...page.items]
+        );
+        this.venuesNextCursor.set(page.nextCursor);
+      },
+      error: () => {
+        this.venuesLoading.set(false);
+        this.venuesError.set(true);
+      },
+    });
+  }
 
   protected pickStrategy(value: string): void {
     this.strategy.set(BookingStrategySchema.parse(value));

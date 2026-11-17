@@ -48,7 +48,9 @@ describe('App', () => {
     const { fixture, element } = render();
     await TestBed.inject(Router).navigateByUrl('/events');
     TestBed.tick();
-    TestBed.inject(HttpTestingController).expectOne('/api/events').flush([]);
+    TestBed.inject(HttpTestingController)
+      .expectOne('/api/events')
+      .flush({ items: [], nextCursor: null });
     await fixture.whenStable();
 
     expect(element.textContent).toContain('No events yet');
@@ -77,7 +79,7 @@ describe('App', () => {
 
     await router.navigateByUrl('/events');
     TestBed.tick();
-    http.expectOne('/api/events').flush([]);
+    http.expectOne('/api/events').flush({ items: [], nextCursor: null });
     await fixture.whenStable();
     const field = searchField();
     expect(field?.type).toBe('search');
@@ -101,7 +103,9 @@ describe('App', () => {
     const { fixture, element } = render();
     await TestBed.inject(Router).navigateByUrl('/events');
     TestBed.tick();
-    TestBed.inject(HttpTestingController).expectOne('/api/events').flush([]);
+    TestBed.inject(HttpTestingController)
+      .expectOne('/api/events')
+      .flush({ items: [], nextCursor: null });
     await fixture.whenStable();
 
     const current = [...element.querySelectorAll('nav a[aria-current="page"]')];

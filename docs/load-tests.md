@@ -39,7 +39,7 @@ the variable on to the API containers (check with `docker compose exec api print
 ## Scenarios
 
 The scripts live in `scripts/k6`. They pick events by `strategy` and `waitingRoomCapacity` from
-`GET /api/events`; no event ID is hard-coded. Customers come from the demo login. Every 429 counts
+the first page (`items`) of `GET /api/events`; no event ID is hard-coded. Customers come from the demo login. Every 429 counts
 (`rate_limited`) and every scenario fails on one.
 
 | Scenario       | What it does                                                                                                                                      | Thresholds                                                                                           |

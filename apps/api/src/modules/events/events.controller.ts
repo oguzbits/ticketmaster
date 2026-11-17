@@ -1,11 +1,14 @@
 import {
   type EventDetail,
+  type EventListQuery,
+  EventListQuerySchema,
+  type EventListResponse,
   type EventSummary,
   ROLE,
   type SetStrategyRequest,
   SetStrategyRequestSchema,
 } from '@app/shared';
-import { Body, Controller, Get, Param, Patch } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
 import { z } from 'zod';
 
 import { RequestId } from '../../infrastructure/http/request-id.decorator.js';
@@ -19,8 +22,11 @@ export class EventsController {
 
   @Public()
   @Get()
-  list(@OptionalUser() user: AuthUser | null): Promise<EventSummary[]> {
-    return this.events.list(user?.id ?? null);
+  list(
+    @Query(new ZodPipe(EventListQuerySchema)) query: EventListQuery,
+    @OptionalUser() user: AuthUser | null
+  ): Promise<EventListResponse> {
+    return this.events.list(user?.id ?? null, query);
   }
 
   @Public()

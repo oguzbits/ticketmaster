@@ -51,10 +51,27 @@ describe('OrganizerService', () => {
     service.venues().subscribe((venues) => results.push(venues));
     service.events().subscribe((events) => results.push(events));
 
-    http.expectOne('/api/venues').flush([VENUE]);
+    http.expectOne('/api/venues').flush({ items: [VENUE], nextCursor: null });
     http.expectOne('/api/organizer/events').flush([OWN]);
 
-    expect(results).toEqual([[VENUE], [OWN]]);
+    expect(results).toEqual([{ items: [VENUE], nextCursor: null }, [OWN]]);
+  });
+
+  it('passes search, cursor, and limit query parameters when listing venues', () => {
+    const http = TestBed.inject(HttpTestingController);
+    const service = TestBed.inject(OrganizerService);
+    let page: unknown = null;
+    service.venues({ q: 'Hall', cursor: 'abc_1', limit: 10 }).subscribe((res) => (page = res));
+
+    const req = http.expectOne(
+      (request) =>
+        request.url === '/api/venues' &&
+        request.params.get('q') === 'Hall' &&
+        request.params.get('cursor') === 'abc_1' &&
+        request.params.get('limit') === '10'
+    );
+    req.flush({ items: [VENUE], nextCursor: null });
+    expect(page).toEqual({ items: [VENUE], nextCursor: null });
   });
 
   it('create posts the request and returns the validated summary', () => {

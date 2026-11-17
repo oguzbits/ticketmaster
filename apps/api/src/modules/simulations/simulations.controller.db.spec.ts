@@ -145,7 +145,7 @@ describe('simulation endpoints', () => {
       const entries = await redis.xRange(SIMULATION_STREAM_KEY, '-', '+');
       expect(entries?.filter(({ message }) => message.runId === run.id)).toHaveLength(1);
       const listed = await call('get', '/events').expect(200);
-      expect(EventListResponseSchema.parse(listed.body).map(({ id }) => id)).not.toContain(
+      expect(EventListResponseSchema.parse(listed.body).items.map(({ id }) => id)).not.toContain(
         run.eventId
       );
     });

@@ -1,6 +1,6 @@
 import {
+  type EventListResponse,
   EventListResponseSchema,
-  type EventSummary,
   EventSummarySchema,
   SeatSchema,
 } from '@app/shared';
@@ -34,10 +34,10 @@ export class EventCache {
     @Inject(APP_CONFIG) private readonly config: Env
   ) {}
 
-  list(load: () => Promise<EventSummary[]>): Promise<EventSummary[]> {
+  list(load: () => Promise<EventListResponse>): Promise<EventListResponse> {
     return this.cache
       .getOrLoad(EVENT_CACHE.LIST, LIST_KEY, EventListResponseSchema, this.ttl, load)
-      .then((events) => events ?? []);
+      .then((page) => page ?? { items: [], nextCursor: null });
   }
 
   detail(id: string, load: () => Promise<EventLayout | null>): Promise<EventLayout | null> {

@@ -30,18 +30,24 @@ export async function createTestEvent(
     sandboxUserId?: string;
     ownerId?: string;
     waitingRoomCapacity?: number;
+    startsAt?: Date;
+    name?: string;
+    venueName?: string;
+    priceCents?: number;
   }
 ): Promise<{ eventId: string; seatIds: string[] }> {
   const venueId = randomUUID();
   const eventId = randomUUID();
   const seatIds = Array.from({ length: input.seats }, () => randomUUID());
   await db.transaction(async (tx) => {
-    await tx.insert(schema.venues).values({ id: venueId, name: `test venue ${venueId}` });
+    await tx
+      .insert(schema.venues)
+      .values({ id: venueId, name: input.venueName ?? `test venue ${venueId}` });
     await tx.insert(schema.events).values({
       id: eventId,
       venueId,
-      name: `test event ${eventId}`,
-      startsAt: new Date(),
+      name: input.name ?? `test event ${eventId}`,
+      startsAt: input.startsAt ?? new Date(),
       strategy: input.strategy,
       ownerId: input.ownerId ?? randomUUID(),
       sandboxUserId: input.sandboxUserId ?? null,
@@ -55,7 +61,7 @@ export async function createTestEvent(
         section: TEST_SECTION,
         row: 1,
         number: index + 1,
-        priceCents: TEST_SEAT_PRICE_CENTS,
+        priceCents: input.priceCents ?? TEST_SEAT_PRICE_CENTS,
       }))
     );
   });

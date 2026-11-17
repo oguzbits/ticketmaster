@@ -1,20 +1,59 @@
 <h1 class="text-2xl font-semibold">Events</h1>
 
-@if (events.isLoading()) {
-  <p role="status">Loading events…</p>
-} @else if (events.error()) {
+<div class="flex flex-wrap items-end gap-4">
+  <div class="flex flex-col gap-1">
+    <label for="event-filter-from" class="text-sm font-medium">From date</label>
+    <input
+      id="event-filter-from"
+      type="date"
+      class="field w-fit"
+      [value]="from()"
+      (change)="pickFrom(fromInput.value)"
+      #fromInput
+    />
+  </div>
+  <div class="flex flex-col gap-1">
+    <label for="event-filter-to" class="text-sm font-medium">To date</label>
+    <input
+      id="event-filter-to"
+      type="date"
+      class="field w-fit"
+      [value]="to()"
+      (change)="pickTo(toInput.value)"
+      #toInput
+    />
+  </div>
+  <div class="flex flex-col gap-1">
+    <label for="event-filter-price" class="text-sm font-medium">Max price (EUR)</label>
+    <input
+      id="event-filter-price"
+      type="number"
+      min="1"
+      step="1"
+      placeholder="Any price"
+      class="field w-36"
+      [value]="maxPriceEur()"
+      [attr.aria-invalid]="priceInvalid() ? 'true' : null"
+      (change)="pickMaxPrice(priceInput.value)"
+      #priceInput
+    />
+    @if (priceInvalid()) {
+      <p role="alert" class="text-sm text-danger">Enter a positive whole euro amount.</p>
+    }
+  </div>
+  @if (hasActiveFilters()) {
+    <button type="button" class="btn-secondary" (click)="clearFilters()">Clear filters</button>
+  }
+</div>
+
+@if (failed()) {
   <p role="alert" class="text-danger">The events could not be loaded.</p>
-  <button type="button" class="btn self-start" (click)="events.reload()">Try again</button>
-} @else if ((events.value() ?? []).length === 0) {
-  <p>No events yet.</p>
-} @else if (visible().length === 0) {
-  <p role="status">No events match “{{ search.query().trim() }}”.</p>
-  <button type="button" class="btn-secondary self-start" (click)="search.query.set('')">
-    Clear search
-  </button>
-} @else {
+  <button type="button" class="btn self-start" (click)="retry()">Try again</button>
+}
+
+@if (items().length > 0) {
   <ul class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-    @for (event of visible(); track event.id) {
+    @for (event of items(); track event.id) {
       <li class="min-w-0">
         <a
           [routerLink]="['/events', event.id]"
@@ -41,4 +80,30 @@
       </li>
     }
   </ul>
+  @if (nextCursor()) {
+    <button
+      type="button"
+      class="btn self-start disabled:cursor-not-allowed disabled:opacity-60"
+      [disabled]="loading()"
+      (click)="loadMore()"
+    >
+      {{ loading() ? 'Loading…' : 'Load more' }}
+    </button>
+  }
+} @else if (loading()) {
+  <p role="status">Loading events…</p>
+} @else if (!failed()) {
+  @if (search.query().trim() !== '') {
+    <p role="status">No events match “{{ search.query().trim() }}”.</p>
+    <button type="button" class="btn-secondary self-start" (click)="clearFilters()">
+      Clear filters
+    </button>
+  } @else if (hasActiveFilters()) {
+    <p role="status">No events match the current filters.</p>
+    <button type="button" class="btn-secondary self-start" (click)="clearFilters()">
+      Clear filters
+    </button>
+  } @else {
+    <p>No events yet.</p>
+  }
 }

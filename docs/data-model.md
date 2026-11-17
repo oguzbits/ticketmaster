@@ -188,6 +188,10 @@ a price makes the creation fail as a whole, since `seats.price_cents` is not nul
 transitions up to the event cascade on delete. The status of a seat (available, held, sold) is
 derived from its bookings and never stored.
 
+`events(starts_at, id)` and `venues(name, id)` serve the deterministic keyset pagination of
+`GET /api/events` and `GET /api/venues`; `seats(event_id, price_cents)` backs the `maxPriceCents`
+filter without scanning every seat.
+
 `events.waiting_room_capacity` is the waiting room switch: null means the event has none, a number
 is how many customers may hold seats at once. A check constraint keeps the number positive; the
 upper bound (`MAX_ADMISSION_CAPACITY`) lives in the request schema. The column was added in the

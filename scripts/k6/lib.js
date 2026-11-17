@@ -61,7 +61,7 @@ export function loginCustomers(count) {
 export function findEvent(predicate) {
   const res = http.get(`${BASE_URL}/api/events`, tagged('events'));
   if (!ok(res, 200)) fail(`event list answered ${res.status}`);
-  const event = res.json().find(predicate);
+  const event = res.json('items').find(predicate);
   if (event === undefined) fail('no event matches the predicate');
   return event;
 }

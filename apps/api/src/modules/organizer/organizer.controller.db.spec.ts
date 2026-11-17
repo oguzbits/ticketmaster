@@ -131,14 +131,46 @@ describe('organizer endpoints', () => {
         { venueId, section: 'B', row: 1, number: 1 },
       ]);
 
-      const response = await get('/venues', 'a').expect(200);
+      const response = await get(`/venues?q=${encodeURIComponent(venueId)}`, 'a').expect(200);
 
       const listed = VenueListResponseSchema.parse(response.body);
-      expect(listed.find(({ id }) => id === venueId)).toEqual({
-        id: venueId,
-        name: `venue ${venueId}`,
-        seatCount: 3,
-      });
+      expect(listed.items).toEqual([
+        {
+          id: venueId,
+          name: `venue ${venueId}`,
+          seatCount: 3,
+        },
+      ]);
+      expect(listed.nextCursor).toBeNull();
+    });
+
+    it('pages venues by (name ASC, id ASC) without skipping ties', async () => {
+      const sharedName = `zz-tie-${randomUUID()}`;
+      const ids = [randomUUID(), randomUUID(), randomUUID()].sort();
+      await db.insert(venues).values(ids.map((id) => ({ id, name: sharedName })));
+
+      const first = VenueListResponseSchema.parse(
+        (await get(`/venues?q=${encodeURIComponent(sharedName)}&limit=2`, 'a').expect(200)).body
+      );
+      expect(first.items.map((v) => v.id)).toEqual(ids.slice(0, 2));
+      expect(first.nextCursor).not.toBeNull();
+
+      const second = VenueListResponseSchema.parse(
+        (
+          await get(
+            `/venues?q=${encodeURIComponent(sharedName)}&limit=2&cursor=${encodeURIComponent(first.nextCursor ?? '')}`,
+            'a'
+          ).expect(200)
+        ).body
+      );
+      expect(second.items.map((v) => v.id)).toEqual(ids.slice(2));
+      expect(second.nextCursor).toBeNull();
+    });
+
+    it('answers 400 for a malformed venue cursor or limit', async () => {
+      await get('/venues?cursor=not-valid-base64-json').expect(401);
+      await get('/venues?cursor=not_json', 'a').expect(400);
+      await get('/venues?limit=0', 'a').expect(400);
     });
   });
 
@@ -240,10 +272,12 @@ describe('organizer endpoints', () => {
         .where(eq(events.id, EventSummarySchema.parse(body).id));
       expect(stored).toMatchObject({ ownerId: ORGANIZER_A.id, sandboxUserId: null });
       const listed = await request(app.getHttpServer())
-        .get('/api/events')
+        .get(`/api/events?q=${encodeURIComponent(stored?.name ?? '')}`)
         .set('X-Forwarded-For', randomClientAddress())
         .expect(200);
-      expect(EventListResponseSchema.parse(listed.body).map(({ id }) => id)).toContain(stored?.id);
+      expect(EventListResponseSchema.parse(listed.body).items.map(({ id }) => id)).toContain(
+        stored?.id
+      );
     });
 
     it('keeps an event of a demo user private to that user', async () => {

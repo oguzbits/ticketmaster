@@ -404,6 +404,11 @@ Enterprise hardening follow-ups:
   `keepalive: true` `DELETE /api/events/:id/waiting-room` via `WaitingRoomService.leaveKeepalive`
   on non-persisted `pagehide` while `WAITING` or `ADMITTED`, freeing abandoned queue/admission
   capacity on tab close immediately.
+- `GET /api/events` and `GET /api/venues` now return keyset-paginated responses
+  (`EventListResponse` / `VenueListResponse` with `{ items, nextCursor }`, default limit `50`,
+  max `100`) backed by composite indexes (`migration 0017`) and SQL filters (`q`, `from`, `to`,
+  `maxPriceCents` on events; `q` on venues); `EventCache.list` caches unfiltered anonymous page-1
+  reads and `EventList` / `EventForm` page incrementally in Angular.
 
 ## Deviations from the plan
 
@@ -618,8 +623,6 @@ open points below.
   out; under a full parallel run the queue consumer specs and `double books under naive` also
   failed once each and passed on a rerun. Give the specs their own database and queue names, or
   run them with the stack stopped.
-- **The venue list and the event list have no pagination.** `GET /api/venues` and
-  `GET /api/events` return every row.
 - **The busy notices (429, 503 on the seat stream) and the failed-payment and 5xx-retry paths are
   covered by unit tests only.** The end-to-end run pins the payment to succeed and never meets a
   limit.

@@ -70,6 +70,7 @@ export interface RouteDoc {
 
 const SANDBOX_404 = 'Unknown event, or another user’s sandbox event.';
 const FOREIGN_BOOKING = 'The booking belongs to another user.';
+const BAD_QUERY = 'A malformed query parameter.';
 
 /** Keyed by `<controller class>.<handler>`, which is how the spec pairs it with the code. */
 export const ROUTES: Record<string, RouteDoc> = {
@@ -93,10 +94,11 @@ export const ROUTES: Record<string, RouteDoc> = {
   'EventsController.list': {
     method: 'get',
     path: '/api/events',
-    summary: 'List public events and the caller’s own sandbox events',
+    summary: 'List events (q, from, to, maxPriceCents, cursor, limit)',
     access: PUBLIC,
     optionalToken: true,
-    success: { status: 200, description: 'Ordered by `startsAt`.', schema: 'EventList' },
+    success: { status: 200, description: 'Ordered by (startsAt, id).', schema: 'EventList' },
+    errors: { 400: BAD_QUERY },
   },
   'EventsController.detail': {
     method: 'get',
@@ -217,9 +219,10 @@ export const ROUTES: Record<string, RouteDoc> = {
   'OrganizerController.venues': {
     method: 'get',
     path: '/api/venues',
-    summary: 'List the venue templates',
+    summary: 'List venue templates (q, cursor, limit)',
     access: [ROLE.ORGANIZER],
-    success: { status: 200, description: 'Ordered by name.', schema: 'VenueList' },
+    success: { status: 200, description: 'Ordered by (name, id).', schema: 'VenueList' },
+    errors: { 400: BAD_QUERY },
   },
   'OrganizerController.ownEvents': {
     method: 'get',
@@ -308,11 +311,7 @@ export const ROUTES: Record<string, RouteDoc> = {
     summary: 'Exchange a refresh token for new tokens',
     access: PUBLIC,
     body: 'RefreshRequest',
-    success: {
-      status: 200,
-      description: 'A new access and refresh token.',
-      schema: 'TokenResponse',
-    },
+    success: { status: 200, description: 'New access/refresh tokens.', schema: 'TokenResponse' },
     errors: {
       401: 'Keycloak rejects the refresh token (`invalid_grant`).',
       429: 'Rate limit exceeded (`REFRESH`).',

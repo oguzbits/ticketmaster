@@ -46,10 +46,14 @@ const ACTIVE_STATUSES = sql.join(
 );
 
 /** A seat template: the seats of a hall, copied onto every event held there. */
-export const venues = pgTable('venues', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  name: text('name').notNull(),
-});
+export const venues = pgTable(
+  'venues',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name').notNull(),
+  },
+  (t) => [index('venues_name_id_idx').on(t.name, t.id)]
+);
 
 export const venueSeats = pgTable(
   'venue_seats',
@@ -84,7 +88,10 @@ export const events = pgTable(
     // Null: no waiting room; a number is the capacity (live admissions at once).
     waitingRoomCapacity: integer('waiting_room_capacity'),
   },
-  (t) => [check('events_waiting_room_capacity_positive', sql`${t.waitingRoomCapacity} > 0`)]
+  (t) => [
+    check('events_waiting_room_capacity_positive', sql`${t.waitingRoomCapacity} > 0`),
+    index('events_starts_at_id_idx').on(t.startsAt, t.id),
+  ]
 );
 
 export const seats = pgTable(
@@ -101,7 +108,10 @@ export const seats = pgTable(
     // Compared and incremented by the optimistic strategy.
     version: integer('version').notNull().default(0),
   },
-  (t) => [unique('seats_event_position_uq').on(t.eventId, t.section, t.row, t.number)]
+  (t) => [
+    unique('seats_event_position_uq').on(t.eventId, t.section, t.row, t.number),
+    index('seats_event_price_idx').on(t.eventId, t.priceCents),
+  ]
 );
 
 export const bookings = pgTable(

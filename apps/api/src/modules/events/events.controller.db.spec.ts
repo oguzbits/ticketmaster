@@ -98,9 +98,17 @@ describe('events endpoints', () => {
     return token === undefined ? call : call.set('Authorization', `Bearer ${token}`);
   };
 
-  async function listedIds(token?: string): Promise<string[]> {
-    const response = await get('/api/events', token).expect(200);
-    return EventListResponseSchema.parse(response.body).map((event) => event.id);
+  async function listedIds(token?: string, query = ''): Promise<string[]> {
+    const ids: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const separator = query === '' ? '?' : `${query}&`;
+      const path = `/api/events${cursor === null ? query : `${separator}cursor=${encodeURIComponent(cursor)}`}`;
+      const page = EventListResponseSchema.parse((await get(path, token).expect(200)).body);
+      ids.push(...page.items.map((event) => event.id));
+      cursor = page.nextCursor;
+    } while (cursor !== null);
+    return ids;
   }
 
   it('lists public events and hides sandbox events', async () => {
@@ -125,25 +133,99 @@ describe('events endpoints', () => {
     });
     const without = await createTestEvent(db, { strategy: STRATEGY, seats: 1 });
 
-    const listed = EventListResponseSchema.parse((await get('/api/events').expect(200)).body);
+    const withRoomPage = EventListResponseSchema.parse(
+      (await get(`/api/events?q=${encodeURIComponent(withRoom.eventId)}`).expect(200)).body
+    );
+    const withoutPage = EventListResponseSchema.parse(
+      (await get(`/api/events?q=${encodeURIComponent(without.eventId)}`).expect(200)).body
+    );
     const detail = EventDetailSchema.parse(
       (await get(`/api/events/${withRoom.eventId}`).expect(200)).body
     );
 
-    expect(listed.find(({ id }) => id === withRoom.eventId)?.waitingRoomCapacity).toBe(25);
-    expect(listed.find(({ id }) => id === without.eventId)?.waitingRoomCapacity).toBeNull();
+    expect(withRoomPage.items.find(({ id }) => id === withRoom.eventId)?.waitingRoomCapacity).toBe(
+      25
+    );
+    expect(
+      withoutPage.items.find(({ id }) => id === without.eventId)?.waitingRoomCapacity
+    ).toBeNull();
     expect(detail.waitingRoomCapacity).toBe(25);
   });
 
-  it('lists events by start time', async () => {
-    await createTestEvent(db, { strategy: STRATEGY, seats: 1 });
-    const response = await get('/api/events').expect(200);
+  it('lists events by start time and breaks ties by id across keyset pages', async () => {
+    const tag = `tie-${randomUUID()}`;
+    const sameTime = new Date('2035-04-01T18:00:00.000Z');
+    const created = await Promise.all([
+      createTestEvent(db, { strategy: STRATEGY, seats: 1, name: `${tag}-a`, startsAt: sameTime }),
+      createTestEvent(db, { strategy: STRATEGY, seats: 1, name: `${tag}-b`, startsAt: sameTime }),
+      createTestEvent(db, { strategy: STRATEGY, seats: 1, name: `${tag}-c`, startsAt: sameTime }),
+    ]);
+    const expectedIds = created.map((e) => e.eventId).sort();
 
-    const times = EventListResponseSchema.parse(response.body).map((event) =>
-      Date.parse(event.startsAt)
+    const first = EventListResponseSchema.parse(
+      (await get(`/api/events?q=${encodeURIComponent(tag)}&limit=2`).expect(200)).body
     );
+    expect(first.items.map((e) => e.id)).toEqual(expectedIds.slice(0, 2));
+    expect(first.nextCursor).not.toBeNull();
 
-    expect(times).toEqual([...times].sort((a, b) => a - b));
+    const second = EventListResponseSchema.parse(
+      (
+        await get(
+          `/api/events?q=${encodeURIComponent(tag)}&limit=2&cursor=${encodeURIComponent(first.nextCursor ?? '')}`
+        ).expect(200)
+      ).body
+    );
+    expect(second.items.map((e) => e.id)).toEqual(expectedIds.slice(2));
+    expect(second.nextCursor).toBeNull();
+  });
+
+  it('filters in PostgreSQL by query (event or venue, LIKE-escaped), date window, and maxPriceCents', async () => {
+    const token = randomUUID();
+    const cheapEarly = await createTestEvent(db, {
+      strategy: STRATEGY,
+      seats: 1,
+      name: `100% Jazz ${token}`,
+      venueName: `Hall_${token}`,
+      startsAt: new Date('2036-05-10T19:00:00.000Z'),
+      priceCents: 3000,
+    });
+    const priceyLater = await createTestEvent(db, {
+      strategy: STRATEGY,
+      seats: 1,
+      name: `Rock ${token}`,
+      venueName: `100% Arena ${token}`,
+      startsAt: new Date('2036-05-20T19:00:00.000Z'),
+      priceCents: 12000,
+    });
+
+    const byVenue = EventListResponseSchema.parse(
+      (await get(`/api/events?q=${encodeURIComponent(`Arena ${token}`)}`).expect(200)).body
+    );
+    expect(byVenue.items.map((e) => e.id)).toEqual([priceyLater.eventId]);
+
+    // LIKE wildcard `%` must be escaped so `100%` matches literal `100%` and not arbitrary strings.
+    const wildcardSafe = EventListResponseSchema.parse(
+      (await get(`/api/events?q=${encodeURIComponent(`100% Jazz ${token}`)}`).expect(200)).body
+    );
+    expect(wildcardSafe.items.map((e) => e.id)).toEqual([cheapEarly.eventId]);
+
+    const byDateAndPrice = EventListResponseSchema.parse(
+      (
+        await get(
+          `/api/events?q=${encodeURIComponent(token)}&from=2036-05-01T00:00:00.000Z&to=2036-05-15T23:59:59.000Z&maxPriceCents=5000`
+        ).expect(200)
+      ).body
+    );
+    expect(byDateAndPrice.items.map((e) => e.id)).toEqual([cheapEarly.eventId]);
+  });
+
+  it('answers 400 for malformed list query parameters', async () => {
+    await get('/api/events?cursor=not-a-cursor').expect(400);
+    await get(
+      '/api/events?cursor=9999-99-99T00:00:00.000Z|00000000-0000-4000-8000-000000000001'
+    ).expect(400);
+    await get('/api/events?limit=0').expect(400);
+    await get('/api/events?maxPriceCents=-10').expect(400);
   });
 
   it('detail shows a held seat as HELD and a confirmed one as SOLD', async () => {
@@ -241,12 +323,16 @@ describe('events endpoints', () => {
       }
     );
     const service = new EventsService(db, app.get(AuditService), cache);
-    const { eventId } = await createTestEvent(db, { strategy: STRATEGY, seats: 1 });
+    const { eventId } = await createTestEvent(db, {
+      strategy: STRATEGY,
+      seats: 1,
+      startsAt: new Date('2000-01-01T00:00:00.000Z'),
+    });
 
     const list = await service.list(null);
     const detail = await service.detail(eventId, null);
 
-    expect(list.map(({ id }) => id)).toContain(eventId);
+    expect(list.items.map(({ id }) => id)).toContain(eventId);
     expect(detail.id).toBe(eventId);
   });
 

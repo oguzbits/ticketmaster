@@ -62,8 +62,8 @@ function render() {
       ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     TestBed.tick();
   };
-  const loaded = (venues: Venue[] = [HALL, ARENA]) =>
-    answer(() => http.expectOne(VENUES_URL).flush(venues));
+  const loaded = (venues: Venue[] = [HALL, ARENA], nextCursor: string | null = null) =>
+    answer(() => http.expectOne(VENUES_URL).flush({ items: venues, nextCursor }));
   /** A valid form: Arena, a name, a future start, the optimistic strategy. */
   const fillValid = () => {
     fill('Venue', ARENA.id);
@@ -88,6 +88,29 @@ describe('EventForm', () => {
       o.textContent?.trim()
     );
     expect(options).toEqual(['Hall (40 seats)', 'Arena (900 seats)']);
+  });
+
+  it('appends another page of venues when Load more venues is clicked', async () => {
+    const { element, http, answer, loaded, field } = render();
+    await loaded([HALL], 'cursor_1');
+
+    const more = [...element.querySelectorAll('button')].find((b) =>
+      /load more venues/i.test(b.textContent)
+    );
+    expect(more).toBeDefined();
+    more?.click();
+    TestBed.tick();
+    await answer(() =>
+      http.expectOne('/api/venues?cursor=cursor_1').flush({ items: [ARENA], nextCursor: null })
+    );
+
+    const options = [...field('Venue').querySelectorAll('option')].map((o) =>
+      o.textContent?.trim()
+    );
+    expect(options).toEqual(['Hall (40 seats)', 'Arena (900 seats)']);
+    expect(
+      [...element.querySelectorAll('button')].some((b) => /load more venues/i.test(b.textContent))
+    ).toBe(false);
   });
 
   it('offers every strategy by label and keeps the raw value as the option value', async () => {
@@ -120,7 +143,7 @@ describe('EventForm', () => {
 
     element.querySelector('button')?.click();
     TestBed.tick();
-    await answer(() => http.expectOne(VENUES_URL).flush([HALL]));
+    await answer(() => http.expectOne(VENUES_URL).flush({ items: [HALL], nextCursor: null }));
 
     expect(element.querySelector('[role=alert]')).toBeNull();
     expect(element.querySelector('form')).not.toBeNull();

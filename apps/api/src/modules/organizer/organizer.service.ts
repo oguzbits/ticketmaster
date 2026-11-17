@@ -7,6 +7,9 @@ import {
   type EventSummary,
   type OrganizerEvent,
   type Venue,
+  VENUE_LIST_LIMITS,
+  type VenueListQuery,
+  type VenueListResponse,
 } from '@app/shared';
 import {
   BadRequestException,
@@ -15,7 +18,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { asc, count, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, count, eq, gt, inArray, or, type SQL, sql } from 'drizzle-orm';
+import { z } from 'zod';
 
 import type { Env } from '../../config/env.js';
 import {
@@ -45,6 +49,25 @@ export interface OrganizerDeps {
   audit: AuditService;
   eventCache: EventCache;
   env: Pick<Env, 'UNSAFE_STRATEGIES_ENABLED'>;
+}
+
+const VenueCursorTupleSchema = z.tuple([z.string(), z.uuid()]);
+
+function encodeVenueCursor(venue: Pick<Venue, 'name' | 'id'>): string {
+  return Buffer.from(JSON.stringify([venue.name, venue.id]), 'utf8').toString('base64url');
+}
+
+function decodeVenueCursor(cursor: string): { name: string; id: string } {
+  try {
+    const parsed = VenueCursorTupleSchema.safeParse(
+      JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'))
+    );
+    if (!parsed.success) throw new BadRequestException('Invalid cursor');
+    return { name: parsed.data[0], id: parsed.data[1] };
+  } catch (error) {
+    if (error instanceof BadRequestException) throw error;
+    throw new BadRequestException('Invalid cursor');
+  }
 }
 
 @Injectable()
@@ -146,13 +169,37 @@ export class OrganizerService {
     }
   }
 
-  listVenues(): Promise<Venue[]> {
-    return this.db
+  async listVenues(
+    query: VenueListQuery = { limit: VENUE_LIST_LIMITS.PAGE_DEFAULT }
+  ): Promise<VenueListResponse> {
+    const conditions: (SQL | undefined)[] = [];
+    if (query.q !== undefined) {
+      const pattern = `%${query.q.replace(/[\\%_]/g, '\\$&')}%`;
+      conditions.push(sql`${venues.name} ilike ${pattern} escape '\\'`);
+    }
+    if (query.cursor !== undefined) {
+      const cursor = decodeVenueCursor(query.cursor);
+      conditions.push(
+        or(
+          gt(venues.name, cursor.name),
+          and(eq(venues.name, cursor.name), gt(venues.id, cursor.id))
+        )
+      );
+    }
+    const rows = await this.db
       .select({ id: venues.id, name: venues.name, seatCount: count(venueSeats.venueId) })
       .from(venues)
       .leftJoin(venueSeats, eq(venueSeats.venueId, venues.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
       .groupBy(venues.id)
-      .orderBy(asc(venues.name));
+      .orderBy(asc(venues.name), asc(venues.id))
+      .limit(query.limit + 1);
+    const items = rows.slice(0, query.limit);
+    const last = items.at(-1);
+    return {
+      items,
+      nextCursor: rows.length > query.limit && last !== undefined ? encodeVenueCursor(last) : null,
+    };
   }
 
   /** Own events with their sales; one statement counts seats, sold and held seats per event. */
