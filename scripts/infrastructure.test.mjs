@@ -13,17 +13,20 @@ const DECLARED = {
     },
   ],
   buckets: ['files'],
+  emailIdentities: ['tickets@example.test'],
 };
 const MUTATIONS = new Set([
   'CreateQueueCommand',
   'SetQueueAttributesCommand',
   'CreateBucketCommand',
+  'CreateEmailIdentityCommand',
 ]);
 
-/** In-memory SQS and S3 that answer like the emulator: unknown queue and bucket are errors. */
+/** In-memory SQS, S3 and SESv2 that answer like the emulator: unknown resources are errors. */
 function fakeAws() {
   const queues = new Map();
   const buckets = new Set();
+  const identities = new Set();
   const sent = [];
   const fail = (name) => Object.assign(new Error(name), { name });
   const queueOf = (url) => queues.get(url.split('/').pop());
@@ -67,16 +70,36 @@ function fakeAws() {
       throw new Error(`unexpected ${kind}`);
     },
   };
-  return { sqs, s3, queues, sent };
+  const ses = {
+    send(command) {
+      const kind = command.constructor.name;
+      sent.push(kind);
+      if (kind === 'GetEmailIdentityCommand') {
+        if (!identities.has(command.input.EmailIdentity)) throw fail('NotFoundException');
+        return { VerifiedForSendingStatus: true };
+      }
+      if (kind === 'CreateEmailIdentityCommand') {
+        identities.add(command.input.EmailIdentity);
+        return { VerifiedForSendingStatus: true };
+      }
+      throw new Error(`unexpected ${kind}`);
+    },
+  };
+  return { sqs, s3, ses, queues, identities, sent };
 }
 
 describe('applyInfrastructure', () => {
-  it('creates the queues with the redrive policy to the dead-letter queue, and the bucket', async () => {
+  it('creates the queues with the redrive policy to the dead-letter queue, the bucket and the SES identity', async () => {
     const aws = fakeAws();
 
     const changes = await applyInfrastructure(DECLARED, aws);
 
-    expect(changes).toEqual(['created queue dlq', 'created queue work', 'created bucket files']);
+    expect(changes).toEqual([
+      'created queue dlq',
+      'created queue work',
+      'created bucket files',
+      'created email identity tickets@example.test',
+    ]);
     expect(JSON.parse(aws.queues.get('work').RedrivePolicy)).toEqual({
       deadLetterTargetArn: 'arn:fake:dlq',
       maxReceiveCount: 5,
@@ -84,6 +107,7 @@ describe('applyInfrastructure', () => {
     expect(aws.queues.get('work').VisibilityTimeout).toBe('120');
     expect(aws.queues.get('work').MessageRetentionPeriod).toBe('345600');
     expect(aws.queues.get('dlq').MessageRetentionPeriod).toBe('345600');
+    expect(aws.identities.has('tickets@example.test')).toBe(true);
   });
 
   it('changes nothing when applied twice', async () => {
@@ -149,5 +173,19 @@ describe('applyInfrastructure', () => {
 
     await expect(applyInfrastructure(DECLARED, aws)).rejects.toThrow('denied');
     expect(aws.sent).not.toContain('CreateBucketCommand');
+  });
+
+  it('does not create an SES identity when the lookup fails for another reason than NotFoundException', async () => {
+    const aws = fakeAws();
+    const send = aws.ses.send;
+    aws.ses.send = (command) => {
+      if (command.constructor.name === 'GetEmailIdentityCommand') {
+        throw Object.assign(new Error('denied'), { name: 'AccessDeniedException' });
+      }
+      return send(command);
+    };
+
+    await expect(applyInfrastructure(DECLARED, aws)).rejects.toThrow('denied');
+    expect(aws.sent).not.toContain('CreateEmailIdentityCommand');
   });
 });

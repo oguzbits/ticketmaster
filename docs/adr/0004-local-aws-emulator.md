@@ -36,15 +36,16 @@ it and the image was pulled and run for the check below.
 Evidence, from `pnpm aws:smoke` (`scripts/aws-smoke.mjs`, AWS SDK for JavaScript v3 with the
 endpoint override and path-style S3), run against the Compose service:
 
-| Feature                                        | Result                                                                                           |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Create queue twice with equal attributes       | passes, same queue URL                                                                           |
-| Message attributes                             | a String attribute sent with the message comes back with `MessageAttributeNames: ['All']`        |
-| Long polling, message arrives after one second | the receive returns after about one second, not after the 10 second wait                         |
-| Long polling, empty queue                      | the receive waits the full 2 seconds and returns nothing                                         |
-| Visibility timeout                             | a received message is hidden, then delivered again after the timeout                             |
-| Redrive, `maxReceiveCount` 5, never deleted    | the handler sees the message exactly five times; it then leaves the queue and arrives in the DLQ |
-| Bucket create, put, get                        | the body and the content type round trip                                                         |
+| Feature                                         | Result                                                                                           |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Create queue twice with equal attributes        | passes, same queue URL                                                                           |
+| Message attributes                              | a String attribute sent with the message comes back with `MessageAttributeNames: ['All']`        |
+| Long polling, message arrives after one second  | the receive returns after about one second, not after the 10 second wait                         |
+| Long polling, empty queue                       | the receive waits the full 2 seconds and returns nothing                                         |
+| Visibility timeout                              | a received message is hidden, then delivered again after the timeout                             |
+| Redrive, `maxReceiveCount` 5, never deleted     | the handler sees the message exactly five times; it then leaves the queue and arrives in the DLQ |
+| Bucket create, put, get, presign                | the body and content type round trip, and the presigned URL serves the download                  |
+| SESv2 email identity and outbound raw MIME send | unverified identity fails with `MessageRejected`; verified identity delivers via `/_aws/ses`     |
 
 The redrive check is a protection: with `maxReceiveCount` changed to 3 in a copy of the script, it
 fails with "3 !== 5". The script uses its own throw-away queues and bucket and removes them, so it

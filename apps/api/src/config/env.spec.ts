@@ -49,6 +49,7 @@ describe('parseEnv', () => {
       AWS_REGION: 'us-east-1',
       AWS_ACCESS_KEY_ID: LOCAL_AWS_CREDENTIAL,
       AWS_SECRET_ACCESS_KEY: LOCAL_AWS_CREDENTIAL,
+      MAIL_PROVIDER: 'smtp',
       SMTP_URL: LOCAL_SMTP_URL,
       MAIL_FROM: DEFAULT_MAIL_FROM,
       TRACING_ENABLED: false,
@@ -241,16 +242,29 @@ describe('parseEnv', () => {
   });
 
   it('uses the local mail sink outside production', () => {
-    expect(parseEnv({ NODE_ENV: 'test' }).SMTP_URL).toBe(LOCAL_SMTP_URL);
+    const env = parseEnv({ NODE_ENV: 'test' });
+    expect(env.MAIL_PROVIDER).toBe('smtp');
+    expect(env.SMTP_URL).toBe(LOCAL_SMTP_URL);
   });
 
-  it('production without SMTP_URL throws and names the variable', () => {
+  it('defaults MAIL_PROVIDER to ses in production and does not require SMTP_URL', () => {
+    const { SMTP_URL: _omitted, ...raw } = PRODUCTION_BASE;
+    const env = parseEnv({ ...raw, ...KEYCLOAK_PRODUCTION });
+
+    expect(env.MAIL_PROVIDER).toBe('ses');
+    expect(env.SMTP_URL).toBeUndefined();
+  });
+
+  it('production with MAIL_PROVIDER=smtp without SMTP_URL throws and names the variable', () => {
     const { SMTP_URL: _omitted, ...raw } = PRODUCTION_BASE;
 
-    expect(() => parseEnv({ ...raw, ...KEYCLOAK_PRODUCTION })).toThrow(/SMTP_URL/);
+    expect(() => parseEnv({ ...raw, ...KEYCLOAK_PRODUCTION, MAIL_PROVIDER: 'smtp' })).toThrow(
+      /SMTP_URL/
+    );
   });
 
-  it('SMTP_URL must be a URL and MAIL_FROM an address', () => {
+  it('MAIL_PROVIDER rejects unknown transports, SMTP_URL must be a URL and MAIL_FROM an address', () => {
+    expect(() => parseEnv({ MAIL_PROVIDER: 'sendgrid' })).toThrow(/MAIL_PROVIDER/);
     expect(() => parseEnv({ SMTP_URL: 'not a url' })).toThrow(/SMTP_URL/);
     expect(() => parseEnv({ MAIL_FROM: 'nobody' })).toThrow(/MAIL_FROM/);
   });

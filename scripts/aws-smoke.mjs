@@ -20,6 +20,12 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import {
+  CreateEmailIdentityCommand,
+  DeleteEmailIdentityCommand,
+  SendEmailCommand,
+  SESv2Client,
+} from '@aws-sdk/client-sesv2';
+import {
   CreateQueueCommand,
   DeleteQueueCommand,
   GetQueueAttributesCommand,
@@ -38,6 +44,7 @@ const config = {
 };
 const sqs = new SQSClient(config);
 const s3 = new S3Client({ ...config, forcePathStyle: true });
+const ses = new SESv2Client(config);
 
 const run = randomUUID().slice(0, 8);
 const VISIBILITY_SECONDS = 1;
@@ -73,6 +80,7 @@ const count = async (url, attribute) => {
 
 const queues = [];
 const bucket = `smoke-${run}`;
+const senderEmail = `smoke-${run}@ticketmaster-klon.invalid`;
 
 try {
   const dlq = await createQueue('smoke-dlq');
@@ -216,12 +224,35 @@ try {
     assert.equal(response.headers.get('content-disposition'), 'attachment; filename="ticket.pdf"');
     assert.equal(await response.text(), 'ticket');
   });
+
+  await check('SESv2 identity create and send email', async () => {
+    await ses.send(new CreateEmailIdentityCommand({ EmailIdentity: senderEmail }));
+    const { MessageId } = await ses.send(
+      new SendEmailCommand({
+        FromEmailAddress: senderEmail,
+        Destination: { ToAddresses: [`to-${run}@example.test`] },
+        Content: {
+          Raw: {
+            Data: Buffer.from(
+              `From: ${senderEmail}\r\nTo: to-${run}@example.test\r\nSubject: Smoke ${run}\r\n\r\nok\r\n`
+            ),
+          },
+        },
+      })
+    );
+    assert.ok(MessageId);
+    const readback = await fetch(`${config.endpoint}/_aws/ses`);
+    assert.equal(readback.status, 200);
+    const { messages } = await readback.json();
+    assert.ok(messages.some((m) => m.Id === MessageId && m.Source === senderEmail));
+  });
 } finally {
   await Promise.allSettled([
     ...queues.map((QueueUrl) => sqs.send(new DeleteQueueCommand({ QueueUrl }))),
     s3
       .send(new DeleteObjectCommand({ Bucket: bucket, Key: 'a/b.txt' }))
       .then(() => s3.send(new DeleteBucketCommand({ Bucket: bucket }))),
+    ses.send(new DeleteEmailIdentityCommand({ EmailIdentity: senderEmail })),
   ]);
 }
 console.log(`${results.length} checks passed`);

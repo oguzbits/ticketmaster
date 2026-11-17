@@ -35,6 +35,7 @@ export {
   type QueueName,
   REPLAY_STATUS,
   type ReplayStatus,
+  SES_IDENTITY,
 } from './aws.js';
 export {
   BOOKING_STATUS,

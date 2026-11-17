@@ -333,6 +333,17 @@ Enterprise production alignment, slice 1 (production config guards and S3 presig
   Note: Floci accepts presigned `GetObject` parameters cleanly but does not reject tampered
   `X-Amz-Signature` values (real S3 enforces SigV4).
 
+Enterprise production alignment, slice 2 (AWS SESv2 mail transport):
+
+- `MAIL_PROVIDER` (`ses` | `smtp`) defaults to `ses` in production (`SMTP_URL` optional unless `smtp`)
+  and `smtp` outside production (local Mailpit UI and `ticket.e2e.ts` stay untouched unless
+  `MAIL_PROVIDER=ses` is chosen).
+- `SesMailSender` (`@aws-sdk/client-sesv2`) builds RFC 2822 raw MIME messages with the PDF
+  attachment and sends through `SESv2Client` (`maxAttempts: 1`, 10 s timeout).
+- `INFRASTRUCTURE` (`packages/shared/src/aws.ts`) declares `SES_IDENTITY.TICKETS_FROM`, converged
+  by `aws-init` (`GetEmailIdentity` / `CreateEmailIdentity`), and verified against Floci 2.4.0
+  (`MessageRejected` without verified identity, `/_aws/ses` attachment round-trip).
+
 ## Deviations from the plan
 
 - **No SWC for NestJS decorators.** Vitest (Vite 8, Oxc) reads `experimentalDecorators` and

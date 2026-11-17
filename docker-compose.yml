@@ -238,6 +238,7 @@ services:
       # tracing is on.
       GRAFANA_URL: ${GRAFANA_URL:-http://localhost:3000}
       # The API only serves tickets, but the tickets module builds the sender at start.
+      MAIL_PROVIDER: ${MAIL_PROVIDER:-smtp}
       SMTP_URL: smtp://mailpit:1025
     depends_on:
       pgbouncer:
@@ -277,6 +278,7 @@ services:
       METRICS_ENABLED: ${METRICS_ENABLED:-false}
       METRICS_HOST: 0.0.0.0
       METRICS_PORT: 9464
+      MAIL_PROVIDER: ${MAIL_PROVIDER:-smtp}
       SMTP_URL: smtp://mailpit:1025
     depends_on:
       pgbouncer:

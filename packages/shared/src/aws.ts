@@ -20,6 +20,10 @@ export const BUCKET_NAME = {
   TICKETS: 'tickets',
 } as const;
 
+export const SES_IDENTITY = {
+  TICKETS_FROM: 'tickets@ticketmaster-klon.invalid',
+} as const;
+
 /** Status of an SQS message move task. */
 export const MOVE_TASK_STATUS = {
   COMPLETED: 'COMPLETED',
@@ -61,4 +65,5 @@ export const INFRASTRUCTURE = {
     },
   ],
   buckets: [BUCKET_NAME.TICKETS],
+  emailIdentities: [SES_IDENTITY.TICKETS_FROM],
 } as const;

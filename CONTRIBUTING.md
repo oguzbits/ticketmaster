@@ -24,19 +24,19 @@ Ports of the local stack (`docker-compose.yml`):
 | postgres | 54330     | databases `app` and `keycloak`; owner `app`, runtime login `app_runtime` (see below) |
 | pgbouncer | 64320    | connection pooler (transaction mode) in front of postgres; api and worker connect through it, see [ADR 0005](docs/adr/0005-pgbouncer-transaction-mode.md) |
 | redis    | 63790     |                                                   |
-| aws      | 45660     | local AWS emulator (SQS and S3), any credentials, region `us-east-1` |
-| mailpit  | 1025, 8025 | mail sink: SMTP on 1025, UI and REST API on 8025; the worker's confirmation mails arrive here |
+| aws      | 45660     | local AWS emulator (SQS, S3 and SESv2), any credentials, region `us-east-1` |
+| mailpit  | 1025, 8025 | mail sink: SMTP on 1025, UI and REST API on 8025; receives worker confirmation mails when `MAIL_PROVIDER=smtp` |
 
 `docker compose up` also starts two `api` replicas (no host port; `docker stop` of one container leaves the app answering, `docker compose stop api` stops both) and three more processes without a host port: `aws-init`, a one-shot service
-that applies the declared infrastructure (`INFRASTRUCTURE` in `packages/shared/src/aws.ts`: the queue `booking-events` with its dead-letter queue `booking-events-dlq` and the
-bucket `tickets`) to the emulator and exits (`pnpm aws:init` does the same from the host and prints what it
+that applies the declared infrastructure (`INFRASTRUCTURE` in `packages/shared/src/aws.ts`: the queue `booking-events` with its dead-letter queue `booking-events-dlq`, the
+bucket `tickets` and the verified SES sender identity) to the emulator and exits (`pnpm aws:init` does the same from the host and prints what it
 changed; running it again, or after a resource went missing, converges and changes nothing else, see
 [ADR 0006](docs/adr/0006-infrastructure-as-code.md)); `migrate`, a one-shot service
 that applies the migrations and the seed with the API image and exits, and `worker`, the scheduled
 jobs (hold expiry every two seconds, the simulation reaper every 30 seconds, the simulation retention every minute, the outbox relay every second), the consumer of the rush simulator and the consumer of the queue `booking-events` run. `api` and `worker` start only after `migrate` and `aws-init` have completed.
 
 `pnpm aws:smoke` checks the emulator against the features the async chain relies on (redrive to
-the dead-letter queue, visibility timeout, long polling, message attributes, bucket round trip)
+the dead-letter queue, visibility timeout, long polling, message attributes, bucket round trip, presigned download, SESv2 email identity and outbound send)
 with throw-away resources; it takes about 15 seconds and can run at any time while the emulator
 is up. The choice of emulator is in [ADR 0004](docs/adr/0004-local-aws-emulator.md).
 
@@ -50,11 +50,11 @@ The credentials in the Compose file are for these local containers only.
 
 Outside production the API falls back to the local containers: `DATABASE_URL`
 `postgres://app_runtime:app_runtime@localhost:54330/app` (the runtime login: no superuser, not the owner, so row-level security applies) and `MIGRATION_DATABASE_URL` `postgres://app:app@localhost:54330/app` (the owner, used only by `pnpm db:migrate`, which also creates the runtime role), `REDIS_URL` `redis://localhost:63790`, `KEYCLOAK_URL`
-`http://localhost:8081`, the local demo client secret, `SMTP_URL` `smtp://localhost:1025`, `AWS_ENDPOINT_URL` `http://localhost:45660` and
+`http://localhost:8081`, the local demo client secret, `MAIL_PROVIDER` `smtp` with `SMTP_URL` `smtp://localhost:1025`, `AWS_ENDPOINT_URL` `http://localhost:45660` and
 the dummy credentials `test` / `test`. To change a
 value, export it or put it in an `.env` file in `apps/api` (never committed); the `dev` and `start`
 scripts of the API load that file when it exists. With `NODE_ENV=production` the connection URLs, the Keycloak URL and secret and the two AWS
-credentials are required and a missing one fails the start (the Compose file sets them for
+credentials are required (`SMTP_URL` is required only when `MAIL_PROVIDER=smtp`; production defaults to `ses`) and a missing one fails the start (the Compose file sets them for
 `migrate`, `api` and `worker`); an unset `AWS_ENDPOINT_URL` then means real AWS. Keycloak imports `docker/keycloak/ticketmaster-realm.json` when the realm does not exist
 yet; after a change to that file, delete the realm (or `docker compose down -v`) to import it again.
 
@@ -86,7 +86,8 @@ variable with a comment; the table is generated (`pnpm docs:generate`).
 | `AWS_REGION` | default `us-east-1` |
 | `AWS_ACCESS_KEY_ID` | required |
 | `AWS_SECRET_ACCESS_KEY` | required |
-| `SMTP_URL` | required |
+| `MAIL_PROVIDER` | default `ses` |
+| `SMTP_URL` | optional |
 | `MAIL_FROM` | default `tickets@ticketmaster-klon.invalid` |
 | `TRACING_ENABLED` | default `false` |
 | `TRACING_OTLP_ENDPOINT` | default `http://localhost:4318` |

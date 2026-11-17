@@ -1,3 +1,4 @@
+import { SES_IDENTITY } from '@app/shared';
 import { z } from 'zod';
 
 const DEFAULT_PORT = 3000;
@@ -8,7 +9,6 @@ const DEFAULT_KEYCLOAK_REALM = 'ticketmaster';
 const DEFAULT_KEYCLOAK_DEMO_CLIENT_ID = 'api-demo';
 const DEFAULT_DEMO_USER_TTL_SECONDS = 3600;
 const DEFAULT_AWS_REGION = 'us-east-1';
-const DEFAULT_MAIL_FROM = 'tickets@ticketmaster-klon.invalid';
 const DEFAULT_TRACING_OTLP_ENDPOINT = 'http://localhost:4318';
 const DEFAULT_METRICS_PORT = 9464;
 const DEFAULT_METRICS_HOST = '127.0.0.1';
@@ -19,6 +19,11 @@ export const NODE_ENV = {
   DEVELOPMENT: 'development',
   TEST: 'test',
   PRODUCTION: 'production',
+} as const;
+
+export const MAIL_PROVIDER = {
+  SMTP: 'smtp',
+  SES: 'ses',
 } as const;
 
 /**
@@ -37,7 +42,8 @@ const LOCAL_DEFAULTS = {
   AWS_ENDPOINT_URL: 'http://localhost:45660',
   AWS_ACCESS_KEY_ID: 'test',
   AWS_SECRET_ACCESS_KEY: 'test',
-  // Mailpit of docker-compose.yml.
+  // Mailpit of docker-compose.yml (outside production); production defaults to AWS SESv2.
+  MAIL_PROVIDER: MAIL_PROVIDER.SMTP,
   SMTP_URL: 'smtp://localhost:1025',
   // Enabled locally for the demo and strategy comparison; off by default in production.
   DEMO_LOGIN_ENABLED: 'true',
@@ -82,9 +88,11 @@ export const EnvSchema = z
     AWS_REGION: z.string().min(1).default(DEFAULT_AWS_REGION),
     AWS_ACCESS_KEY_ID: z.string().min(1),
     AWS_SECRET_ACCESS_KEY: z.string().min(1),
-    // Required here; parseEnv fills the local mail sink when NODE_ENV is not production.
-    SMTP_URL: z.url(),
-    MAIL_FROM: z.email().default(DEFAULT_MAIL_FROM),
+    // Mail delivery transport: SESv2 in production, SMTP (Mailpit) locally unless overridden.
+    MAIL_PROVIDER: z.enum(MAIL_PROVIDER).default(MAIL_PROVIDER.SES),
+    // Required when MAIL_PROVIDER is smtp; parseEnv fills Mailpit outside production.
+    SMTP_URL: z.url().optional(),
+    MAIL_FROM: z.email().default(SES_IDENTITY.TICKETS_FROM),
     // Off by default and in every test: nothing is hooked, exported or subscribed.
     TRACING_ENABLED: z.stringbool().default(false),
     // Base URL of an OTLP/HTTP receiver; '/v1/traces' is appended, so a trailing slash is stripped.
@@ -118,6 +126,13 @@ export const EnvSchema = z
         code: 'custom',
         path: ['RATE_LIMIT_SCALE'],
         message: 'must be 1 when NODE_ENV is production',
+      });
+    }
+    if (env.MAIL_PROVIDER === MAIL_PROVIDER.SMTP && env.SMTP_URL === undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['SMTP_URL'],
+        message: 'required when MAIL_PROVIDER is smtp',
       });
     }
   });

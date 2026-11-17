@@ -7,6 +7,7 @@
  */
 
 import { S3Client } from '@aws-sdk/client-s3';
+import { SESv2Client } from '@aws-sdk/client-sesv2';
 import { SQSClient } from '@aws-sdk/client-sqs';
 
 import { INFRASTRUCTURE } from '../packages/shared/dist/index.js';
@@ -24,5 +25,6 @@ const config = {
 const changes = await applyInfrastructure(INFRASTRUCTURE, {
   sqs: new SQSClient(config),
   s3: new S3Client({ ...config, forcePathStyle: true }),
+  ses: new SESv2Client(config),
 });
 console.log(`aws-init: ${changes.length > 0 ? changes.join(', ') : 'nothing to change'}`);

@@ -5,6 +5,7 @@
  */
 
 import { CreateBucketCommand, HeadBucketCommand } from '@aws-sdk/client-s3';
+import { CreateEmailIdentityCommand, GetEmailIdentityCommand } from '@aws-sdk/client-sesv2';
 import {
   CreateQueueCommand,
   GetQueueAttributesCommand,
@@ -32,7 +33,10 @@ const sameRedrive = (actual, wanted) => {
   );
 };
 
-export async function applyInfrastructure({ queues, buckets }, { sqs, s3 }) {
+export async function applyInfrastructure(
+  { queues, buckets, emailIdentities = [] },
+  { sqs, s3, ses }
+) {
   const changes = [];
   const arns = new Map();
 
@@ -83,6 +87,16 @@ export async function applyInfrastructure({ queues, buckets }, { sqs, s3 }) {
       if (error.name !== 'NotFound') throw error;
       await s3.send(new CreateBucketCommand({ Bucket: bucket }));
       changes.push(`created bucket ${bucket}`);
+    }
+  }
+
+  for (const identity of emailIdentities) {
+    try {
+      await ses.send(new GetEmailIdentityCommand({ EmailIdentity: identity }));
+    } catch (error) {
+      if (error.name !== 'NotFoundException') throw error;
+      await ses.send(new CreateEmailIdentityCommand({ EmailIdentity: identity }));
+      changes.push(`created email identity ${identity}`);
     }
   }
   return changes;
