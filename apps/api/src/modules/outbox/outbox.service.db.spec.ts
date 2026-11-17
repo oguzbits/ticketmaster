@@ -6,11 +6,16 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import type { Clock } from '../../core/clock.js';
 import type { Database } from '../../infrastructure/database/database.module.js';
-import { outboxMessages } from '../../infrastructure/database/schema.js';
+import { outboxMessages, processedMessages } from '../../infrastructure/database/schema.js';
 import { currentTraceparent, SPAN_NAME, withSpan } from '../../infrastructure/tracing/index.js';
 import { startTestTracing } from '../../infrastructure/tracing/testing/index.js';
 import { openTestDatabase } from '../../testing/database.js';
-import { OUTBOX_RETENTION_SECONDS, OutboxService, RELAY_DEADLINE_ERROR } from './outbox.service.js';
+import {
+  OUTBOX_RETENTION_SECONDS,
+  OutboxService,
+  PROCESSED_RETENTION_SECONDS,
+  RELAY_DEADLINE_ERROR,
+} from './outbox.service.js';
 import { FakeMessageQueue, lockOutboxRelays } from './testing/index.js';
 
 // The relay takes every unpublished row of the table, and the other db specs share it. So these
@@ -454,6 +459,58 @@ describe('OutboxService', () => {
       const ids = await enqueued(0, 3);
 
       const deleted = await serviceWith(new FakeMessageQueue()).deletePublished(
+        afterEpoch(AFTER_RETENTION),
+        2
+      );
+
+      expect(deleted).toBe(2);
+      expect(await existing(ids)).toHaveLength(1);
+    });
+  });
+  describe('deleteProcessed', () => {
+    // Same shared table and same reason as above: an epoch no other spec uses.
+    const EPOCH = new Date('1989-01-01T00:00:00.000Z');
+    const afterEpoch = (seconds: number) => new Date(EPOCH.getTime() + seconds * 1000);
+    const AFTER_RETENTION = PROCESSED_RETENTION_SECONDS + 1;
+
+    /** Records `count` messages as processed `secondsAfterEpoch` after the spec epoch. */
+    async function processed(secondsAfterEpoch: number, count = 1): Promise<string[]> {
+      const ids = Array.from({ length: count }, () => randomUUID());
+      await db.insert(processedMessages).values(
+        ids.map((messageId) => ({
+          consumer: 'spec',
+          messageId,
+          processedAt: afterEpoch(secondsAfterEpoch),
+        }))
+      );
+      return ids;
+    }
+    const existing = async (ids: string[]) =>
+      (
+        await db
+          .select({ id: processedMessages.messageId })
+          .from(processedMessages)
+          .where(inArray(processedMessages.messageId, ids))
+      ).map((row) => row.id);
+
+    it('deletes records older than the retention and keeps the rest', async () => {
+      const old = await processed(0);
+      const recent = await processed(AFTER_RETENTION - 10);
+
+      const deleted = await serviceWith(new FakeMessageQueue()).deleteProcessed(
+        afterEpoch(AFTER_RETENTION),
+        BATCH
+      );
+
+      expect(deleted).toBe(1);
+      expect(await existing(old)).toEqual([]);
+      expect(await existing(recent)).toEqual(recent);
+    });
+
+    it('deletes at most the batch size', async () => {
+      const ids = await processed(0, 3);
+
+      const deleted = await serviceWith(new FakeMessageQueue()).deleteProcessed(
         afterEpoch(AFTER_RETENTION),
         2
       );

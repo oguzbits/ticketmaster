@@ -514,9 +514,9 @@ open points below.
   rows out of order after a failure; a consumer must not rely on the order of messages. A mail
   that repeats after a crash between its send and the dedupe commit is accepted: delivery is at
   least once, and a repeated confirmation mail is harmless.
-- **`processed_messages` is never pruned.** The outbox rows go after seven days, but the consumers'
-  idempotency records stay; the table grows by two rows per confirmed booking. A record may go only
-  once the queue can no longer redeliver its message.
+- **The queue's message retention is the SQS default (4 days), not declared.** The retention of
+  `processed_messages` (7 days) relies on it; a longer queue retention in `INFRASTRUCTURE` must
+  raise `PROCESSED_RETENTION_SECONDS` with it. A spec does not check the pair.
 - **The queue consumer takes one message at a time** (`receive(1)`, one loop per worker), so its
   throughput is one message per round trip and handler. Batching and parallel loops wait for a
   handler that is slow enough to need them. A message that does not parse or whose

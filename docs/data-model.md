@@ -142,7 +142,10 @@ database guarantee. The worker's retention job deletes published rows seven days
 published (1000 rows a minute at most), for as long as that keeps the table small enough to scan;
 unpublished rows stay. `processed_messages(consumer, message_id)` is the
 consumers' idempotency record: the primary key turns a second delivery of a message ID into a
-no-op for that consumer. Neither table has a foreign key: the payload holds IDs of rows that may
+no-op for that consumer. The same job deletes a record seven days after `processed_at` (the same
+batch); that is longer than the queue's message retention (the SQS default of 4 days), so no
+message can arrive after its record is gone. The deletes use no index on their time columns:
+each tick scans the table. Neither table has a foreign key: the payload holds IDs of rows that may
 be deleted later (a demo user's cleanup), and a message must survive that.
 
 `audit_log` holds one row per audited state change (hold, payment, cancellation, event creation,

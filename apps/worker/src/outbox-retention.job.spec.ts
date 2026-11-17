@@ -11,13 +11,17 @@ describe('OutboxRetentionJob', () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
-  it("passes the injected clock's time and the batch size to deletePublished", async () => {
-    const calls: [Date, number][] = [];
+  it("passes the injected clock's time and the batch size to both deletes", async () => {
+    const calls: [string, Date, number][] = [];
     const job = new OutboxRetentionJob(
       {
         deletePublished: (at, limit) => {
-          calls.push([at, limit]);
+          calls.push(['published', at, limit]);
           return Promise.resolve(3);
+        },
+        deleteProcessed: (at, limit) => {
+          calls.push(['processed', at, limit]);
+          return Promise.resolve(2);
         },
       },
       { now: () => TICK }
@@ -25,13 +29,19 @@ describe('OutboxRetentionJob', () => {
 
     await job.run();
 
-    expect(calls).toEqual([[TICK, OUTBOX_RETENTION_BATCH]]);
+    expect(calls).toEqual([
+      ['published', TICK, OUTBOX_RETENTION_BATCH],
+      ['processed', TICK, OUTBOX_RETENTION_BATCH],
+    ]);
   });
 
   it('logs a failing tick and resolves, so the next tick still runs', async () => {
     const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     const job = new OutboxRetentionJob(
-      { deletePublished: () => Promise.reject(new Error('database down')) },
+      {
+        deletePublished: () => Promise.resolve(0),
+        deleteProcessed: () => Promise.reject(new Error('database down')),
+      },
       { now: () => TICK }
     );
 

@@ -20,6 +20,13 @@ export const OUTBOX_STUCK_SECONDS = 300;
 export const OUTBOX_RETENTION_SECONDS = 7 * 24 * 60 * 60;
 
 /**
+ * How long a consumer's idempotency record is kept. It must outlast the queue's message retention
+ * (the SQS default of 4 days; `INFRASTRUCTURE` sets none), or a message redelivered after its
+ * record is gone would take effect twice.
+ */
+export const PROCESSED_RETENTION_SECONDS = 7 * 24 * 60 * 60;
+
+/**
  * Limits of one relay run. The run holds a transaction (and the locks of its rows) while it sends,
  * and it must end before the job's next tick can matter: `deadlineMs` bounds the whole batch,
  * whatever the queue does; `statementLimitMs` bounds each query; the database ends a transaction
@@ -155,8 +162,8 @@ export class OutboxService {
 
   /**
    * The retention job's step: deletes up to `limit` rows that were published more than
-   * OUTBOX_RETENTION_SECONDS before `now`. Unpublished rows are never touched. The consumers'
-   * idempotency records (`processed_messages`) stay. Returns the number of rows deleted.
+   * OUTBOX_RETENTION_SECONDS before `now`. Unpublished rows are never touched. Returns the number
+   * of rows deleted.
    */
   async deletePublished(now: Date, limit: number): Promise<number> {
     const cutoff = new Date(now.getTime() - OUTBOX_RETENTION_SECONDS * 1000);
@@ -169,6 +176,24 @@ export class OutboxService {
       .delete(outboxMessages)
       .where(inArray(outboxMessages.id, due))
       .returning({ id: outboxMessages.id });
+    return deleted.length;
+  }
+
+  /**
+   * The retention job's second step: deletes up to `limit` idempotency records that were written
+   * more than PROCESSED_RETENTION_SECONDS before `now`. Returns the number of records deleted.
+   */
+  async deleteProcessed(now: Date, limit: number): Promise<number> {
+    const cutoff = new Date(now.getTime() - PROCESSED_RETENTION_SECONDS * 1000);
+    const due = this.db
+      .select({ consumer: processedMessages.consumer, messageId: processedMessages.messageId })
+      .from(processedMessages)
+      .where(lt(processedMessages.processedAt, cutoff))
+      .limit(limit);
+    const deleted = await this.db
+      .delete(processedMessages)
+      .where(sql`(${processedMessages.consumer}, ${processedMessages.messageId}) in ${due}`)
+      .returning({ messageId: processedMessages.messageId });
     return deleted.length;
   }
 
