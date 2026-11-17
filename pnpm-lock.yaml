@@ -395,6 +395,9 @@ importers:
       tslib:
         specifier: ^2.9.1
         version: 2.9.1
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
     devDependencies:
       '@angular/build':
         specifier: ^22.2.6
