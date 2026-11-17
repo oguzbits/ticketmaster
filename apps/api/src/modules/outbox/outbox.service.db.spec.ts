@@ -183,6 +183,33 @@ describe('OutboxService', () => {
     ).toBe(true);
   });
 
+  it('a row with a malformed traceparent falls back to a fresh trace and does not fail', async () => {
+    const { exporter, shutdown } = startTestTracing();
+    stopTracing = shutdown;
+    const queue = new FakeMessageQueue();
+    const service = serviceWith(queue);
+    const [only] = await enqueueMessages(service, 1);
+    if (only === undefined) throw new Error('no message');
+    await db
+      .update(outboxMessages)
+      .set({ traceparent: 'not-a-valid-traceparent' })
+      .where(eq(outboxMessages.id, only.messageId));
+
+    const result = await service.relay(BATCH);
+
+    expect(result.failed).toBe(0);
+    const sent = queue.sent.find((input) => input.messageId === only.messageId);
+    const traceId = traceIdOf(sent?.traceparent);
+    expect(traceId).toMatch(/^[0-9a-f]{32}$/);
+    const sendSpan = exporter
+      .getFinishedSpans()
+      .find(
+        (span) => span.name === SPAN_NAME.OUTBOX_SEND && span.spanContext().traceId === traceId
+      );
+    expect(sendSpan).toBeDefined();
+    expect(sendSpan?.parentSpanContext).toBeUndefined();
+  });
+
   it('with tracing off a row is sent with a null traceparent', async () => {
     const queue = new FakeMessageQueue();
     const service = serviceWith(queue);

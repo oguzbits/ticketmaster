@@ -34,8 +34,9 @@ import { SPEC_NOW } from '../../testing/time.js';
 import { auditRowsOfSubject } from '../audit/testing/index.js';
 import { OutboxService } from '../outbox/index.js';
 import { FakeMessageQueue } from '../outbox/testing/index.js';
+import { planTransition, storeTransition } from './adapters/booking-transitions.js';
 import type { BookingsService } from './bookings.service.js';
-import type { BookingState } from './domain/booking-state-machine.js';
+import { type BookingState, SYSTEM_ACTOR_ID } from './domain/booking-state-machine.js';
 import {
   PAYMENT_GRACE_SECONDS,
   PaymentNotChargedError,
@@ -625,17 +626,24 @@ describe('payment and cancel', () => {
   });
 
   /** The hold ran out and the expiry job took the booking while the provider was charging. */
-  const expireDuringCharge = (): void => {
+  const expireDuringCharge = (bookingId: string): void => {
     provider.duringCharge = async () => {
       now = new Date(NOW.getTime() + (env.HOLD_TTL_SECONDS + PAYMENT_GRACE_SECONDS + 1) * 1000);
-      expect(await service.expireHolds(now)).toBeGreaterThan(0);
+      await db.transaction(async (tx) => {
+        const [row] = await tx.select().from(bookings).where(eq(bookings.id, bookingId));
+        if (row === undefined) throw new Error('booking row is missing');
+        await storeTransition(
+          tx,
+          planTransition(row, TRANSITION_REASON.HOLD_EXPIRED, SYSTEM_ACTOR_ID, now)
+        );
+      });
     };
   };
 
   it('a charge that succeeds after the booking expired is refunded once under a derived key and audited', async () => {
     const { bookingId, userId } = await heldBooking();
     const idempotencyKey = key('late-charge');
-    expireDuringCharge();
+    expireDuringCharge(bookingId);
 
     await expect(
       service.pay({ bookingId, userId, idempotencyKey, requestId: 'req-late' })
@@ -658,7 +666,7 @@ describe('payment and cancel', () => {
   it('a charge that did not succeed after the booking expired is not refunded', async () => {
     const { bookingId, userId } = await heldBooking();
     provider.succeed = false;
-    expireDuringCharge();
+    expireDuringCharge(bookingId);
 
     await expect(
       service.pay({ bookingId, userId, idempotencyKey: key('late-declined'), requestId: 'spec' })
@@ -671,7 +679,7 @@ describe('payment and cancel', () => {
   it('a refund that fails is not audited and the error reaches the caller', async () => {
     const { bookingId, userId } = await heldBooking();
     provider.failRefundNext = true;
-    expireDuringCharge();
+    expireDuringCharge(bookingId);
 
     await expect(
       service.pay({

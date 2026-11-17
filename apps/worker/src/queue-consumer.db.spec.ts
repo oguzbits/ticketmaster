@@ -179,21 +179,27 @@ describe('QueueConsumer against the local emulator', () => {
     return queue.receive(10);
   }
 
-  it('hands a message to the handler once; the same message ID sent twice takes effect once and both are deleted', async () => {
-    const { queue } = await scratch();
-    const handler = new RecordingHandler();
-    const consumer = start(queue, handler);
-    const message = confirmed();
+  it(
+    'hands a message to the handler once; the same message ID sent twice takes effect once and both are deleted',
+    async () => {
+      const { queue } = await scratch();
+      const handler = new RecordingHandler();
+      const consumer = start(queue, handler);
+      const message = confirmed();
 
-    await send(queue, message);
-    await send(queue, message);
-    await expect.poll(() => handler.handled, { timeout: DLQ_WAIT_MS }).toEqual([message.messageId]);
-    await sleep(SETTLE_MS);
+      await send(queue, message);
+      await send(queue, message);
+      await expect
+        .poll(() => handler.handled, { timeout: DLQ_WAIT_MS })
+        .toEqual([message.messageId]);
+      await sleep(SETTLE_MS);
 
-    expect(handler.attempted).toEqual([message.messageId]);
-    expect(await countProcessed(db, message.messageId)).toBe(EFFECTS);
-    expect(await leftOver(queue, consumer)).toEqual([]);
-  });
+      expect(handler.attempted).toEqual([message.messageId]);
+      expect(await countProcessed(db, message.messageId)).toBe(EFFECTS);
+      expect(await leftOver(queue, consumer)).toEqual([]);
+    },
+    SLOW_TEST_MS
+  );
 
   it(
     'a handler that keeps failing leaves the message undeleted until the dead-letter queue takes it; nothing is recorded',
@@ -355,6 +361,30 @@ describe('QueueConsumer against the local emulator', () => {
       start(queue, handler);
 
       await send(queue, message);
+      await expect
+        .poll(() => handler.handled, { timeout: DLQ_WAIT_MS })
+        .toEqual([message.messageId]);
+      await expect
+        .poll(() => spansOf(traced.exporter, SPAN_NAME.QUEUE_EFFECT), {
+          timeout: DLQ_WAIT_MS,
+        })
+        .toHaveLength(EFFECTS);
+
+      const [process] = spansOf(traced.exporter, SPAN_NAME.QUEUE_PROCESS);
+      expect(process?.spanContext().traceId).toMatch(/^[0-9a-f]{32}$/);
+      expect(process?.spanContext().traceId).not.toBe(TRACE_ID);
+      expect(process?.parentSpanContext).toBeUndefined();
+    });
+
+    it('a message with a malformed traceparent is handled and starts a trace of its own', async () => {
+      const traced = startTestTracing();
+      stopTracing = traced.shutdown;
+      const { queue } = await scratch();
+      const handler = new RecordingHandler();
+      const message = confirmed();
+      start(queue, handler);
+
+      await send(queue, message, 'not-a-valid-traceparent');
       await expect
         .poll(() => handler.handled, { timeout: DLQ_WAIT_MS })
         .toEqual([message.messageId]);

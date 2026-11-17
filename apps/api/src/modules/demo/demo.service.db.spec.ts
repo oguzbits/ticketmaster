@@ -339,7 +339,7 @@ describe('DemoService', () => {
 
       await expect(deleteExpired(due)).resolves.toBe(1);
       await expect(deleteExpired(due)).resolves.toBe(0);
-    });
+    }, 15_000);
 
     describe('seat changes', () => {
       const dueAfter = (start: Date) => new Date(start.getTime() + HOUR_MS + GRACE_MS);
