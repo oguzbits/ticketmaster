@@ -97,7 +97,7 @@ services:
     # The entrypoint starts as root and drops to uid 1001 with chroot --userspec.
     cap_add: [SYS_CHROOT, SETUID, SETGID, CHOWN, FOWNER, DAC_OVERRIDE]
     tmpfs: [/tmp, '/app/data:uid=1001,gid=0']
-    image: floci/floci:2.4.0@sha256:5ee85db604c4aa74ac76e07ea5cc83086f37bb472bf3dbb97e34019e48efae9c
+    image: floci/floci:2.5.0@sha256:a0fbf944d7f338cc0856f1ef83831ea749ff2be71956eb7a7fce08fc21458e19
     environment:
       FLOCI_HOSTNAME: aws
     ports:
